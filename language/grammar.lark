@@ -1,0 +1,58 @@
+?start: program
+
+program: (statement)*
+
+statement: import_statement | workflow_definition
+import_statement: "import" IMPORT_PACKAGE IMPORT_ALIAS
+
+workflow_definition: WORKFLOW_NAME scope
+scope: "{" scope_statement* scope_return? "}"
+scope_statement: let_statement | pipeline_statement | anonymous_scope
+anonymous_scope: scope
+scope_return: VARIABLE_NAME | value | pipeline_statement
+
+let_statement: "let" VARIABLE_NAME "=" let_expression
+let_expression: value | pipeline_statement
+
+pipeline_statement: (variable_access | value | VARIABLE_NAME)? ("|" (pipeline_function_handler | prql) )+ "?" pipeline_error_handler?
+pipeline_error_handler: ARGUMENT_NAME "->" pipeline_error_body
+pipeline_error_body: scope
+pipeline_function_handler: IMPORT_ALIAS "." FUNCTION_NAME
+
+variable_access: WORKFLOW_NAME "." VARIABLE_NAME
+
+prql: "(" PRQL_DEFINITION ")"
+
+value: dict
+        | list
+        | ESCAPED_STRING
+        | SIGNED_NUMBER
+        | TRUE
+        | FALSE
+        | NULL
+list: "[" [value ("," value ","?)*] "]"
+dict: "{" [pair ("," pair ","?)*] "}"
+pair: IDENTIFIER ":" value
+
+
+TRUE: "true"
+FALSE: "false"
+NULL: "null"
+WORKFLOW_NAME: IDENTIFIER
+VARIABLE_NAME: IDENTIFIER
+ARGUMENT_NAME: IDENTIFIER
+FUNCTION_NAME: IDENTIFIER
+PRQL_DEFINITION: /[^)]+/
+IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
+IMPORT_PACKAGE: ESCAPED_STRING
+IMPORT_ALIAS: /[a-zA-Z_][a-zA-Z0-9_]*/
+COMMENT: /\/\/[^\n]*/
+
+%import common.ESCAPED_STRING
+%import common.SIGNED_NUMBER
+%import common.WS -> WHITE_SPACE
+%import common.NEWLINE
+
+%ignore WHITE_SPACE
+%ignore NEWLINE
+%ignore COMMENT

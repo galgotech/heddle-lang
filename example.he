@@ -1,0 +1,75 @@
+import "galgotech/math" math
+import "galgotech/security" security
+import "galgotech/data" data
+import "galgotech/err" err
+import "galgotech/input" input
+import "galgotech/http" http
+import "galgotech/logger" logger
+
+scope_1 {}
+
+scope_2 {
+    let variable_string = "123"
+    let variable_number = 123
+    let variable_float = 123.123
+    let variable_true = true
+    let variable_false = false
+    let variable_null = null
+    let variable_array = [1, 2, 3]
+    let variable_array_comma = [1, 2, 3,]
+    let variable_dict = { t: "teste" }
+    let variable_dict = {
+        test_string: "teste",
+        test_number: 123,
+        test_float: 123.123,
+        test_true: true,
+        test_false: false,
+        test_null: null,
+        test_array: [1, 2, { t: "t"}],
+        test_dict: {},
+    }
+
+    {
+        let variable_scope = "123"
+    }
+
+    {
+        let test_string = "test" | security.hash ?
+        let test_string2 = "test" 
+            | security.hash
+            | security.hash
+            ? {
+                "error"
+            }
+
+        let test_string3 = "test" 
+            | security.hash
+            | security.hash
+            ? e -> {
+               e | logger.error ?
+            }
+
+        test_string
+    }
+}
+
+scope_3 {
+    "teste" | security.hash ?
+}
+
+scope_4 {
+    scope_2.variable_scope | security.hash ?
+ 
+    | security.anony ?
+ 
+    let test = | security.hash ?
+}
+
+scope_prql {
+    scope_2.variable_scope 
+        | (
+            from teste
+            filter teste == teste
+         )
+        | security.hash ?
+}
