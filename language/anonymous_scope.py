@@ -22,10 +22,14 @@ class AnonymousScope(Interpreter):
         self.__memory.exit_scope()
 
     def let_statement(self, tree):
-        LetStatement(self.__memory, self.__modules).visit(tree)
+        interpreter = LetStatement(self.__memory, self.__modules)
+        interpreter.visit(tree)
+        self.__result = interpreter.result
 
-    def pipeline_statement(self, tree): 
-        PipeLineStatement(self.__memory, self.__modules).visit(tree)
+    def pipeline_statement(self, tree):
+        interpreter = PipeLineStatement(self.__memory, self.__modules)
+        interpreter.visit(tree)
+        self.__result = interpreter.result
 
     def anonymous_scope(self, tree):
         scope = AnonymousScope(self.__memory, self.__modules)
