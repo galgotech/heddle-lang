@@ -17,6 +17,10 @@ class LetStatement(Interpreter):
         self.__name = None
         self.__value = None
 
+    @property
+    def result(self):
+        return self.__value
+
     def visit(self, tree):
         assert len(tree.children) == 2
         assert tree.children[0].type == "VARIABLE_NAME"

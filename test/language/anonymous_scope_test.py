@@ -92,3 +92,28 @@ class TestAnonymousScope(unittest.TestCase):
         self.assertEqual(scope.result, 123)
         self.assertTrue(self.memory.has('outer_var'))
         self.assertFalse(self.memory.has('inner_var'))
+
+    def test_scope_returns_pipeline_result(self):
+        tree = parse('my_workflow { { "hello" | mod.upper ? } }')
+        anonymous_scope_node = next(tree.find_data("anonymous_scope"))
+
+        # The state of the interpreter
+        modules = {'mod': {'upper': lambda x: x.upper()}}
+
+        # Execute the anonymous scope
+        scope = AnonymousScope(self.memory, modules)
+        scope.visit(anonymous_scope_node)
+
+        # Assert the result is correct
+        self.assertEqual("HELLO", scope.result)
+
+    def test_scope_returns_let_statement_result(self):
+        tree = parse('my_workflow { { let a = 42 } }')
+        anonymous_scope_node = next(tree.find_data("anonymous_scope"))
+
+        # Execute the anonymous scope
+        scope = AnonymousScope(self.memory, {})
+        scope.visit(anonymous_scope_node)
+
+        # Assert the result is correct
+        self.assertEqual(42, scope.result)
