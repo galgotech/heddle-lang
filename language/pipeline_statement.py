@@ -1,60 +1,69 @@
+from typing import Dict
+from lark import Token, Tree
 from lark.visitors import Interpreter
-from lark.tree import Tree
+
+from language.variable_access import VariableAccess
+from .memory import Memory
 from .value import Value
-from .variable_access import VariableAccess
 
 
-class PipeLineStatement(Interpreter):
-    def __init__(self, memory, modules):
+class PipelineStatement(Interpreter):
+    __memory: Memory
+    __modules: Dict
+    __value: any
+
+    def __init__(self, memory: Memory, modules: Dict):
         self.__memory = memory
         self.__modules = modules
-        self.__result = None
+        self.__value = None
 
     @property
     def result(self):
-        return self.__result
+        return self.__value
 
-    def visit(self, tree):
-        initial_value_provider_node = tree.children[0]
-        if isinstance(initial_value_provider_node, Tree):
-            self.visit_children(tree)
-        else:
-            self.VARIABLE_NAME(initial_value_provider_node)
+    def visit(self, tree: Tree):
+        self.__value = None
+        children = tree.children
+        first_child = children[0]
+        children_to_process = children
 
-        for function_node in tree.children[1:]:
-            self.pipeline_function_handler(function_node)
+        is_initial_value_node = False
+        if isinstance(first_child, Token) and first_child.type == 'VARIABLE_NAME':
+            is_initial_value_node = True
+        elif isinstance(first_child, Tree) and first_child.data in ('value', 'variable_access'):
+            is_initial_value_node = True
 
-    def value(self, tree):
+        if is_initial_value_node:
+            if isinstance(first_child, Token):
+                self.__value = self.__memory.get(first_child.value)
+            else:
+                self._visit_tree(first_child)
+            children_to_process = children[1:]
+
+        for child in children_to_process:
+            self._visit_tree(child)
+
+        return self.result
+
+    def value(self, tree: Tree):
         value_interpreter = Value()
         value_interpreter.visit(tree)
-        self.__result = value_interpreter.result
+        self.__value = value_interpreter.result
 
-    def variable_access(self, tree):
-        variable_access_interpreter = VariableAccess(self.__memory)
-        variable_access_interpreter.visit(tree)
-        self.__result = variable_access_interpreter.result
+    def variable_access(self, tree: Tree):
+        accessor = VariableAccess(self.__memory)
+        accessor.visit(tree)
+        self.__value = accessor.result
 
-    def VARIABLE_NAME(self, token):
-        self.__result = self.__memory.get(token.value)
-
-    def pipeline_function_handler(self, tree):
-        alias = tree.children[0].value
+    def pipeline_function_handler(self, tree: Tree):
+        module_name = tree.children[0].value
         function_name = tree.children[1].value
 
-        if alias not in self.__modules:
-            raise NameError(f"Module '{alias}' is not defined")
+        module = self.__modules[module_name]
+        function = module[function_name]
 
-        module = self.__modules[alias]
-        if function_name not in module:
-            raise NameError(f"Function '{function_name}' is not defined in module '{alias}'")
+        if self.__value is not None:
+            self.__value = function(self.__value)
 
-        func = module[function_name]
-        self.__result = func(self.__result)
-
-    def prql(self, tree):
-        # Placeholder for prql handling
-        pass
-
-    def pipeline_error_handler(self, tree):
-        # Placeholder for error handling
-        pass
+    def prql(self, tree: Tree):
+        self.__value = tree.children[0].value
