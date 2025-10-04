@@ -1,8 +1,9 @@
+import re
 import polars as pl
 import prql_python as prql
 from lark import Tree
 from .memory import Memory
-import re
+
 
 class Prql:
     __memory: Memory

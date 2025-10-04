@@ -5,6 +5,7 @@ from lark import Tree
 from language.variable_access import VariableAccess
 from language.memory import Memory
 
+
 class TestVariableAccess(unittest.TestCase):
     def setUp(self):
         self.memory = Memory()

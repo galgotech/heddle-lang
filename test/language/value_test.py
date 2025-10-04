@@ -104,12 +104,12 @@ scope_1 {
         value.visit(trees[0])
         self.assertEqual(value.result, {
             "key1": [123],
-            "key2": { "key1": 1.1 },
+            "key2": {"key1": 1.1},
             "key3": "test",
             "key4": "t",
             "key5": False,
             "key6": True,
-            "key7": [ None ]
+            "key7": [None]
         })
 
     def test_value_list(self):
@@ -138,4 +138,3 @@ scope_1 {
             True,
             None
         ])
-

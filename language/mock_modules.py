@@ -1,8 +1,10 @@
 import hashlib
 import polars as pl
 
+
 def hash_sha256(s):
     return hashlib.sha256(s.encode()).hexdigest()
+
 
 MOCK_MODULES = {
     "security": {
@@ -20,6 +22,7 @@ MOCK_MODULES = {
     "input": {},
     "http": {}
 }
+
 
 def get_mock_module(alias):
     return MOCK_MODULES.get(alias)

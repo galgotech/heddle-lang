@@ -5,6 +5,7 @@ from language.anonymous_scope import AnonymousScope
 from language.memory import Memory
 from language.grammar import parse
 
+
 class TestAnonymousScope(unittest.TestCase):
     def setUp(self):
         self.memory = Memory()

@@ -28,9 +28,8 @@ class LanguageInterpreter(Interpreter):
 
     def workflow_definition(self, tree):
         WorkflowDefinition(self.__memory, self.__modules).visit(tree)
-        
+
     def anonymous_scope(self, tree):
         assert len(tree.children) == 1
         for node in tree.children:
             self.visit(node)
-

@@ -1,0 +1,7 @@
+[flake8]
+# Set the maximum line length
+max-line-length = 120
+
+# Exclude specific directories from linting checks
+exclude = .git, __pycache__, .venv
+
