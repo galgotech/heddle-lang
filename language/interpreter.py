@@ -33,5 +33,3 @@ class LanguageInterpreter(Interpreter):
         for node in tree.children:
             self.visit(node)
 
-    def prql(self, tree):
-        print(tree.children[0].type, tree.children[0].value)
