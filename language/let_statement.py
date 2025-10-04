@@ -3,7 +3,8 @@ from lark.visitors import Interpreter
 
 from language.memory import Memory
 from .value import Value
-from .pipeline_statement import PipeLineStatement
+from .pipeline_statement import PipelineStatement
+
 
 class LetStatement(Interpreter):
     __modules: Dict
@@ -25,7 +26,7 @@ class LetStatement(Interpreter):
         assert len(tree.children) == 2
         assert tree.children[0].type == "VARIABLE_NAME"
         self.__name = tree.children[0].value
-    
+
         self.visit_children(tree)
 
         self.__memory.set(self.__name, self.__value)
@@ -33,12 +34,11 @@ class LetStatement(Interpreter):
     def let_expression(self, tree):
         expression_node = tree.children[0]
 
-        if expression_node.data == 'value':
+        if expression_node.data == "value":
             value_interpreter = Value()
             value_interpreter.visit(expression_node)
             self.__value = value_interpreter.result
 
-        elif expression_node.data == 'pipeline_statement':
-            pipeline_interpreter = PipeLineStatement(self.__memory, self.__modules)
-            pipeline_interpreter.visit(expression_node)
-            self.__value = pipeline_interpreter.result
+        elif expression_node.data == "pipeline_statement":
+            pipeline_interpreter = PipelineStatement(self.__memory, self.__modules)
+            self.__value = pipeline_interpreter.visit(expression_node)

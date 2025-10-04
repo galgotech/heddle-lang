@@ -1,58 +1,61 @@
+from typing import Dict
+from lark import Token, Tree
 from lark.visitors import Interpreter
-from lark.tree import Tree
 
-from .value import Value
 from .let_statement import LetStatement
-from .pipeline_statement import PipeLineStatement
+from .memory import Memory
+from .pipeline_statement import PipelineStatement
+from .value import Value
 
 
 class AnonymousScope(Interpreter):
-    def __init__(self, memory, modules):
+    __memory: Memory
+    __modules: Dict
+    __result: any
+
+    def __init__(self, memory: Memory, modules: Dict):
         self.__memory = memory
         self.__modules = modules
-        self.result = None
+        self.__result = {}
 
-    def run(self, tree):
-        # tree is an 'anonymous_scope' node. Its child is a 'scope' node.
+    @property
+    def result(self):
+        return self.__result
+
+    def run(self, tree: Tree):
         scope_node = tree.children[0]
         self.__memory.enter_scope()
-
-        # Manually visit the children of the scope node.
         for child in scope_node.children:
             self.visit(child)
-
         self.__memory.exit_scope()
         return self.result
 
-    def let_statement(self, tree):
+    def let_statement(self, tree: Tree):
         interpreter = LetStatement(self.__memory, self.__modules)
         interpreter.visit(tree)
-        self.result = interpreter.result
+        self.__result = interpreter.result
 
-    def pipeline_statement(self, tree):
-        interpreter = PipeLineStatement(self.__memory, self.__modules)
-        interpreter.visit(tree)
-        self.result = interpreter.result
+    def pipeline_statement(self, tree: Tree):
+        interpreter = PipelineStatement(self.__memory, self.__modules)
+        self.__result = interpreter.visit(tree)
 
-    def anonymous_scope(self, tree): # for nested scopes
+    def anonymous_scope(self, tree: Tree):
         interpreter = AnonymousScope(self.__memory, self.__modules)
-        self.result = interpreter.run(tree)
+        self.__result = interpreter.run(tree)
 
-    def scope_statement(self, tree):
-        # A scope_statement is a wrapper. Visit its child.
+    def scope_statement(self, tree: Tree):
         self.visit(tree.children[0])
 
-    def scope_return(self, tree):
+    def scope_return(self, tree: Tree):
         return_node = tree.children[0]
-        if isinstance(return_node, Tree):
-            if return_node.data == 'value':
-                value_interpreter = Value()
-                value_interpreter.visit(return_node)
-                self.result = value_interpreter.result
-            elif return_node.data == 'pipeline_statement':
-                pipeline_interpreter = PipeLineStatement(self.__memory, self.__modules)
-                pipeline_interpreter.visit(return_node)
-                self.result = pipeline_interpreter.result
-        else:
-            if return_node.type == 'VARIABLE_NAME':
-                self.result = self.__memory.get(return_node.value)
+
+        if isinstance(return_node, Token) and return_node.type == "VARIABLE_NAME":
+            self.__result = self.__memory.get(return_node.value)
+        elif return_node.data == "value":
+            value_interpreter = Value()
+            value_interpreter.visit(return_node)
+            self.__result = value_interpreter.result
+        elif return_node.data == "pipeline_statement":
+            self.__result = PipelineStatement(
+                self.__memory, self.__modules
+            ).visit(return_node)

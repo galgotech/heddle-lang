@@ -1,7 +1,12 @@
 from lark.visitors import Interpreter
+from .memory import Memory
+
 
 class VariableAccess(Interpreter):
-    def __init__(self, memory):
+    __memory: Memory
+    __result: any
+
+    def __init__(self, memory: Memory):
         self.__memory = memory
         self.__result = None
 
@@ -9,20 +14,21 @@ class VariableAccess(Interpreter):
     def result(self):
         return self.__result
 
-    def visit(self, tree):
+    def variable_access(self, tree):
         workflow_name = tree.children[0].value
         variable_name = tree.children[1].value
 
         try:
             workflow_scope = self.__memory.get(workflow_name)
         except NameError:
-            raise NameError(f"Workflow '{workflow_name}' is not defined") from None
-
-        workflow_scope = self.__memory.get(workflow_name)
-        if workflow_scope is None:
             raise NameError(f"Workflow '{workflow_name}' is not defined")
 
-        if variable_name not in workflow_scope:
-            raise NameError(f"Variable '{variable_name}' is not defined in workflow '{workflow_name}'")
+        if not isinstance(workflow_scope, dict):
+            raise TypeError(f"Workflow '{workflow_name}' is not a valid scope.")
 
-        self.__result = workflow_scope[variable_name]
+        try:
+            self.__result = workflow_scope[variable_name]
+        except KeyError:
+            raise NameError(
+                f"Variable '{variable_name}' is not defined in workflow '{workflow_name}'"
+            )
