@@ -44,17 +44,20 @@ class AnonymousScope(Interpreter):
         self.__result = interpreter.run(tree)
 
     def scope_statement(self, tree: Tree):
-        self.visit(tree.children[0])
+        for child in tree.children:
+            self.visit(child)
 
     def scope_return(self, tree: Tree):
         return_node = tree.children[0]
 
         if isinstance(return_node, Token) and return_node.type == "VARIABLE_NAME":
             self.__result = self.__memory.get(return_node.value)
+
         elif return_node.data == "value":
             value_interpreter = Value()
             value_interpreter.visit(return_node)
             self.__result = value_interpreter.result
+
         elif return_node.data == "pipeline_statement":
             self.__result = PipelineStatement(
                 self.__memory, self.__modules

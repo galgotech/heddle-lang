@@ -6,8 +6,8 @@ statement: import_statement | workflow_definition
 import_statement: "import" IMPORT_PACKAGE IMPORT_ALIAS
 
 workflow_definition: WORKFLOW_NAME scope
-scope: "{" (scope_statement+ scope_return? | scope_return) "}"
-scope_statement: let_statement | pipeline_statement | anonymous_scope
+scope: "{" scope_statement? scope_return? "}"
+scope_statement: (let_statement | pipeline_statement | anonymous_scope)*
 anonymous_scope: scope
 scope_return: VARIABLE_NAME | value | pipeline_statement
 
