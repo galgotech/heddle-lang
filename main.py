@@ -4,11 +4,7 @@ from lark import Lark
 from language import LanguageInterpreter
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        file_path = sys.argv[1]
-    else:
-        file_path = "example.he"
-
+    file_path = sys.argv[1]
     with open("language/grammar.lark", "r") as f:
         grammar = f.read()
     with open(file_path, "r") as f:
