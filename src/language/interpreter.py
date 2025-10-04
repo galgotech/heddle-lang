@@ -2,7 +2,7 @@ from typing import Dict
 from lark.visitors import Interpreter
 from .workflow_definition import WorkflowDefinition
 from .memory import Memory
-from .mock_modules import get_mock_module
+from ..modules import load_module
 
 
 class LanguageInterpreter(Interpreter):
@@ -19,12 +19,9 @@ class LanguageInterpreter(Interpreter):
         return self.__memory
 
     def import_statement(self, tree):
-        assert len(tree.children) == 2
-        assert tree.children[0].type == "IMPORT_PACKAGE"
-        assert tree.children[1].type == "IMPORT_ALIAS"
         package_name = tree.children[0].value.strip('"')
         alias = tree.children[1].value
-        self.__modules[alias] = get_mock_module(package_name)
+        self.__modules[alias] = load_module(package_name)
 
     def workflow_definition(self, tree):
         WorkflowDefinition(self.__memory, self.__modules).visit(tree)

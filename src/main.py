@@ -1,12 +1,13 @@
 import sys
 from lark import Lark
 
-from language import LanguageInterpreter
+from language.interpreter import LanguageInterpreter
 
 if __name__ == '__main__':
     file_path = sys.argv[1]
-    with open("language/grammar.lark", "r") as f:
+    with open("src/language/grammar.lark", "r") as f:
         grammar = f.read()
+
     with open(file_path, "r") as f:
         code = f.read()
 
@@ -15,4 +16,3 @@ if __name__ == '__main__':
 
     interpreter = LanguageInterpreter()
     interpreter.visit(ast)
-    print(interpreter.memory.current_scope)
