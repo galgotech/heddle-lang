@@ -22,8 +22,9 @@ class LanguageInterpreter(Interpreter):
         assert len(tree.children) == 2
         assert tree.children[0].type == "IMPORT_PACKAGE"
         assert tree.children[1].type == "IMPORT_ALIAS"
+        package_name = tree.children[0].value.strip('"')
         alias = tree.children[1].value
-        self.__modules[alias] = get_mock_module(alias)
+        self.__modules[alias] = get_mock_module(package_name)
 
     def workflow_definition(self, tree):
         WorkflowDefinition(self.__memory, self.__modules).visit(tree)

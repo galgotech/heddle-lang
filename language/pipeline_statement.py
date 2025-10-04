@@ -4,6 +4,7 @@ from lark.visitors import Interpreter
 
 from language.variable_access import VariableAccess
 from .memory import Memory
+from .prql import Prql
 from .value import Value
 
 
@@ -66,4 +67,6 @@ class PipelineStatement(Interpreter):
             self.__value = function(self.__value)
 
     def prql(self, tree: Tree):
-        self.__value = tree.children[0].value
+        prql_interpreter = Prql(self.__memory, self.__value)
+        prql_interpreter.visit(tree)
+        self.__value = prql_interpreter.to_polars()

@@ -1,4 +1,5 @@
 import hashlib
+import polars as pl
 
 def hash_sha256(s):
     return hashlib.sha256(s.encode()).hexdigest()
@@ -10,6 +11,9 @@ MOCK_MODULES = {
     },
     "math": {
         "add": lambda x, y: x + y
+    },
+    "polars": {
+        "from_records": lambda x: pl.from_records(x)
     },
     "data": {},
     "err": {},

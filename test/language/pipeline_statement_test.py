@@ -1,5 +1,5 @@
 import unittest
-
+import polars as pl
 from language.pipeline_statement import PipelineStatement
 from language.memory import Memory
 from language.grammar import parse
@@ -71,12 +71,22 @@ class TestPipelineStatement(unittest.TestCase):
 
         # The state of the interpreter
         mem = Memory()
+        employees_df = pl.DataFrame({
+            "name": ["Alice", "Bob", "Charlie"],
+            "age": [25, 30, 35],
+            "department": ["HR", "Engineering", "Sales"]
+        })
+        mem.set("employees", employees_df)
         modules = {}
 
         interpreter = PipelineStatement(mem, modules)
 
         # Execute the pipeline statement
-        result = interpreter.visit(pipeline_statement_node)
+        result_df = interpreter.visit(pipeline_statement_node)
 
         # Assert the result is correct
-        self.assertEqual(prql_query, result)
+        expected_df = pl.DataFrame({
+            "name": ["Alice", "Bob", "Charlie"],
+            "age": [25, 30, 35]
+        })
+        self.assertTrue(result_df.equals(expected_df))

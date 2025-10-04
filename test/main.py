@@ -4,6 +4,7 @@ from test.language.value_test import TestValue
 from test.language.let_statement_test import TestLetStatement
 from test.language.variable_access_test import TestVariableAccess
 from test.language.anonymous_scope_test import TestAnonymousScope
+from test.language.prql_test import TestPrql
 
 
 def create_suite():
@@ -13,6 +14,7 @@ def create_suite():
     suite.addTest(loader.loadTestsFromTestCase(TestLetStatement))
     suite.addTest(loader.loadTestsFromTestCase(TestVariableAccess))
     suite.addTest(loader.loadTestsFromTestCase(TestAnonymousScope))
+    suite.addTest(loader.loadTestsFromTestCase(TestPrql))
 
     return suite
 
