@@ -1,11 +1,12 @@
 import logging
-from typing import Dict, List
+from typing import Dict
+import polars as pl
 from lark import Token
 from lark.visitors import Interpreter
 
 from .memory import Memory
 from .variable_access import VariableAccess
-from .value import Value
+from .value import ValueDataFrame
 from .pipeline_statement import PipelineStatement
 
 
@@ -14,17 +15,17 @@ class LetStatement(Interpreter):
     __modules: Dict
     __memory: Memory
     __name: str
-    __value: List | Dict | str | int | float | bool | None
+    __value: pl.DataFrame
 
     def __init__(self, deep: int, memory, modules):
         self.__deep = deep
         self.__memory = memory
         self.__modules = modules
         self.__name = ""
-        self.__value = None
+        self.__value = pl.DataFrame()
 
     @property
-    def result(self):
+    def result(self) -> pl.DataFrame:
         return self.__value
 
     def visit(self, tree):
@@ -45,8 +46,8 @@ class LetStatement(Interpreter):
     def let_expression(self, tree):
         expression_node = tree.children[0]
 
-        if expression_node.data == "value":
-            value_interpreter = Value(self.__deep + 1)
+        if expression_node.data == "dataframe":
+            value_interpreter = ValueDataFrame(self.__deep + 1)
             value_interpreter.visit(expression_node)
             self.__value = value_interpreter.result
 

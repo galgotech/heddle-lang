@@ -1,25 +1,26 @@
 import logging
-from typing import Dict, List
+from typing import Dict
 from lark import Token, Tree
 from lark.visitors import Interpreter
+import polars as pl
 
 from language.variable_access import VariableAccess
 from .memory import Memory
 from .prql import Prql
-from .value import Value
+from .value import ValueDataFrame
 
 
 class PipelineStatement(Interpreter):
     __deep: int
     __memory: Memory
     __modules: Dict
-    __result: Dict | List | str | int | float | bool | None
+    __result: pl.DataFrame
 
     def __init__(self, deep: int, memory: Memory, modules: Dict):
         self.__deep = deep
         self.__memory = memory
         self.__modules = modules
-        self.__result = None
+        self.__result = pl.DataFrame()
 
         logging.debug("pipeline_statement", extra={
             "indent": self.__deep,
@@ -34,10 +35,10 @@ class PipelineStatement(Interpreter):
         accessor.visit(tree)
         self.__result = accessor.result
 
-    def value(self, tree: Tree):
-        value_interpreter = Value(self.__deep + 1)
-        value_interpreter.visit(tree)
-        self.__result = value_interpreter.result
+    def dataframe(self, tree: Tree):
+        dataframe_interpreter = ValueDataFrame(self.__deep + 1)
+        dataframe_interpreter.visit(tree)
+        self.__result = dataframe_interpreter.result
 
     def pipeline_function_handler(self, tree: Tree):
         if not isinstance(tree.children[0], Token):

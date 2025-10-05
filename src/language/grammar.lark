@@ -1,4 +1,4 @@
-?start: program
+start: program
 
 program: (statement)*
 
@@ -6,13 +6,13 @@ statement: import_statement | workflow_definition
 import_statement: "import" IMPORT_PACKAGE IMPORT_ALIAS
 
 workflow_definition: WORKFLOW_NAME scope
-scope: "{" (let_statement | pipeline_statement)* scope_return? "}"
-scope_return: VARIABLE_NAME | value | pipeline_statement
+scope: "{" (let_statement)* scope_return? "}"
+scope_return: VARIABLE_NAME | dataframe
 
 let_statement: "let" VARIABLE_NAME "=" let_expression
-let_expression: value | pipeline_statement | variable_access
+let_expression: dataframe | pipeline_statement | variable_access
 
-pipeline_statement: (variable_access | value | VARIABLE_NAME)? ("|" (pipeline_function_handler | prql) )+ "?" pipeline_error_handler?
+pipeline_statement: (variable_access | dataframe | VARIABLE_NAME)? ("|" (pipeline_function_handler | prql) )+ "?" pipeline_error_handler?
 pipeline_error_handler: ARGUMENT_NAME "->" pipeline_error_body
 pipeline_error_body: scope
 pipeline_function_handler: IMPORT_ALIAS "." FUNCTION_NAME
@@ -21,17 +21,15 @@ variable_access: WORKFLOW_NAME "." VARIABLE_NAME
 
 prql: "(" PRQL_DEFINITION ")"
 
-value: dict
-        | list
-        | ESCAPED_STRING
+
+dataframe: "[" [dict ("," dict ","?)*] "]"
+dict: "{" [pair ("," pair ","?)*] "}"
+pair: IDENTIFIER ":" primitive
+primitive: ESCAPED_STRING
         | SIGNED_NUMBER
         | TRUE
         | FALSE
-        | NULL
-list: "[" [value ("," value ","?)*] "]"
-dict: "{" [pair ("," pair ","?)*] "}"
-pair: IDENTIFIER ":" value
-
+        | NULL 
 
 TRUE: "true"
 FALSE: "false"

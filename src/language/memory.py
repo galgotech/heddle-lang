@@ -1,4 +1,5 @@
-from typing import Dict, List
+from typing import Dict
+import polars as pl
 
 
 class ImmutableVariable(Exception):
@@ -7,13 +8,13 @@ class ImmutableVariable(Exception):
 
 class Memory:
     __current_scope: str | None
-    __state: Dict[str, Dict[str, Dict | List | str | int | float | bool | None]]
+    __state: Dict[str, Dict[str, pl.DataFrame]]
 
     def __init__(self):
         self.__state = {}
         self.__current_scope = None
 
-    def get(self, name: str, scope: str | None = None) -> Dict | List | str | int | float | bool | None:
+    def get(self, name: str, scope: str | None = None) -> pl.DataFrame:
         _scope = scope if scope is not None else self.__current_scope
         if _scope is None:
             raise Exception("no current scope")
@@ -26,7 +27,7 @@ class Memory:
         except KeyError:
             return False
 
-    def set(self, name: str, value: Dict | List | str | int | float | bool | None):
+    def set(self, name: str, value: pl.DataFrame):
         if self.__current_scope is None:
             raise Exception("no current scope")
         try:

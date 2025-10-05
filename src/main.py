@@ -1,7 +1,6 @@
 import logging
 import sys
 from lark import Lark
-
 from language.interpreter import LanguageInterpreter
 
 

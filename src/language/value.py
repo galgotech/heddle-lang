@@ -1,112 +1,109 @@
-import logging
 import json
+import logging
 from typing import Dict, List
+from lark import Token
+import polars as pl
 
 from lark.visitors import Interpreter
-from lark.tree import Tree
 
 
-class Value(Interpreter):
-    __deep: int
-    __result: List | Dict | str | int | float | bool | None
+class ValueDataFrame(Interpreter):
+    __dataframe: pl.DataFrame
 
     def __init__(self, deep: int):
         self.__deep = deep
-        self.__result = None
-
-    @property
-    def result(self) -> List | Dict | str | int | float | bool | None:
-        return self.__result
-
-    def value(self, tree):
-        child = tree.children[0]
-        if isinstance(child, Tree):
-            logging.debug("value", extra={
-                "indent": self.__deep,
-            })
-            self.visit(child)
-        else:
-            token_type = child.type
-            if token_type == 'ESCAPED_STRING':
-                self.__result = json.loads(child.value)
-            elif token_type == 'SIGNED_NUMBER':
-                self.__result = json.loads(child.value)
-            elif token_type == 'TRUE':
-                self.__result = True
-            elif token_type == 'FALSE':
-                self.__result = False
-            elif token_type == 'NULL':
-                self.__result = None
-
-            logging.debug("value: %s", self.__result, extra={
-                "indent": self.__deep,
-            })
-
-    def list(self, tree):
-        list_interpreter = ValueList(self.__deep + 1)
-        list_interpreter.visit_children(tree)
-        self.__result = list_interpreter.list
-
-    def dict(self, tree):
-        dict_interpreter = ValueDict(self.__deep + 1)
-        dict_interpreter.visit_children(tree)
-        self.__result = dict_interpreter.dict
-
-
-class ValueList(Interpreter):
-    __list: List
-
-    def __init__(self, deep: int):
-        self.__deep = deep
-        self.__list = []
+        self.__dataframe = pl.DataFrame()
 
         logging.debug("list", extra={
             "indent": self.__deep,
         })
 
     @property
-    def list(self) -> List:
-        return self.__list
+    def result(self) -> pl.DataFrame:
+        return self.__dataframe
 
-    def value(self, tree):
-        value_interpreter = Value(self.__deep + 1)
-        value_interpreter.visit(tree)
-        self.__list.append(value_interpreter.result)
+    def dict(self, tree):
+        dict_interpreter = ValueDict(self.__deep + 1)
+        dict_interpreter.visit_children(tree)
+
+        values = dict_interpreter.result
+        self.__dataframe = pl.DataFrame(values)
 
 
 class ValueDict(Interpreter):
     __deep: int
-    __key: str | None = None
+    __values: Dict[str, List]
+    __column: str | None
 
     def __init__(self, deep: int):
         self.__deep = deep
-        self.__dict = {}
-        self.__key = None
+        self.__values = {}
+        self.__column = None
 
         logging.debug("dict", extra={
             "indent": self.__deep,
         })
 
     @property
-    def dict(self):
-        return self.__dict
+    def result(self):
+        return self.__values
 
     def visit(self, tree):
-        logging.debug("visit", extra={
+        logging.debug("ValueDict", extra={
             "indent": self.__deep,
         })
         super().visit(tree)
 
     def pair(self, tree):
-        self.__key = tree.children[0].value
-        logging.debug("pair: %s", {"key": self.__key}, extra={
+        self.__column = tree.children[0].value
+        if self.__column is None:
+            raise Exception("invalid pair")
+
+        self.__values[self.__column] = []
+        logging.debug("pair: %s", {"column": self.__column}, extra={
             "indent": self.__deep,
         })
         self.visit_children(tree)
 
-    def value(self, tree):
-        value_interpreter = Value(self.__deep + 1)
-        value_interpreter.visit(tree)
+    def primitive(self, tree):
+        primitive_interpreter = ValuePrimitive(self.__deep + 1)
+        primitive_interpreter.visit(tree)
 
-        self.__dict[self.__key] = value_interpreter.result
-        self.__key = None
+        if self.__column is None:
+            raise Exception("invalid column name")
+
+        self.__values[self.__column].append(primitive_interpreter.result)
+        self.__column = None
+
+
+class ValuePrimitive(Interpreter):
+    __value: int | float | str | bool | None
+
+    def __init__(self, deep: int):
+        self.__deep = deep
+        self.__value = None
+
+        logging.debug("list", extra={
+            "indent": self.__deep,
+        })
+
+    @property
+    def result(self) -> int | float | str | bool | None:
+        return self.__value
+
+    def visit(self, tree):
+        child = tree.children[0]
+        if not isinstance(child, Token):
+            raise Exception("invalid primitive")
+
+        token_type = child.type
+        if token_type == 'ESCAPED_STRING':
+            self.__value = json.loads(child.value)
+        elif token_type == 'SIGNED_NUMBER':
+            self.__value = json.loads(child.value)
+        elif token_type == 'TRUE':
+            self.__value = True
+        elif token_type == 'FALSE':
+            self.__value = False
+        elif token_type == 'NULL':
+            self.__value = None

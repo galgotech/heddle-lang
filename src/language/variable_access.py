@@ -1,18 +1,18 @@
 import logging
-from typing import Dict, List
 from lark.visitors import Interpreter
+import polars as pl
 from .memory import Memory
 
 
 class VariableAccess(Interpreter):
     __deep: int
     __memory: Memory
-    __result: Dict | List | str | int | float | bool | None
+    __result: pl.DataFrame
 
     def __init__(self, deep: int, memory: Memory):
         self.__deep = deep
         self.__memory = memory
-        self.__result = None
+        self.__result = pl.DataFrame()
 
     @property
     def result(self):

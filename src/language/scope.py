@@ -6,7 +6,7 @@ from lark.visitors import Interpreter
 from .let_statement import LetStatement
 from .memory import Memory
 from .pipeline_statement import PipelineStatement
-from .value import Value
+from .value import ValueDataFrame
 
 
 class Scope(Interpreter):
@@ -65,7 +65,7 @@ class Scope(Interpreter):
             self.__result = self.__memory.get(return_node.value)
 
         elif return_node.data == "value":
-            value_interpreter = Value(self.__deep + 1)
+            value_interpreter = ValueDataFrame(self.__deep + 1)
             value_interpreter.visit(return_node)
             self.__result = value_interpreter.result
 

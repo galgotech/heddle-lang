@@ -1,26 +1,18 @@
 scope_1 {
-    let variable_string = "123"
-    let variable_number = 123
-    let variable_float = 123.123
-    let variable_true = true
-    let variable_false = false
-    let variable_null = null
-    let variable_array = [1, 2, 3]
-    let variable_array_comma = [1, 2, 3,]
-    let variable_dict = {
+    let variable_dict = [{
         test_string: "teste",
         test_number: 123,
         test_float: 123.123,
         test_true: true,
         test_false: false,
         test_null: null,
-        test_array: [1, 2, { t: "t"}],
-        test_dict: {},
-    }
-    let variable_dict2 = { t: "teste" }
+    }]
+    let variable_dict2 = [{ t: "teste" }]
+    let variable_dict3 = [{ t: "teste" }]
 }
 
 scope_2 {
-    let variable_string = scope_1.variable_dict
-    
+    let variable_string = scope_1.variable_dict | (
+        select test_string
+    ) ?   
 }
