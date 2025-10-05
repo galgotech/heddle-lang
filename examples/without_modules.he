@@ -7,7 +7,6 @@ scope_1 {
     let variable_null = null
     let variable_array = [1, 2, 3]
     let variable_array_comma = [1, 2, 3,]
-    let variable_dict = { t: "teste" }
     let variable_dict = {
         test_string: "teste",
         test_number: 123,
@@ -18,8 +17,10 @@ scope_1 {
         test_array: [1, 2, { t: "t"}],
         test_dict: {},
     }
+    let variable_dict2 = { t: "teste" }
+}
 
-    {
-        let variable_scope = "123"
-    }
+scope_2 {
+    let variable_string = scope_1.variable_dict
+    
 }

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from language.anonymous_scope import AnonymousScope
+from language.scope import Scope
 from language.memory import Memory
 from language.grammar import parse
 
@@ -15,7 +15,7 @@ class TestAnonymousScope(unittest.TestCase):
         tree = parse('my_workflow { { let a = 1 } }')
         anonymous_scope_node = next(tree.find_data("anonymous_scope"))
 
-        scope = AnonymousScope(self.memory, {})
+        scope = Scope(self.memory, {})
         result = scope.run(anonymous_scope_node)
 
         self.assertEqual(result, 1)
@@ -26,7 +26,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data("anonymous_scope"))
         modules = {'mod': {'up': lambda s: s.upper()}}
 
-        scope = AnonymousScope(self.memory, modules)
+        scope = Scope(self.memory, modules)
         result = scope.run(anonymous_scope_node)
 
         self.assertEqual(result, "INPUT")
@@ -35,7 +35,7 @@ class TestAnonymousScope(unittest.TestCase):
         tree = parse('test_workflow { { {} } }')
         anonymous_scope_node = next(tree.find_data('anonymous_scope'))
 
-        scope = AnonymousScope(self.memory, self.modules)
+        scope = Scope(self.memory, self.modules)
         result = scope.run(anonymous_scope_node)
 
         self.assertEqual(result, {})
@@ -46,7 +46,7 @@ class TestAnonymousScope(unittest.TestCase):
         tree = parse('test_workflow { { my_var } }')
         anonymous_scope_node = next(tree.find_data('anonymous_scope'))
 
-        scope = AnonymousScope(self.memory, self.modules)
+        scope = Scope(self.memory, self.modules)
         result = scope.run(anonymous_scope_node)
 
         self.assertEqual(result, 123)
@@ -55,7 +55,7 @@ class TestAnonymousScope(unittest.TestCase):
         tree = parse('test_workflow { { { {} } } }')
         anonymous_scope_node = next(tree.find_data('anonymous_scope'))
 
-        scope = AnonymousScope(self.memory, self.modules)
+        scope = Scope(self.memory, self.modules)
         result = scope.run(anonymous_scope_node)
 
         self.assertEqual(result, {})
@@ -66,7 +66,7 @@ class TestAnonymousScope(unittest.TestCase):
         tree = parse('my_workflow { { let inner_var = 123 } }')
         anonymous_scope_node = next(tree.find_data("anonymous_scope"))
 
-        scope = AnonymousScope(self.memory, self.modules)
+        scope = Scope(self.memory, self.modules)
         result = scope.run(anonymous_scope_node)
 
         self.assertEqual(result, 123)
@@ -81,7 +81,7 @@ class TestAnonymousScope(unittest.TestCase):
         modules = {'mod': {'upper': lambda x: x.upper()}}
 
         # Execute the anonymous scope
-        scope = AnonymousScope(self.memory, modules)
+        scope = Scope(self.memory, modules)
         result = scope.run(anonymous_scope_node)
 
         # Assert the result is correct
@@ -92,7 +92,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data("anonymous_scope"))
 
         # Execute the anonymous scope
-        scope = AnonymousScope(self.memory, {})
+        scope = Scope(self.memory, {})
         result = scope.run(anonymous_scope_node)
 
         # Assert the result is correct
