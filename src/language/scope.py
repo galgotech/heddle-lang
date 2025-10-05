@@ -43,9 +43,6 @@ class Scope(Interpreter):
         self.__result = interpreter.result
 
     def pipeline_statement(self, tree: Tree):
-        logging.debug("pipeline_statement", extra={
-            "indent": self.__deep,
-        })
         interpreter = PipelineStatement(self.__deep + 1, self.__memory, self.__modules)
         self.__result = interpreter.visit(tree)
 

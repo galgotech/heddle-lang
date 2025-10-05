@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict
+from typing import Dict, List
 from lark import Token, Tree
 from lark.visitors import Interpreter
 
@@ -13,54 +13,31 @@ class PipelineStatement(Interpreter):
     __deep: int
     __memory: Memory
     __modules: Dict
-    __value: Any
+    __result: Dict | List | str | int | float | bool | None
 
     def __init__(self, deep: int, memory: Memory, modules: Dict):
         self.__deep = deep
         self.__memory = memory
         self.__modules = modules
-        self.__value = None
+        self.__result = None
 
-    @property
-    def result(self):
-        return self.__value
-
-    def visit(self, tree: Tree):
         logging.debug("pipeline_statement", extra={
             "indent": self.__deep,
         })
-        self.__value = None
-        children = tree.children
-        first_child = children[0]
-        children_to_process = children
 
-        is_initial_value_node = False
-        if isinstance(first_child, Token) and first_child.type == 'VARIABLE_NAME':
-            is_initial_value_node = True
-        elif isinstance(first_child, Tree) and first_child.data in ('value', 'variable_access'):
-            is_initial_value_node = True
-
-        if is_initial_value_node:
-            if isinstance(first_child, Token):
-                self.__value = self.__memory.get(first_child.value)
-            else:
-                self._visit_tree(first_child)
-            children_to_process = children[1:]
-
-        for child in children_to_process:
-            self._visit_tree(child)
-
-        return self.result
-
-    def value(self, tree: Tree):
-        value_interpreter = Value(self.__deep + 1)
-        value_interpreter.visit(tree)
-        self.__value = value_interpreter.result
+    @property
+    def result(self):
+        return self.__result
 
     def variable_access(self, tree: Tree):
         accessor = VariableAccess(self.__deep + 1, self.__memory)
         accessor.visit(tree)
-        self.__value = accessor.result
+        self.__result = accessor.result
+
+    def value(self, tree: Tree):
+        value_interpreter = Value(self.__deep + 1)
+        value_interpreter.visit(tree)
+        self.__result = value_interpreter.result
 
     def pipeline_function_handler(self, tree: Tree):
         if not isinstance(tree.children[0], Token):
@@ -75,10 +52,16 @@ class PipelineStatement(Interpreter):
         module = self.__modules[module_name]
         function = module[function_name]
 
-        if self.__value is not None:
-            self.__value = function(self.__value)
+        if self.__result is not None:
+            self.__result = function(self.__result)
 
     def prql(self, tree: Tree):
-        prql_interpreter = Prql(self.__deep + 1, self.__memory, self.__value)
+        prql_interpreter = Prql(self.__deep + 1, self.__result)
         prql_interpreter.visit(tree)
-        self.__value = prql_interpreter.to_polars()
+        self.__result = prql_interpreter.result
+
+    def pipeline_error_handler(self, tree: Tree):
+        logging.debug("pipeline_error_handler", extra={
+            "indent": self.__deep,
+        })
+        print(tree)

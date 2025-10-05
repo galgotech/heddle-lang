@@ -226,22 +226,22 @@ files = [
 ]
 
 [[package]]
-name = "prql-python"
-version = "0.11.2"
-description = ""
+name = "prqlc"
+version = "0.13.4"
+description = "Python bindings for prqlc, the PRQL compiler"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "prql_python-0.11.2-cp37-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:77472d54e40920012465170d2c18e55f968ef242051411f963358aa64fe8a707"},
-    {file = "prql_python-0.11.2-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7df71fb962c6fbd65bd28555f46a1d20d3b7c5aa684989c3351822e6d10e9228"},
-    {file = "prql_python-0.11.2-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8b3d2b3a0fc88f5b5f2d84ed625ee5636ca1d2f19c4c3c5ce0efd5e7b3dc25b5"},
-    {file = "prql_python-0.11.2-cp37-abi3-win_amd64.whl", hash = "sha256:78bf105a542421251463b33e2026ffb9dca6cdf0cc8a2194734cc57558513192"},
-    {file = "prql_python-0.11.2.tar.gz", hash = "sha256:79924121c1cf4ae3b96a23753851f84ec0bf69f84524867ab17875d4657cd7e9"},
+    {file = "prqlc-0.13.4-cp37-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:e39080bf80b826c2963c55f66e78241e6675eee4b4f68a5302d689048a592946"},
+    {file = "prqlc-0.13.4-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:17d5408abf355a2765960f6a8e7b2214758911e0bbb2e9ea735cfd5236c2289f"},
+    {file = "prqlc-0.13.4-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d4a1dd3dee1efd49c47e9766f87f08b994b50171361966ce41e91a4abec8da25"},
+    {file = "prqlc-0.13.4-cp37-abi3-win_amd64.whl", hash = "sha256:c7cb17fe068df453ab2f358ecba7e7f47c62dd44bf37efe809b14d574e70c772"},
+    {file = "prqlc-0.13.4.tar.gz", hash = "sha256:6f91152a22c692d7ea471229fac981615e2b45ed97c148d17000a3b7875d8a22"},
 ]
 
 [package.extras]
-test = ["mypy (==1.8.0)", "pytest (>=7)"]
+dev = ["mypy (==1.15.0)", "pytest (>=7)"]
 
 [[package]]
 name = "pycodestyle"
@@ -270,4 +270,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "eb8dc4d40c169e2a7de1820e1075cda2290a3facbcf1d72253b2056214ef7be5"
+content-hash = "316330ed76ba714a71762603680639cec5f7354c77e1f0885a8587a48e55c219"
