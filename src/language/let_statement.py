@@ -1,21 +1,26 @@
+import logging
 from typing import Dict, List
+from lark import Token
 from lark.visitors import Interpreter
 
-from language.memory import Memory
+from .memory import Memory
+from .variable_access import VariableAccess
 from .value import Value
 from .pipeline_statement import PipelineStatement
 
 
 class LetStatement(Interpreter):
+    __deep: int
     __modules: Dict
     __memory: Memory
     __name: str
     __value: List | Dict | str | int | float | bool | None
 
-    def __init__(self, memory, modules):
+    def __init__(self, deep: int, memory, modules):
+        self.__deep = deep
         self.__memory = memory
         self.__modules = modules
-        self.__name = None
+        self.__name = ""
         self.__value = None
 
     @property
@@ -23,9 +28,15 @@ class LetStatement(Interpreter):
         return self.__value
 
     def visit(self, tree):
-        assert len(tree.children) == 2
-        assert tree.children[0].type == "VARIABLE_NAME"
-        self.__name = tree.children[0].value
+        nameChild = tree.children[0]
+        if not isinstance(nameChild, Token):
+            raise Exception("invalid let name")
+
+        self.__name = nameChild.value
+
+        logging.debug("let_statement: %s", {"name": self.__name}, extra={
+            "indent": self.__deep,
+        })
 
         self.visit_children(tree)
 
@@ -35,10 +46,23 @@ class LetStatement(Interpreter):
         expression_node = tree.children[0]
 
         if expression_node.data == "value":
-            value_interpreter = Value()
+            value_interpreter = Value(self.__deep + 1)
             value_interpreter.visit(expression_node)
             self.__value = value_interpreter.result
 
         elif expression_node.data == "pipeline_statement":
-            pipeline_interpreter = PipelineStatement(self.__memory, self.__modules)
-            self.__value = pipeline_interpreter.visit(expression_node)
+            pipeline_interpreter = PipelineStatement(self.__deep + 1, self.__memory, self.__modules)
+            pipeline_interpreter.visit(expression_node)
+            self.__value = pipeline_interpreter.result
+
+        elif expression_node.data == "variable_access":
+            variable_access = VariableAccess(self.__deep + 1, self.__memory)
+            variable_access.visit(expression_node)
+            self.__value = variable_access.result
+
+        else:
+            raise Exception("not implemented '%s'" % expression_node.data)
+
+        logging.debug("let_expression: %s", {"value": self.__value}, extra={
+            "indent": self.__deep,
+        })

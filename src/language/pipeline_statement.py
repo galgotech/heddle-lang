@@ -1,4 +1,5 @@
-from typing import Dict
+import logging
+from typing import Any, Dict
 from lark import Token, Tree
 from lark.visitors import Interpreter
 
@@ -9,11 +10,13 @@ from .value import Value
 
 
 class PipelineStatement(Interpreter):
+    __deep: int
     __memory: Memory
     __modules: Dict
-    __value: any
+    __value: Any
 
-    def __init__(self, memory: Memory, modules: Dict):
+    def __init__(self, deep: int, memory: Memory, modules: Dict):
+        self.__deep = deep
         self.__memory = memory
         self.__modules = modules
         self.__value = None
@@ -23,6 +26,9 @@ class PipelineStatement(Interpreter):
         return self.__value
 
     def visit(self, tree: Tree):
+        logging.debug("pipeline_statement", extra={
+            "indent": self.__deep,
+        })
         self.__value = None
         children = tree.children
         first_child = children[0]
@@ -47,16 +53,22 @@ class PipelineStatement(Interpreter):
         return self.result
 
     def value(self, tree: Tree):
-        value_interpreter = Value()
+        value_interpreter = Value(self.__deep + 1)
         value_interpreter.visit(tree)
         self.__value = value_interpreter.result
 
     def variable_access(self, tree: Tree):
-        accessor = VariableAccess(self.__memory)
+        accessor = VariableAccess(self.__deep + 1, self.__memory)
         accessor.visit(tree)
         self.__value = accessor.result
 
     def pipeline_function_handler(self, tree: Tree):
+        if not isinstance(tree.children[0], Token):
+            raise Exception("invalid pipeline function handler")
+
+        if not isinstance(tree.children[1], Token):
+            raise Exception("invalid pipeline function handler")
+
         module_name = tree.children[0].value
         function_name = tree.children[1].value
 
@@ -67,6 +79,6 @@ class PipelineStatement(Interpreter):
             self.__value = function(self.__value)
 
     def prql(self, tree: Tree):
-        prql_interpreter = Prql(self.__memory, self.__value)
+        prql_interpreter = Prql(self.__deep + 1, self.__memory, self.__value)
         prql_interpreter.visit(tree)
         self.__value = prql_interpreter.to_polars()

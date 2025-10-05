@@ -1,21 +1,26 @@
 import re
 import polars as pl
 import prql_python as prql
-from lark import Tree
+from lark import Token, Tree
 from .memory import Memory
 
 
 class Prql:
+    __deep: int
     __memory: Memory
     __data_frame_in: pl.DataFrame | None
     __data_frame_for_query: pl.DataFrame
     __prql_to_compile: str
 
-    def __init__(self, memory: Memory, data_frame: pl.DataFrame | None = None):
+    def __init__(self, deep: int, memory: Memory, data_frame: pl.DataFrame | None = None):
+        self.__deep = deep
         self.__memory = memory
         self.__data_frame_in = data_frame
 
     def visit(self, tree: Tree):
+        if not isinstance(tree.children[0], Token):
+            raise Exception("invalid prql")
+
         raw_query = tree.children[0].value.strip()
 
         if self.__data_frame_in is not None:

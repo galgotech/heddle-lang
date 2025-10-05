@@ -6,13 +6,11 @@ statement: import_statement | workflow_definition
 import_statement: "import" IMPORT_PACKAGE IMPORT_ALIAS
 
 workflow_definition: WORKFLOW_NAME scope
-scope: "{" scope_statement? scope_return? "}"
-scope_statement: (let_statement | pipeline_statement | anonymous_scope)*
-anonymous_scope: scope
+scope: "{" (let_statement | pipeline_statement)* scope_return? "}"
 scope_return: VARIABLE_NAME | value | pipeline_statement
 
 let_statement: "let" VARIABLE_NAME "=" let_expression
-let_expression: value | pipeline_statement
+let_expression: value | pipeline_statement | variable_access
 
 pipeline_statement: (variable_access | value | VARIABLE_NAME)? ("|" (pipeline_function_handler | prql) )+ "?" pipeline_error_handler?
 pipeline_error_handler: ARGUMENT_NAME "->" pipeline_error_body

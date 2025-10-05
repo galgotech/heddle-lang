@@ -1,12 +1,16 @@
+import logging
+from typing import Dict, List
 from lark.visitors import Interpreter
 from .memory import Memory
 
 
 class VariableAccess(Interpreter):
+    __deep: int
     __memory: Memory
-    __result: any
+    __result: Dict | List | str | int | float | bool | None
 
-    def __init__(self, memory: Memory):
+    def __init__(self, deep: int, memory: Memory):
+        self.__deep = deep
         self.__memory = memory
         self.__result = None
 
@@ -14,21 +18,15 @@ class VariableAccess(Interpreter):
     def result(self):
         return self.__result
 
-    def variable_access(self, tree):
-        workflow_name = tree.children[0].value
-        variable_name = tree.children[1].value
+    def variable_access(self, tree) -> None:
+        scope = tree.children[0].value
+        variable = tree.children[1].value
+
+        logging.debug("variable_access: %s", {"scope": scope, "variable": variable}, extra={
+            "indent": self.__deep,
+        })
 
         try:
-            workflow_scope = self.__memory.get(workflow_name)
-        except NameError:
-            raise NameError(f"Workflow '{workflow_name}' is not defined")
-
-        if not isinstance(workflow_scope, dict):
-            raise TypeError(f"Workflow '{workflow_name}' is not a valid scope.")
-
-        try:
-            self.__result = workflow_scope[variable_name]
+            self.__result = self.__memory.get(variable, scope)
         except KeyError:
-            raise NameError(
-                f"Variable '{variable_name}' is not defined in workflow '{workflow_name}'"
-            )
+            raise NameError(f"Workflow '{scope}' is not defined")
