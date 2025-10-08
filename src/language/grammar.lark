@@ -3,45 +3,58 @@ start: program
 program: (statement)*
 
 statement: import_statement | workflow_definition
-import_statement: "import" IMPORT_PACKAGE IMPORT_ALIAS
+import_statement: "import" ESCAPED_STRING IDENTIFIER
 
-workflow_definition: WORKFLOW_NAME scope
-scope: "{" (let_statement)* scope_return? "}"
-scope_return: VARIABLE_NAME | dataframe
+workflow_definition: IDENTIFIER scope
+scope: "{" (func_statement | let_statement)* scope_return? "}"
+scope_return: let_read | dataframe
 
-let_statement: "let" VARIABLE_NAME "=" let_expression
-let_expression: dataframe | pipeline_statement | variable_access
+let_statement: "let" IDENTIFIER "=" let_expression
+let_expression: dataframe | pipeline_statement | let_read
 
-pipeline_statement: (variable_access | dataframe | VARIABLE_NAME)? ("|" (pipeline_function_handler | prql) )+ "?" pipeline_error_handler?
-pipeline_error_handler: ARGUMENT_NAME "->" pipeline_error_body
+func_statement: "func" IDENTIFIER "=" import_use dict
+
+pipeline_statement: (dataframe | workflow_let_read | let_read)? (pipeline_type pipeline_function_handler)+ "?" pipeline_error_handler?
+pipeline_type: "&|" | "|"
+pipeline_error_handler: IDENTIFIER "->" pipeline_error_body
 pipeline_error_body: scope
-pipeline_function_handler: IMPORT_ALIAS "." FUNCTION_NAME
+pipeline_function_handler: import_use | func_use | prql  
 
-variable_access: WORKFLOW_NAME "." VARIABLE_NAME
+workflow_let_read: IDENTIFIER "." IDENTIFIER
+let_read: IDENTIFIER
+import_use: IDENTIFIER "." IDENTIFIER
+func_use: IDENTIFIER
+
 
 prql: "(" PRQL_DEFINITION ")"
 
 
-dataframe: "[" [dict ("," dict ","?)*] "]"
-dict: "{" [pair ("," pair ","?)*] "}"
-pair: IDENTIFIER ":" primitive
-primitive: ESCAPED_STRING
+dataframe: "[" [dataframe_dict ("," dataframe_dict ","?)*] "]"
+dataframe_dict: "{" [dataframe_pair ","? ("," dataframe_pair ","?)*] "}"
+dataframe_pair: IDENTIFIER ":" dataframe_primitive
+dataframe_primitive: ESCAPED_STRING
         | SIGNED_NUMBER
         | TRUE
         | FALSE
-        | NULL 
+        | NULL
+
+value: dict
+        | list
+        | ESCAPED_STRING
+        | SIGNED_NUMBER
+        | TRUE
+        | FALSE
+        | NULL
+        | prql
+list: "[" [value ","?("," value ","?)*] "]"
+dict: "{" [pair ","?("," pair ","?)*] "}"
+pair: IDENTIFIER ":" value
 
 TRUE: "true"
 FALSE: "false"
 NULL: "null"
-WORKFLOW_NAME: IDENTIFIER
-VARIABLE_NAME: IDENTIFIER
-ARGUMENT_NAME: IDENTIFIER
-FUNCTION_NAME: IDENTIFIER
 PRQL_DEFINITION: /[^)]+/
 IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
-IMPORT_PACKAGE: ESCAPED_STRING
-IMPORT_ALIAS: /[a-zA-Z_][a-zA-Z0-9_]*/
 COMMENT: /\/\/[^\n]*/
 
 %import common.ESCAPED_STRING

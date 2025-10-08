@@ -1,0 +1,14 @@
+import sys
+
+from lark import Lark
+
+if __name__ == '__main__':
+    file_path = sys.argv[1]
+    with open("src/language/grammar.lark", "r") as f:
+        grammar = f.read()
+
+    with open(file_path, "r") as f:
+        code = f.read()
+
+    parser = Lark(grammar, start='program', parser='earley')
+    ast = parser.parse(code)

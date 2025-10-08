@@ -1,0 +1,59 @@
+import "std" std
+import "fhub/http" http
+import "fhub/input" input
+import "fhub/identity" identity
+import "fhub/security" security
+import "fhub/database" database
+
+
+login {
+    func route_login = http.post {
+        path: "/login",
+        response: {
+            contentType: "application/json"
+        }
+    }
+
+    func validate_login = input.validate {
+        user: {
+            type: "string",
+            minLength: 1,
+        },
+        password: "string",
+    }
+
+    func login_email = identity.login {
+        login: "email",
+    }
+
+    func password_security = security.hash {
+        name: "argo2",
+        config: {
+
+        }
+    }
+
+    func user_exists = database.query {
+        query: (
+            from user
+            filter user = $user and passwrod = $password
+        )
+    }
+
+    let login = | route_login | validate_login ?
+
+    let login2 = | login_email ?
+
+    // change the reference and return all collection changed
+    let login_processed = login &| (select password) | password_security ?
+    let logged = login_processed | user_exists ?
+
+    let _ = logged | identity.response ?
+}
+
+register {
+    let data = | identity.register ?
+    let validate = data | security.hash ?
+
+    let _ = data | database.insert ?
+}
