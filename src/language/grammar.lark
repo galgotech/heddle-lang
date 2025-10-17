@@ -9,13 +9,17 @@ workflow_definition: IDENTIFIER scope
 scope: "{" (func_statement | let_statement)* scope_return? "}"
 scope_return: let_read | dataframe
 
-let_statement: "let" IDENTIFIER "=" let_expression
+let_statement: "let" (IDENTIFIER | void_expression) "=" let_expression
 let_expression: dataframe | pipeline_statement | let_read
+void_expression: "_"
 
-func_statement: "func" IDENTIFIER "=" import_use dict
+func_statement: "func" IDENTIFIER "=" import_use func_expression_config
+func_expression_config: dict
 
-pipeline_statement: (dataframe | workflow_let_read | let_read)? (pipeline_type pipeline_function_handler)+ "?" pipeline_error_handler?
-pipeline_type: "&|" | "|"
+pipeline_statement: (dataframe | workflow_let_read | let_read)? ("|" pipeline_merge_start? pipeline_function_handler pipeline_merge_end?)+ "?" pipeline_error_handler?
+pipeline_type: "|"
+pipeline_merge_start: ">"
+pipeline_merge_end: "<"
 pipeline_error_handler: IDENTIFIER "->" pipeline_error_body
 pipeline_error_body: scope
 pipeline_function_handler: import_use | func_use | prql  
@@ -24,10 +28,7 @@ workflow_let_read: IDENTIFIER "." IDENTIFIER
 let_read: IDENTIFIER
 import_use: IDENTIFIER "." IDENTIFIER
 func_use: IDENTIFIER
-
-
 prql: "(" PRQL_DEFINITION ")"
-
 
 dataframe: "[" [dataframe_dict ("," dataframe_dict ","?)*] "]"
 dataframe_dict: "{" [dataframe_pair ","? ("," dataframe_pair ","?)*] "}"

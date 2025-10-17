@@ -12,3 +12,4 @@ if __name__ == '__main__':
 
     parser = Lark(grammar, start='program', parser='earley')
     ast = parser.parse(code)
+    print(ast.pretty())
