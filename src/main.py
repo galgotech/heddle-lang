@@ -1,7 +1,8 @@
 import logging
 import sys
 from lark import Lark
-from language.interpreter import LanguageInterpreter
+from ast_interpreter.start import Start
+from runtime.local import Runtime
 
 
 class TreeFormatter(logging.Formatter):
@@ -29,7 +30,7 @@ logging.root.addHandler(handler)
 
 if __name__ == '__main__':
     file_path = sys.argv[1]
-    with open("src/language/grammar.lark", "r") as f:
+    with open("src/grammar.lark", "r") as f:
         grammar = f.read()
 
     with open(file_path, "r") as f:
@@ -38,5 +39,7 @@ if __name__ == '__main__':
     parser = Lark(grammar, start='program', parser='earley')
     ast = parser.parse(code)
 
-    interpreter = LanguageInterpreter()
+    runtime = Runtime()
+
+    interpreter = Start(runtime)
     interpreter.visit(ast)

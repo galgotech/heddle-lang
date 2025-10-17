@@ -1,0 +1,10 @@
+import "std" std
+
+first {
+  func route_login = http.post {
+    path: "/login",
+    response: {
+      contentType: "application/json"
+    }
+  }
+}

@@ -4,7 +4,7 @@ from lark import Lark
 
 if __name__ == '__main__':
     file_path = sys.argv[1]
-    with open("src/language/grammar.lark", "r") as f:
+    with open("src/grammar.lark", "r") as f:
         grammar = f.read()
 
     with open(file_path, "r") as f:

@@ -2,11 +2,11 @@ import unittest
 
 from lark import Lark
 
-from language.value import Value
+from ast_interpreter.value import Value
 from test.util import search_children
 
 
-with open("language/grammar.lark", "r") as f:
+with open("grammar.lark", "r") as f:
     grammar = f.read()
 
 

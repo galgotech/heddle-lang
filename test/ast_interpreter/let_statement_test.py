@@ -1,8 +1,8 @@
 import unittest
 
-from language.let_statement import LetStatement
-from language.memory import Memory
-from language.grammar import parse
+from ast_interpreter.let_statement import LetStatement
+from runtime.memory import Runtime
+from ast_interpreter.grammar import parse
 
 
 class TestLetStatement(unittest.TestCase):
@@ -12,7 +12,7 @@ class TestLetStatement(unittest.TestCase):
         let_statement_node = next(tree.find_data("let_statement"))
 
         # The state of the interpreter
-        mem = Memory()
+        mem = Runtime()
         interpreter = LetStatement(mem, {})
 
         # Execute the let statement
@@ -27,7 +27,7 @@ class TestLetStatement(unittest.TestCase):
         let_statement_node = next(tree.find_data("let_statement"))
 
         # The state of the interpreter
-        mem = Memory()
+        mem = Runtime()
         mem.set('b', 1)
         modules = {'mod': {'add_one': lambda x: x + 1}}
 

@@ -1,8 +1,8 @@
 import unittest
 import polars as pl
-from language.pipeline_statement import PipelineStatement
-from language.memory import Memory
-from language.grammar import parse
+from ast_interpreter.pipeline_statement import PipelineStatement
+from runtime.memory import Runtime
+from ast_interpreter.grammar import parse
 
 
 class TestPipelineStatement(unittest.TestCase):
@@ -12,7 +12,7 @@ class TestPipelineStatement(unittest.TestCase):
         pipeline_statement_node = next(tree.find_data("pipeline_statement"))
 
         # The state of the interpreter
-        mem = Memory()
+        mem = Runtime()
         modules = {'mod': {'add_one': lambda x: x + 1}}
 
         interpreter = PipelineStatement(mem, modules)
@@ -29,7 +29,7 @@ class TestPipelineStatement(unittest.TestCase):
         pipeline_statement_node = next(tree.find_data("pipeline_statement"))
 
         # The state of the interpreter
-        mem = Memory()
+        mem = Runtime()
         mem.set('a', 5)
         modules = {'mod': {'add_one': lambda x: x + 1}}
 
@@ -47,7 +47,7 @@ class TestPipelineStatement(unittest.TestCase):
         pipeline_statement_node = next(tree.find_data("pipeline_statement"))
 
         # The state of the interpreter
-        mem = Memory()
+        mem = Runtime()
         modules = {
             'mod': {
                 'add_one': lambda x: x + 1,
@@ -70,7 +70,7 @@ class TestPipelineStatement(unittest.TestCase):
         pipeline_statement_node = next(tree.find_data("pipeline_statement"))
 
         # The state of the interpreter
-        mem = Memory()
+        mem = Runtime()
         employees_df = pl.DataFrame({
             "name": ["Alice", "Bob", "Charlie"],
             "age": [25, 30, 35],

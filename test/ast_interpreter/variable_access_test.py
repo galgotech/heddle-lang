@@ -2,13 +2,13 @@ import unittest
 from unittest.mock import Mock
 from lark import Tree
 
-from language.variable_access import VariableAccess
-from language.memory import Memory
+from ast_interpreter.variable_access import VariableAccess
+from runtime.memory import Runtime
 
 
 class TestVariableAccess(unittest.TestCase):
     def setUp(self):
-        self.memory = Memory()
+        self.memory = Runtime()
 
     def test_visit_success(self):
         self.memory.set("my_workflow", {"my_var": 42})

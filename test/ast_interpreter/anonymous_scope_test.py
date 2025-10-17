@@ -1,14 +1,14 @@
 import unittest
 from unittest.mock import Mock
 
-from language.scope import Scope
-from language.memory import Memory
-from language.grammar import parse
+from ast_interpreter.scope import Scope
+from runtime.memory import Runtime
+from ast_interpreter.grammar import parse
 
 
 class TestAnonymousScope(unittest.TestCase):
     def setUp(self):
-        self.memory = Memory()
+        self.memory = Runtime()
         self.modules = {'my_module': Mock()}
 
     def test_let_statement_in_scope(self):

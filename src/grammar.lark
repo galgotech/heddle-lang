@@ -22,7 +22,7 @@ pipeline_merge_start: ">"
 pipeline_merge_end: "<"
 pipeline_error_handler: IDENTIFIER "->" pipeline_error_body
 pipeline_error_body: scope
-pipeline_function_handler: import_use | func_use | prql  
+pipeline_function_handler: import_use | func_use | prql
 
 workflow_let_read: IDENTIFIER "." IDENTIFIER
 let_read: IDENTIFIER

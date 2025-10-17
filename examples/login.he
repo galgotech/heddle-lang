@@ -6,52 +6,55 @@ import "fhub/security" security
 import "fhub/database" database
 
 login {
-    func route_login = http.post {
-        path: "/login",
-        response: {
-            contentType: "application/json"
-        }
+  func route_login = http.post {
+    path: "/login",
+    response: {
+      contentType: "application/json"
     }
+  }
 
-    func route_login_resonse = http.response {
+  func route_login_resonse = http.response {
+  }
+
+  func validate_login = input.validate {
+    user: {
+      type: "string",
+      minLength: 1,
+    },
+    password: "string",
+  }
+
+  func password_security = security.hash {
+    name: "argo2",
+    config: {
+
     }
+  }
 
-    func validate_login = input.validate {
-        user: {
-            type: "string",
-            minLength: 1,
-        },
-        password: "string",
-    }
+  func user_exists = database.query {
+    query: (
+      from user
+      filter user = $user and passwrod = @password
+    )
+  }
 
-    func password_security = security.hash {
-        name: "argo2",
-        config: {
+  let _ = route_login
+            | window
+            | validate_login
+            | > (from validate_login select true) | password_security <
+            | (select user) | user_exists
+            | user_exists_api_external ?
 
-        }
-    }
+  let logged = route_login
+            | window
+            | validate_login
+            | > (
+                  from validate_login
+                  select user
+                ) | user_exists <
+            | > (from validate_login select password) | password_security <
+            | user_data_api_extern  ?
 
-    func user_exists = database.query {
-        query: (
-            from user
-            filter user = $user and passwrod = @password
-        )
-    }
-
-    let _ = route_login
-                | window
-                | validate_login
-                | > (from validate_login select true) | password_security <
-                | (select user) | user_exists
-                | user_exists_api_external ?
-
-    let logged = route_login
-                    | window
-                    | validate_login
-                    | > (from validate_login select user) | user_exists <
-                    | > (from validate_login select password) | password_security <
-                    | user_data_api_extern ?
-
-    let _ = logged | route_login_resonse ?
-    let _ = logged | send_email_login ?
+  let _ = logged | route_login_resonse ?
+  let _ = logged | send_email_login ?
 }

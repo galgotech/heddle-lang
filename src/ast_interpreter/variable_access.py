@@ -1,17 +1,18 @@
 import logging
 from lark.visitors import Interpreter
 import polars as pl
-from .memory import Memory
+
+from runtime.local import Runtime
 
 
 class VariableAccess(Interpreter):
     __deep: int
-    __memory: Memory
+    __runtime: Runtime
     __result: pl.DataFrame
 
-    def __init__(self, deep: int, memory: Memory):
+    def __init__(self, deep: int, runtime: Runtime):
         self.__deep = deep
-        self.__memory = memory
+        self.__runtime = runtime
         self.__result = pl.DataFrame()
 
     @property
@@ -27,6 +28,6 @@ class VariableAccess(Interpreter):
         })
 
         try:
-            self.__result = self.__memory.get(variable, scope)
+            self.__result = self.__runtime.memory.get(variable, scope)
         except KeyError:
             raise NameError(f"Workflow '{scope}' is not defined")

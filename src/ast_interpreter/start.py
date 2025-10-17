@@ -3,22 +3,18 @@ import logging
 from lark import Token, Tree
 from lark.visitors import Interpreter
 from modules import load_module
+from runtime.local import Runtime
 from .workflow_definition import WorkflowDefinition
-from .memory import Memory
 
 
-class LanguageInterpreter(Interpreter):
+class Start(Interpreter):
+    __runtime: Runtime
     __modules: Dict[str, Dict]
-    __memory: Memory
 
-    def __init__(self):
+    def __init__(self, runtime: Runtime):
         super().__init__()
+        self.__runtime = runtime
         self.__modules = {}
-        self.__memory = Memory()
-
-    @property
-    def memory(self) -> Memory:
-        return self.__memory
 
     def import_statement(self, tree: Tree) -> None:
         if isinstance(tree.children[0], Token):
@@ -35,4 +31,4 @@ class LanguageInterpreter(Interpreter):
         self.__modules[alias] = load_module(package_name)
 
     def workflow_definition(self, tree: Tree) -> None:
-        WorkflowDefinition(0, self.__memory, self.__modules).visit(tree)
+        WorkflowDefinition(0, self.__runtime, self.__modules).run(tree)

@@ -1,10 +1,10 @@
 import unittest
 
-from test.language.value_test import TestValue
-from test.language.let_statement_test import TestLetStatement
-from test.language.variable_access_test import TestVariableAccess
-from test.language.anonymous_scope_test import TestAnonymousScope
-from test.language.prql_test import TestPrql
+from test.ast_interpreter.value_test import TestValue
+from test.ast_interpreter.let_statement_test import TestLetStatement
+from test.ast_interpreter.variable_access_test import TestVariableAccess
+from test.ast_interpreter.anonymous_scope_test import TestAnonymousScope
+from test.ast_interpreter.prql_test import TestPrql
 
 
 def create_suite():

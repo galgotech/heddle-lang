@@ -3,23 +3,26 @@ from typing import Any, Dict
 from lark import Token, Tree
 from lark.visitors import Interpreter
 
+from ast_interpreter.func_statement import FuncStatement
+from runtime.local import Runtime
+
 from .let_statement import LetStatement
-from .memory import Memory
 from .pipeline_statement import PipelineStatement
 from .value import ValueDataFrame
 
 
 class Scope(Interpreter):
     __deep: int
-    __memory: Memory
+    __runtime: Runtime
     __modules: Dict
     __result: Any
 
-    def __init__(self, deep: int, memory: Memory, modules: Dict):
+    def __init__(self, deep: int, runtime: Runtime, modules: Dict):
         self.__deep = deep
-        self.__memory = memory
+        self.__runtime = runtime
         self.__modules = modules
         self.__result = {}
+        self.__functions = {}
 
     @property
     def result(self):
@@ -37,13 +40,16 @@ class Scope(Interpreter):
 
         return self.result
 
+    def func_statement(self, tree: Tree):
+        FuncStatement(self.__deep + 1, self.__runtime, self.__modules).run(tree)
+
     def let_statement(self, tree: Tree):
-        interpreter = LetStatement(self.__deep + 1, self.__memory, self.__modules)
+        interpreter = LetStatement(self.__deep + 1, self.__runtime, self.__modules)
         interpreter.visit(tree)
         self.__result = interpreter.result
 
     def pipeline_statement(self, tree: Tree):
-        interpreter = PipelineStatement(self.__deep + 1, self.__memory, self.__modules)
+        interpreter = PipelineStatement(self.__deep + 1, self.__runtime, self.__modules)
         self.__result = interpreter.visit(tree)
 
     def scope_statement(self, tree: Tree):
@@ -62,7 +68,7 @@ class Scope(Interpreter):
             raise Exception("invalid scope return")
 
         if isinstance(return_node, Token) and return_node.type == "VARIABLE_NAME":
-            self.__result = self.__memory.get(return_node.value)
+            self.__result = self.__runtime.memory.get(return_node.value)
 
         elif return_node.data == "value":
             value_interpreter = ValueDataFrame(self.__deep + 1)
@@ -70,4 +76,4 @@ class Scope(Interpreter):
             self.__result = value_interpreter.result
 
         elif return_node.data == "pipeline_statement":
-            self.__result = PipelineStatement(self.__deep + 1, self.__memory, self.__modules).visit(return_node)
+            self.__result = PipelineStatement(self.__deep + 1, self.__runtime, self.__modules).visit(return_node)

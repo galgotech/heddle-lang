@@ -1,14 +1,13 @@
 {
-    "python.analysis.autoImportCompletions": true,
-    "python.analysis.typeCheckingMode": "standard",
-    "python-envs.defaultEnvManager": "ms-python.python:poetry",
-    "python-envs.defaultPackageManager": "ms-python.python:poetry",
-    "python-envs.pythonProjects": [],
-    "editor.codeActionsOnSave": {
-      "source.fixAll.flake8": "always"
-    },
-    "flake8.args": [
-        "--max-line-length=120"
-    ]
-
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "standard",
+  "python-envs.defaultEnvManager": "ms-python.python:poetry",
+  "python-envs.defaultPackageManager": "ms-python.python:poetry",
+  "python-envs.pythonProjects": [],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.flake8": "always"
+  },
+  "flake8.args": [
+    "--max-line-length=120"
+  ]
 }

@@ -4,21 +4,22 @@ from lark import Token, Tree
 from lark.visitors import Interpreter
 import polars as pl
 
-from language.variable_access import VariableAccess
-from .memory import Memory
+from ast_interpreter.variable_access import VariableAccess
+from runtime.local import Runtime
 from .prql import Prql
 from .value import ValueDataFrame
 
 
 class PipelineStatement(Interpreter):
     __deep: int
-    __memory: Memory
+    __runtime: Runtime
     __modules: Dict
     __result: pl.DataFrame
+    __data_merge: str
 
-    def __init__(self, deep: int, memory: Memory, modules: Dict):
+    def __init__(self, deep: int, runtime: Runtime, modules: Dict):
         self.__deep = deep
-        self.__memory = memory
+        self.__runtime = runtime
         self.__modules = modules
         self.__result = pl.DataFrame()
 
@@ -31,7 +32,7 @@ class PipelineStatement(Interpreter):
         return self.__result
 
     def variable_access(self, tree: Tree):
-        accessor = VariableAccess(self.__deep + 1, self.__memory)
+        accessor = VariableAccess(self.__deep + 1, self.__runtime)
         accessor.visit(tree)
         self.__result = accessor.result
 
@@ -40,7 +41,13 @@ class PipelineStatement(Interpreter):
         dataframe_interpreter.visit(tree)
         self.__result = dataframe_interpreter.result
 
-    def pipeline_function_handler(self, tree: Tree):
+    def pipeline_merge_start(self, tree: Tree):
+        self.__data_merge = "start"
+
+    def pipeline_merge_end(self, tree: Tree):
+        self.__data_merge = "end"
+
+    def import_use(self, tree: Tree):
         if not isinstance(tree.children[0], Token):
             raise Exception("invalid pipeline function handler")
 
@@ -52,9 +59,15 @@ class PipelineStatement(Interpreter):
 
         module = self.__modules[module_name]
         function = module[function_name]
+        self.__runtime.add_stack(function)
+        # if self.__result is not None:
+        #     self.__result = function(self.__result)
 
-        if self.__result is not None:
-            self.__result = function(self.__result)
+    def func_use(self, tree: Tree):
+        if not isinstance(tree.children[0], Token):
+            raise Exception("invalid pipeline function handler")
+        function_name = tree.children[0].value
+        self.__runtime.add_stack(function_name)
 
     def prql(self, tree: Tree):
         prql_interpreter = Prql(self.__deep + 1, self.__result)

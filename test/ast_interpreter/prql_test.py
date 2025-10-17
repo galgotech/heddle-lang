@@ -1,12 +1,12 @@
 import unittest
 import polars as pl
-from language.grammar import parse
-from language.interpreter import LanguageInterpreter
+from ast_interpreter.grammar import parse
+from ast_interpreter.start import Start
 
 
 class TestPrql(unittest.TestCase):
     def test_prql_pipeline(self):
-        interpreter = LanguageInterpreter()
+        interpreter = Start()
         code = """import "polars" pl
 my_workflow {
     let df = [
