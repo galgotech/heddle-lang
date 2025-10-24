@@ -1,6 +1,4 @@
 import logging
-from typing import Dict
-import polars as pl
 from lark import Token
 from lark.visitors import Interpreter
 
@@ -13,15 +11,11 @@ from .pipeline_statement import PipelineStatement
 
 class LetStatement(Interpreter):
     __deep: int
-    __modules: Dict
     __runtime: Runtime
-    __value: pl.DataFrame
 
-    def __init__(self, deep: int, runtime: Runtime, modules):
+    def __init__(self, deep: int, runtime: Runtime):
         self.__deep = deep
         self.__runtime = runtime
-        self.__modules = modules
-        self.__value = pl.DataFrame()
 
     def visit(self, tree):
         nameChild = tree.children[0]
@@ -46,7 +40,7 @@ class LetStatement(Interpreter):
             self.__value = value_interpreter.result
 
         elif expression_node.data == "pipeline_statement":
-            PipelineStatement(self.__deep + 1, self.__runtime, self.__modules).visit(expression_node)
+            PipelineStatement(self.__deep + 1, self.__runtime).visit(expression_node)
 
         elif expression_node.data == "variable_access":
             VariableAccess(self.__deep + 1, self.__runtime).visit(expression_node)
