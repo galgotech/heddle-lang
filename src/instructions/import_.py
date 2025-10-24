@@ -7,6 +7,7 @@ class ImportInstruction(Instruction):
     __alias: str
 
     def __init__(self, package: str, alias: str) -> None:
+        super().__init__()
         self.__package = package
         self.__alias = alias
 

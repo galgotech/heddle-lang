@@ -4,6 +4,7 @@ from instructions.instruction import Instruction
 
 class DataFrameInstruction(Instruction):
     def __init__(self, dataFrame: pl.DataFrame) -> None:
+        super().__init__()
         self.__dataframe = dataFrame
 
     @property

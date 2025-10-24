@@ -5,6 +5,7 @@ class ErrorUseInstruction(Instruction):
     __error: str
 
     def __init__(self, error: str) -> None:
+        super().__init__()
         self.__error = error
 
     @property

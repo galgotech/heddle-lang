@@ -5,6 +5,7 @@ class StepUseInstruction(Instruction):
     __step: str
 
     def __init__(self, step: str) -> None:
+        super().__init__()
         self.__step = step
 
     @property

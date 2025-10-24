@@ -6,6 +6,7 @@ class WorkflowAccessLetUseInstruction(Instruction):
     __let: str
 
     def __init__(self, workflow: str, name: str):
+        super().__init__()
         self.__workflow = workflow
         self.__let = name
 

@@ -7,6 +7,7 @@ class ErrorInstruction(Instruction):
     __config: Dict
 
     def __init__(self, error: str, config: Dict) -> None:
+        super().__init__()
         self.__error = error
         self.__config = config
 

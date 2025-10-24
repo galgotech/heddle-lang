@@ -5,6 +5,7 @@ class LetUseInstruction(Instruction):
     __use: str
 
     def __init__(self, use: str):
+        super().__init__()
         self.__use = use
 
     @property

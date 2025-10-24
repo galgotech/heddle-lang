@@ -1,2 +1,0 @@
-class WokrflowInstruction:
-    pass

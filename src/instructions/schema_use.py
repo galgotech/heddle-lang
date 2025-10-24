@@ -3,6 +3,7 @@ from dis import Instruction
 
 class SchemaUseInstruction(Instruction):
     def __init__(self, schema: str):
+        super().__init__()
         self.__schema = schema
 
     @property

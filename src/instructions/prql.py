@@ -6,6 +6,7 @@ class PrqlInstruction(Instruction):
     _query: str
 
     def __init__(self, query: str):
+        super().__init__()
         self._query = query
 
     @property

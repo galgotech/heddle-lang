@@ -7,6 +7,7 @@ class SchemaInstruction(Instruction):
     __config: Dict
 
     def __init__(self, schema: str, config: Dict) -> None:
+        super().__init__()
         self.__schema = schema
         self.__config = config
 

@@ -8,6 +8,7 @@ class StepInstruction(Instruction):
     __config: Dict
 
     def __init__(self, step: str, call: str, config: Dict) -> None:
+        super().__init__()
         self.__step = step
         self.__call = call
         self.__config = config
