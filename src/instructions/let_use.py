@@ -1,0 +1,2 @@
+class UserLetInstruction:
+    pass

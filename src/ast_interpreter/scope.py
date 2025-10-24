@@ -3,7 +3,7 @@ from typing import Any, Dict
 from lark import Token, Tree
 from lark.visitors import Interpreter
 
-from ast_interpreter.func_statement import FuncStatement
+from src.ast_interpreter.step_statement import FuncStatement
 from runtime.local import Runtime
 
 from .let_statement import LetStatement
@@ -28,7 +28,7 @@ class Scope(Interpreter):
     def result(self):
         return self.__result
 
-    def run(self, tree: Tree) -> Any:
+    def visit(self, tree: Tree) -> Any:
         logging.debug("scope", extra={
             "indent": self.__deep,
         })

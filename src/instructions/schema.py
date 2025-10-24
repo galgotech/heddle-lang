@@ -1,0 +1,2 @@
+class SchemaInstruction:
+    pass

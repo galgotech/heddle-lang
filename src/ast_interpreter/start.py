@@ -31,4 +31,4 @@ class Start(Interpreter):
         self.__modules[alias] = load_module(package_name)
 
     def workflow_definition(self, tree: Tree) -> None:
-        WorkflowDefinition(0, self.__runtime, self.__modules).run(tree)
+        WorkflowDefinition(0, self.__runtime, self.__modules).visit(tree)

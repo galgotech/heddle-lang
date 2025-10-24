@@ -20,7 +20,7 @@ class WorkflowDefinition(Interpreter):
         self.__modules = modules
         self.__name = ""
 
-    def run(self, tree):
+    def visit(self, tree):
         if isinstance(tree.children[0], Token):
             assert tree.children[0].type == "IDENTIFIER"
             self.__name = tree.children[0].value
@@ -33,5 +33,4 @@ class WorkflowDefinition(Interpreter):
         self.visit_children(tree)
 
     def scope(self, tree):
-        interpreter = Scope(self.__deep + 1, self.__runtime, self.__modules)
-        interpreter.run(tree)
+        Scope(self.__deep + 1, self.__runtime, self.__modules).visit(tree)

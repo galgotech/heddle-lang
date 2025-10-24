@@ -8,18 +8,16 @@ from runtime.local import Runtime
 from .value import ValueDict
 
 
-class FuncStatement(Interpreter):
+class StepStatement(Interpreter):
     __deep: int
     __runtime: Runtime
-    __modules: Dict
     __name: str
     __call: str
     __call_config: Dict
 
-    def __init__(self, deep: int, runtime: Runtime, modules: Dict):
+    def __init__(self, deep: int, runtime: Runtime):
         self.__deep = deep
         self.__runtime = runtime
-        self.__modules = modules
         self.__name = ""
 
     def run(self, tree):
