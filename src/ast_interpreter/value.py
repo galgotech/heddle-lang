@@ -6,28 +6,25 @@ import polars as pl
 
 from lark.visitors import Interpreter
 
+from instructions.dataframe import DataFrameInstruction
+from runtime.local import Runtime
+
 
 class ValueDataFrame(Interpreter):
-    __dataframe: pl.DataFrame
-
-    def __init__(self, deep: int):
+    def __init__(self, deep: int, runtime: Runtime):
         self.__deep = deep
-        self.__dataframe = pl.DataFrame()
+        self.__runtime = runtime
 
         logging.debug("list", extra={
             "indent": self.__deep,
         })
-
-    @property
-    def result(self) -> pl.DataFrame:
-        return self.__dataframe
 
     def dict(self, tree):
         dict_interpreter = ValueDict(self.__deep + 1)
         dict_interpreter.visit_children(tree)
 
         values = dict_interpreter.result
-        self.__dataframe = pl.DataFrame(values)
+        self.__runtime.add_stack(DataFrameInstruction(pl.DataFrame(values)))
 
 
 class ValueDict(Interpreter):
@@ -45,14 +42,14 @@ class ValueDict(Interpreter):
         })
 
     @property
-    def result(self):
+    def result(self) -> Dict:
         return self.__values
 
-    def visit(self, tree):
+    def run(self, tree):
         logging.debug("ValueDict", extra={
             "indent": self.__deep,
         })
-        super().visit(tree)
+        self.visit(tree)
 
     def pair(self, tree):
         self.__column = tree.children[0].value

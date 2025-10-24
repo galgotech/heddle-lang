@@ -16,7 +16,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data("anonymous_scope"))
 
         scope = Scope(self.memory, {})
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         self.assertEqual(result, 1)
         self.assertFalse(self.memory.has('a'))
@@ -27,7 +27,7 @@ class TestAnonymousScope(unittest.TestCase):
         modules = {'mod': {'up': lambda s: s.upper()}}
 
         scope = Scope(self.memory, modules)
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         self.assertEqual(result, "INPUT")
 
@@ -36,7 +36,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data('anonymous_scope'))
 
         scope = Scope(self.memory, self.modules)
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         self.assertEqual(result, {})
 
@@ -47,7 +47,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data('anonymous_scope'))
 
         scope = Scope(self.memory, self.modules)
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         self.assertEqual(result, 123)
 
@@ -56,7 +56,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data('anonymous_scope'))
 
         scope = Scope(self.memory, self.modules)
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         self.assertEqual(result, {})
 
@@ -67,7 +67,7 @@ class TestAnonymousScope(unittest.TestCase):
         anonymous_scope_node = next(tree.find_data("anonymous_scope"))
 
         scope = Scope(self.memory, self.modules)
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         self.assertEqual(result, 123)
         self.assertTrue(self.memory.has('outer_var'))
@@ -82,7 +82,7 @@ class TestAnonymousScope(unittest.TestCase):
 
         # Execute the anonymous scope
         scope = Scope(self.memory, modules)
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         # Assert the result is correct
         self.assertEqual("HELLO", result)
@@ -93,7 +93,7 @@ class TestAnonymousScope(unittest.TestCase):
 
         # Execute the anonymous scope
         scope = Scope(self.memory, {})
-        result = scope.run(anonymous_scope_node)
+        result = scope.visit(anonymous_scope_node)
 
         # Assert the result is correct
         self.assertEqual(42, result)

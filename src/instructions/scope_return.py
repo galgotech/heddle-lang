@@ -1,9 +1,9 @@
 from instructions.instruction import Instruction
 
 
-class ScopeInstruction(Instruction):
+class ScopeReturnInstruction(Instruction):
 
-    def __init__(self, scope: str) -> None:
+    def __init__(self) -> None:
         pass
 
     def name(self) -> str:

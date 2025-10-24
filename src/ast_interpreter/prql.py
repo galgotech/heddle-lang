@@ -1,22 +1,18 @@
 import logging
 from lark import Token, Tree
-import polars as pl
-import pyprql.polars_namespace  # noqa: F401
+from instructions.prql import PrqlInstruction
+from runtime.local import Runtime
 
 
 class Prql:
     __deep: int
-    __result: pl.DataFrame
+    __runtime: Runtime
 
-    def __init__(self, deep: int, data: pl.DataFrame):
+    def __init__(self, deep: int, runtime: Runtime):
         self.__deep = deep
-        self.__result = data
+        self.__runtime = runtime
 
-    @property
-    def result(self):
-        return self.__result
-
-    def visit(self, tree: Tree):
+    def run(self, tree: Tree):
         if not isinstance(tree.children[0], Token):
             raise Exception("invalid prql")
 
@@ -25,4 +21,4 @@ class Prql:
         logging.debug("prql: %s", {"query": prql_query}, extra={
             "indent": self.__deep,
         })
-        self.__result = self.__result.prql.query(prql_query)
+        self.__runtime.add_stack(PrqlInstruction(prql_query))

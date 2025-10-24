@@ -2,7 +2,10 @@ import logging
 from lark import Token, Tree
 from lark.visitors import Interpreter
 
-from ast_interpreter.variable_access import VariableAccess
+from ast_interpreter.workflow_access_let_use import WorkflowAccessLetUse
+from instructions.error_use import ErrorUseInstruction
+from instructions.let_use import LetUseInstruction
+from instructions.step_use import StepUseInstruction
 from runtime.local import Runtime
 from .prql import Prql
 from .value import ValueDataFrame
@@ -20,42 +23,37 @@ class PipelineStatement(Interpreter):
             "indent": self.__deep,
         })
 
-    @property
-    def result(self):
-        return self.__result
-
-    def variable_access(self, tree: Tree):
-        accessor = VariableAccess(self.__deep + 1, self.__runtime)
-        accessor.visit(tree)
-        self.__result = accessor.result
+    def run(self, tree: Tree):
+        self.visit_children(tree)
 
     def dataframe(self, tree: Tree):
-        dataframe_interpreter = ValueDataFrame(self.__deep + 1)
+        dataframe_interpreter = ValueDataFrame(self.__deep + 1, self.__runtime)
         dataframe_interpreter.visit(tree)
-        self.__result = dataframe_interpreter.result
 
-    def import_use(self, tree: Tree):
+    def workflow_access_let_use(self, tree: Tree):
+        accessor = WorkflowAccessLetUse(self.__deep + 1, self.__runtime)
+        accessor.visit(tree)
+
+    def let_use(self, tree: Tree):
         if not isinstance(tree.children[0], Token):
-            raise Exception("invalid pipeline function handler")
+            raise Exception("invalid pipeline let handler")
+        name = tree.children[0].value
+        self.__runtime.add_stack(LetUseInstruction(name))
 
-        if not isinstance(tree.children[1], Token):
-            raise Exception("invalid pipeline function handler")
-        # if self.__result is not None:
-        #     self.__result = function(self.__result)
-
-    def func_use(self, tree: Tree):
+    def step_use(self, tree: Tree):
         if not isinstance(tree.children[0], Token):
-            raise Exception("invalid pipeline function handler")
-        function_name = tree.children[0].value
-        self.__runtime.add_stack(function_name)
+            raise Exception("invalid pipeline step handler")
+        name = tree.children[0].value
+        self.__runtime.add_stack(StepUseInstruction(name))
 
     def prql(self, tree: Tree):
-        prql_interpreter = Prql(self.__deep + 1, self.__result)
-        prql_interpreter.visit(tree)
-        self.__result = prql_interpreter.result
+        Prql(self.__deep + 1, self.__runtime).run(tree)
 
-    def pipeline_error_handler(self, tree: Tree):
+    def error_use(self, tree: Tree):
         logging.debug("pipeline_error_handler", extra={
             "indent": self.__deep,
         })
-        print(tree)
+        if not isinstance(tree.children[0], Token):
+            raise Exception("invalid pipeline error handler")
+        name = tree.children[0].value
+        self.__runtime.add_stack(ErrorUseInstruction(name))

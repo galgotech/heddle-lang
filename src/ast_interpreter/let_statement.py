@@ -1,10 +1,10 @@
 import logging
-from lark import Token
+from lark import Token, Tree
 from lark.visitors import Interpreter
 
 from runtime.local import Runtime
 
-from .variable_access import VariableAccess
+from .workflow_access_let_use import WorkflowAccessLetUse
 from .value import ValueDataFrame
 from .pipeline_statement import PipelineStatement
 
@@ -17,7 +17,7 @@ class LetStatement(Interpreter):
         self.__deep = deep
         self.__runtime = runtime
 
-    def visit(self, tree):
+    def run(self, tree):
         nameChild = tree.children[0]
         if not isinstance(nameChild, Token):
             raise Exception("invalid let name")
@@ -29,25 +29,11 @@ class LetStatement(Interpreter):
 
         self.visit_children(tree)
 
-        self.__runtime.memory.set(name, self.__value)
+    def pipeline_statement(self, tree: Tree):
+        PipelineStatement(self.__deep + 1, self.__runtime).run(tree)
 
-    def let_expression(self, tree):
-        expression_node = tree.children[0]
+    def dataframe(self, tree: Tree):
+        ValueDataFrame(self.__deep + 1, self.__runtime).run(tree)
 
-        if expression_node.data == "dataframe":
-            value_interpreter = ValueDataFrame(self.__deep + 1)
-            value_interpreter.visit(expression_node)
-            self.__value = value_interpreter.result
-
-        elif expression_node.data == "pipeline_statement":
-            PipelineStatement(self.__deep + 1, self.__runtime).visit(expression_node)
-
-        elif expression_node.data == "variable_access":
-            VariableAccess(self.__deep + 1, self.__runtime).visit(expression_node)
-
-        else:
-            raise Exception("not implemented '%s'" % expression_node.data)
-
-        logging.debug("let_expression: %s", {"value": self.__value}, extra={
-            "indent": self.__deep,
-        })
+    def let_use(self, tree: Tree):
+        WorkflowAccessLetUse(self.__deep + 1, self.__runtime).run(tree)
