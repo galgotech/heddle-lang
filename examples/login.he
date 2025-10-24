@@ -1,60 +1,90 @@
-import "std" std
+import "std/window" window
+import "std/error" error
+import "std/console" console
 import "fhub/http" http
 import "fhub/input" input
 import "fhub/identity" identity
 import "fhub/security" security
 import "fhub/database" database
 
-login {
-  func route_login = http.post {
-    path: "/login",
-    response: {
-      contentType: "application/json"
-    }
+schema User = {
+
+}
+
+step route_login -> User = http.post {
+  path: "/login",
+  response: {
+    contentType: "application/json"
   }
+}
 
-  func route_login_resonse = http.response {
+step route_login_resonse -> User = http.response {
+}
+
+step route_register -> User = http.post {
+  path: "/register",
+  response: {
+    contentType: "application/json"
   }
+}
 
-  func validate_login = input.validate {
-    user: {
-      type: "string",
-      minLength: 1,
-    },
-    password: "string",
+step validate_login -> User = input.validate {
+  user: {
+    type: "string",
+    minLength: 1,
+  },
+  password: "string",
+}
+
+step password_security -> User = security.hash {
+  name: "argo2",
+  config: {
+
   }
+}
 
-  func password_security = security.hash {
-    name: "argo2",
-    config: {
+step user_exists -> User = database.query {
+  query: (
+    from user
+    filter user = $user and passwrod = @password
+  )
+}
 
-    }
-  }
+step time_windows_milliseconds -> User = window.acumulate {
+  milleseconds: 50
+}
 
-  func user_exists = database.query {
-    query: (
-      from user
-      filter user = $user and passwrod = @password
-    )
-  }
+error error_handler = error.hadler_test {  
+}
 
-  let _ = route_login
-            | window
-            | validate_login
-            | > (from validate_login select true) | password_security <
-            | (select user) | user_exists
-            | user_exists_api_external ?
+error error_global_handler = error.hadler_global_test {
+}
+
+workflow login ? error_global_handler {
+  route_login
+    | time_windows_milliseconds
+    | validate_login
+    | (from validate_login select true) | password_security
+    | (select user) | user_exists
+    | user_exists_api_external
 
   let logged = route_login
-            | window
-            | validate_login
-            | > (
-                  from validate_login
-                  select user
-                ) | user_exists <
-            | > (from validate_login select password) | password_security <
-            | user_data_api_extern  ?
+            | time_windows_milliseconds
+            | validate_login ? error_handler
+            | (
+                from validate_login
+                select user
+              )
+            | user_exists ? error_handler
+            | (from validate_login select password)
+            | password_security
+            | user_data_api_extern
 
-  let _ = logged | route_login_resonse ?
-  let _ = logged | send_email_login ?
+  logged | route_login_resonse
+  logged | send_email_login
+}
+
+workflow register ? error_global_handler {
+  route_register
+    | time_windows_milliseconds
 }

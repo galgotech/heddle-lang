@@ -16,7 +16,7 @@ schema_type: schema_type_dict
         | "bool"
         | "timestamp"
 
-step_statement: "step" IDENTIFIER schema_use "->" schema_use "=" import_use step_expression_config
+step_statement: "step" IDENTIFIER schema_use? "->" schema_use "=" import_use step_expression_config
 schema_use: IDENTIFIER
 step_expression_config: dict
 
@@ -30,7 +30,7 @@ scope_return: let_use | dataframe | pipeline_statement
 let_statement: "let" IDENTIFIER "=" let_expression
 let_expression: dataframe | pipeline_statement | let_use
 
-pipeline_statement: (dataframe | workflow_access_let_use | let_use)? ("|" pipeline_step_handler )+ "?" error_use?
+pipeline_statement: (dataframe | workflow_access_let_use | let_use)? ("|" pipeline_step_handler )+ ("?" error_use)?
 pipeline_step_handler: step_use | prql
 
 import_use: IDENTIFIER "." IDENTIFIER
