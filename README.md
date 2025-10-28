@@ -1,3 +1,8 @@
+<p align="center">
+  <img src="logo.png" alt="Heddle Language" width="50" />
+</p>
+
+# Heddle Language
 
 Heddle is a hybrid language designed to solve a core conflict in modern systems: the need to orchestrate complex, imperative business logic using a simple, functional, and auditable flow model.
 
@@ -186,4 +191,3 @@ workflow get_active_users {
     | log_usernames
 }
 ```
-
