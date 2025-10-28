@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Heddle Language" width="50" />
+  <img src="https://heddle.fhub.dev/assets/logo.png" alt="Heddle Language" width="50" />
 </p>
 
 # Heddle Language
