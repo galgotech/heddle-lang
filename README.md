@@ -195,6 +195,27 @@ Developer Experience is the single most important metric for Heddle's success.
 *   **Instant Diagnostics:** A custom Language Server Protocol (LSP) integrated with VS Code provides real-time syntax highlighting, type-checking, and diagnostics backed directly by the Go compiler.
 *   **Time-Travel Debugging:** Because data flows immutably, Heddle maintains an append-only history log. If a step fails, developers can trace the exact lineage and state of the data at any preceding step.
 
+## **Project Structure (Monorepo)**
+
+Heddle is organized as a polyglot monorepo to ensure tight integration between the control plane, data management, and its multi-language execution environment.
+
+```plaintext
+/
+├── services/
+│   ├── control-plane/    # Go-based orchestration engine
+│   ├── data-manager/     # Go-based data management & catalog
+│   └── cli/              # Heddle Command Line Interface
+├── workers/
+│   ├── go/               # Go Worker implementation/SDK
+│   ├── python/           # Python Worker implementation/SDK
+│   ├── rust/             # Rust Worker implementation/SDK
+│   └── nodejs/           # Node.js Worker implementation/SDK
+├── editors/
+│   └── vscode/           # VS Code extension for Heddle DSL
+├── pkg/                  # Shared Go libraries (Parser, Lexer, IR, etc.)
+└── internal/             # Internal Go logic
+```
+
 ---
 
 _Heddle: Orchestrate Logic._

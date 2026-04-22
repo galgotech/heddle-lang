@@ -1,0 +1,13 @@
+{
+  "name": "heddle-vscode",
+  "displayName": "Heddle Language Support",
+  "description": "VS Code extension for Heddle DSL",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.js"
+}
