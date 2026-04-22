@@ -17,15 +17,15 @@ import (
 type ControlPlaneServer struct {
 	flight.BaseFlightServer
 
-	mu      sync.RWMutex
-	workers map[string]*execution.WorkerRegistration
-	health  map[string]time.Time
+	mu         sync.RWMutex
+	workers    map[string]execution.WorkerRegistration
+	heartbeats map[string]execution.Heartbeat
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
 	return &ControlPlaneServer{
-		workers: make(map[string]*execution.WorkerRegistration),
-		health:  make(map[string]time.Time),
+		workers:    make(map[string]execution.WorkerRegistration),
+		heartbeats: make(map[string]execution.Heartbeat),
 	}
 }
 
@@ -38,8 +38,13 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		}
 
 		s.mu.Lock()
-		s.workers[reg.WorkerID] = &reg
-		s.health[reg.WorkerID] = time.Now()
+		s.workers[reg.WorkerID] = reg
+		// Initialize heartbeat entry on registration
+		s.heartbeats[reg.WorkerID] = execution.Heartbeat{
+			WorkerID:  reg.WorkerID,
+			Timestamp: time.Now(),
+			Status:    execution.WorkerStatusIdle,
+		}
 		s.mu.Unlock()
 
 		log.Printf("Worker registered: %s (%s) at %s", reg.WorkerID, reg.Runtime, reg.Address)
@@ -53,8 +58,10 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		s.mu.Lock()
 		if _, ok := s.workers[hb.WorkerID]; ok {
-			s.health[hb.WorkerID] = time.Now()
-			log.Printf("Heartbeat received from %s", hb.WorkerID)
+			s.heartbeats[hb.WorkerID] = hb
+			log.Printf("Heartbeat received from %s (Status: %s, Load: %.2f)", hb.WorkerID, hb.Status, hb.Load)
+		} else {
+			log.Printf("Heartbeat received from unknown worker: %s", hb.WorkerID)
 		}
 		s.mu.Unlock()
 
@@ -62,7 +69,6 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 	case execution.ActionSubmitWorkflow:
 		log.Printf("Received workflow submission (%d bytes)", len(action.Body))
-		// For now, we just log the content. Real implementation would parse and execute.
 		return stream.Send(&flight.Result{Body: []byte("Workflow received successfully")})
 
 	default:

@@ -5,6 +5,8 @@ import (
 )
 
 func main() {
-	fmt.Println("Heddle Control Plane starting...")
-	StartServer(50051)
+	port := 50051
+	fmt.Printf("🚀 Heddle Control Plane starting on port %d...\n", port)
+	fmt.Println("📡 Arrow Flight server initializing...")
+	StartServer(port)
 }
