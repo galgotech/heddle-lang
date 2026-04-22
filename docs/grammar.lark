@@ -1,0 +1,89 @@
+start: _NL? program
+
+%declare _INDENT _DEDENT
+
+program: ((import_stmt _NL*) | (declaration _NL*) | (routine _NL*))*
+
+declaration: schema_def
+        | resource_binding
+        | step_binding
+
+routine: handler_def
+    | workflow_def
+
+import_stmt: "import" ESCAPED_STRING IDENTIFIER
+schema_def: "schema" IDENTIFIER (schema_block | "=" schema_ref)
+resource_binding: "resource" IDENTIFIER "=" function_ref
+step_binding: "step" IDENTIFIER ":" step_signature "=" function_ref
+
+handler_def: "handler" IDENTIFIER handler_block
+handler_block: "{" _NL+ _INDENT (_NL* handler_stmt (_NL+ handler_stmt)* _NL?)? _DEDENT _NL "}"
+handler_stmt: capture_stmt? pipeline_stmt
+!capture_stmt: "*"
+
+workflow_def: "workflow" IDENTIFIER trap_handler? workflow_block
+workflow_block: "{" _NL+ _INDENT (_NL* pipeline_stmt (_NL+ pipeline_stmt)* _NL?)? _DEDENT _NL "}"
+
+pipeline_stmt: (dataframe | pipe_chain) assignment_stmt?
+assignment_stmt: _NL ">" IDENTIFIER
+
+pipe_chain: call_expr ((_NL _INDENT "|" call_expr (_NL "|" call_expr)* _DEDENT) | (_NL "|" call_expr)+)?
+call_expr: (anonymous_step_expr | step_call) trap_handler?
+anonymous_step_expr: step_signature "=" (function_ref | query_block)
+query_block: PRQL_BLOCK
+step_call: IDENTIFIER
+trap_handler: "?" IDENTIFIER
+
+step_signature: (schema_ref | void_type) "->" (schema_ref | void_type)
+!void_type: "void"
+
+function_ref: IDENTIFIER "." IDENTIFIER resource_ref? function_config?
+schema_ref: IDENTIFIER "." IDENTIFIER | IDENTIFIER 
+resource_ref: "<" IDENTIFIER "=" IDENTIFIER ("," IDENTIFIER "=" IDENTIFIER)* ">"
+
+function_config: dict
+dict: "{" (_NL _INDENT (pair (","? _NL pair)* ","? _NL?)? _DEDENT _NL | (pair ("," pair)* ","?)?) "}"
+pair: IDENTIFIER ":" literal
+list: "[" _NL? (literal (","? _NL? literal)* _NL?)? "]"
+literal: dict
+        | list
+        | ESCAPED_STRING
+        | SIGNED_NUMBER
+        | TRUE
+        | FALSE
+        | NULL
+
+schema_block: "{" _NL _INDENT (schema_block_pair (","? _NL schema_block_pair)* ","? _NL?)? _DEDENT _NL "}"
+schema_block_pair: IDENTIFIER ":" (schema_block | primitive_type)
+!primitive_type: "int"
+        | "string"
+        | "float"
+        | "bool"
+        | "timestamp"
+
+dataframe: "[" _NL? (dataframe_dict (","? _NL? dataframe_dict)* _NL?)? "]"
+dataframe_dict: "{" (_NL _INDENT (dataframe_pair (","? _NL dataframe_pair)* ","? _NL?)? _DEDENT _NL | (dataframe_pair ("," dataframe_pair)* ","?)?) "}"
+dataframe_pair: IDENTIFIER ":" dataframe_primitive
+dataframe_primitive: ESCAPED_STRING
+        | SIGNED_NUMBER
+        | TRUE
+        | FALSE
+        | NULL
+
+TRUE: "true"
+FALSE: "false"
+NULL: "null"
+
+
+IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9\-_]*/
+PRQL_BLOCK: /\((?:[^)"']|"[^"]*"|'[^']*')*\)/
+COMMENT: /\/\/[^\n]*/
+_NL: NEWLINE
+
+%import common.ESCAPED_STRING
+%import common.SIGNED_NUMBER
+%import common.WS_INLINE -> WHITE_SPACE
+%import common.NEWLINE
+
+%ignore WHITE_SPACE
+%ignore COMMENT
