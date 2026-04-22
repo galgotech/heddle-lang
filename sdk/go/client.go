@@ -1,0 +1,63 @@
+package heddlesdk
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/apache/arrow/go/v18/arrow/flight"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/galgotech/heddle-lang/pkg/execution"
+)
+
+// ControlPlaneClient represents a client that interacts with the Heddle control plane.
+type ControlPlaneClient struct {
+	Addr   string
+	Client flight.Client
+	conn   *grpc.ClientConn
+}
+
+// NewControlPlaneClient creates a new Heddle control plane client.
+func NewControlPlaneClient(addr string) (*ControlPlaneClient, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to control plane: %w", err)
+	}
+
+	client := flight.NewClientFromConn(conn, nil)
+
+	return &ControlPlaneClient{
+		Addr:   addr,
+		Client: client,
+		conn:   conn,
+	}, nil
+}
+
+// Close closes the connection to the control plane.
+func (c *ControlPlaneClient) Close() error {
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+// SubmitWorkflow sends a Heddle workflow file to the control plane for processing.
+func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, workflow []byte) (string, error) {
+	action := &flight.Action{
+		Type: execution.ActionSubmitWorkflow,
+		Body: workflow,
+	}
+
+	stream, err := c.Client.DoAction(ctx, action)
+	if err != nil {
+		return "", fmt.Errorf("failed to submit workflow: %w", err)
+	}
+
+	result, err := stream.Recv()
+	if err != nil {
+		return "", fmt.Errorf("failed to receive submission result: %w", err)
+	}
+
+	return string(result.Body), nil
+}

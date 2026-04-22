@@ -50,4 +50,5 @@ const (
 	ActionRegisterWorker = "register-worker"
 	ActionHeartbeat      = "heartbeat"
 	ActionWarmup         = "warmup"
+	ActionSubmitWorkflow = "submit-workflow"
 )

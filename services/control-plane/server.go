@@ -60,6 +60,11 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
+	case execution.ActionSubmitWorkflow:
+		log.Printf("Received workflow submission (%d bytes)", len(action.Body))
+		// For now, we just log the content. Real implementation would parse and execute.
+		return stream.Send(&flight.Result{Body: []byte("Workflow received successfully")})
+
 	default:
 		return fmt.Errorf("unknown action: %s", action.Type)
 	}
