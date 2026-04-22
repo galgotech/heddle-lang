@@ -2,8 +2,8 @@ go 1.26.2
 
 use (
 	.
-	./services/cli
 	./services/control-plane
-	./services/data-manager
-	./workers/go
+	./services/worker
+	./sdk/go
+	./sdk-examples/go/calculator
 )
