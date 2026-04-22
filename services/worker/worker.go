@@ -8,19 +8,20 @@ import (
 	"net"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/pkg/execution"
 	_ "github.com/galgotech/heddle-lang/pkg/stdlib/io" // Register stdlib
+
+	"github.com/apache/arrow/go/v18/arrow/flight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Worker struct {
-	ID         string
-	CPAddr     string
-	Client     flight.Client
-	conn       *grpc.ClientConn
-	
+	ID     string
+	CPAddr string
+	Client flight.Client
+	conn   *grpc.ClientConn
+
 	// Plugin server
 	flight.BaseFlightServer
 	pluginAddr string
@@ -135,7 +136,7 @@ func (w *Worker) StartPluginServer(ctx context.Context) error {
 	flight.RegisterFlightServiceServer(server, w)
 
 	log.Printf("Worker %s starting plugin server at %s", w.ID, w.pluginAddr)
-	
+
 	go func() {
 		if err := server.Serve(lis); err != nil {
 			log.Printf("Plugin server error: %v", err)

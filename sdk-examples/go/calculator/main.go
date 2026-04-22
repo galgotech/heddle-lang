@@ -40,6 +40,6 @@ func main() {
 	if err := client.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("Plugin exited with error: %v", err)
 	}
-	
+
 	log.Println("Calculator Plugin stopped.")
 }

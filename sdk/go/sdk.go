@@ -46,7 +46,7 @@ func (c *PluginClient) Close() error {
 // Run starts the plugin execution loop.
 func (c *PluginClient) Run(ctx context.Context) error {
 	log.Printf("Plugin %s connecting to server at %s", c.ID, c.Addr)
-	
+
 	// Open exchange stream for tasks
 	stream, err := c.Client.DoExchange(ctx)
 	if err != nil {
@@ -66,7 +66,7 @@ func (c *PluginClient) Run(ctx context.Context) error {
 				log.Printf("Server connection closed or error: %v", err)
 				return err
 			}
-			
+
 			// TODO: Implement task routing and execution logic
 			log.Printf("Plugin %s received a task", c.ID)
 		}

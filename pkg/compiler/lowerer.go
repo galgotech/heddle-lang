@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/galgotech/heddle-lang/pkg/ast"
 	"github.com/galgotech/heddle-lang/pkg/ir"
-	"github.com/google/uuid"
 )
 
 // Lowerer handles the translation of the Abstract Syntax Tree (AST) into

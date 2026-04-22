@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/galgotech/heddle-lang/pkg/execution"
 	"google.golang.org/grpc"
+
+	"github.com/galgotech/heddle-lang/pkg/execution"
 )
 
 type ControlPlaneServer struct {
@@ -68,7 +69,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 	// For this initial implementation, we just echo back a "Connection established" message
 	// and wait for messages. Real logic would involve sending IR and receiving TaskUpdates.
 	log.Printf("Worker established exchange stream")
-	
+
 	for {
 		data, err := stream.Recv()
 		if err != nil {
