@@ -160,11 +160,6 @@ func (l *Lexer) handleNewLine() Token {
 
 	// Peek ahead for indentation of next non-empty line
 	indentation := ""
-	tempPos := l.position
-	tempReadPos := l.readPosition
-	tempCh := l.ch
-	tempLine := l.line
-	tempCol := l.column
 
 	for {
 		if l.ch == ' ' || l.ch == '\t' {
@@ -242,12 +237,7 @@ func (l *Lexer) handleNewLine() Token {
 		}
 	}
 
-	// Restore position after peeking
-	l.position = tempPos
-	l.readPosition = tempReadPos
-	l.ch = tempCh
-	l.line = tempLine
-	l.column = tempCol
+	// Remove restoration to allow the lexer to continue from the first non-whitespace character
 
 	// If we have pending DEDENTs, they should come BEFORE the NEWLINE
 	// that triggered them, to match the grammar pattern _DEDENT _NL "}"

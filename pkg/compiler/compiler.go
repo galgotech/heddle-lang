@@ -2,24 +2,40 @@ package compiler
 
 import (
 	"fmt"
+
+	"github.com/galgotech/heddle-lang/pkg/ast"
+	"github.com/galgotech/heddle-lang/pkg/ir"
+	"github.com/galgotech/heddle-lang/pkg/lexer"
 	"github.com/galgotech/heddle-lang/pkg/parser"
 )
 
 // Compiler represents the Heddle compiler.
 type Compiler struct {
-	Parser *parser.Parser
 }
 
 // New creates a new instance of the Compiler.
 func New() *Compiler {
-	return &Compiler{
-		Parser: parser.New(),
-	}
+	return &Compiler{}
 }
 
-// Compile takes Heddle source code and compiles it.
-func (c *Compiler) Compile(source string) error {
-	fmt.Printf("Compiling source (length: %d)...\n", len(source))
-	// Placeholder for compilation logic
-	return nil
+// Compile takes Heddle source code and compiles it into IR.
+func (c *Compiler) Compile(source string) (*ir.ProgramIR, error) {
+	// 1. Lexing & Parsing
+	l := lexer.New(source)
+	p := parser.New(l)
+	program := p.Parse()
+
+	if len(p.Errors()) > 0 {
+		return nil, fmt.Errorf("parser errors: %v", p.Errors())
+	}
+
+	// 2. Lowering
+	lowerer := NewLowerer()
+	return lowerer.Lower(program)
+}
+
+// CompileAST takes an AST and lowers it into IR.
+func (c *Compiler) CompileAST(program *ast.Program) (*ir.ProgramIR, error) {
+	lowerer := NewLowerer()
+	return lowerer.Lower(program)
 }
