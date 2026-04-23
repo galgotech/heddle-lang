@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )
@@ -24,7 +24,7 @@ var rootCmd = &cobra.Command{
 	Use:   "heddle-client",
 	Short: "Heddle Client interacts with the control plane",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return initializeConfig(cmd)
+		return initializeConfig()
 	},
 }
 
@@ -72,27 +72,8 @@ var submitCmd = &cobra.Command{
 	},
 }
 
-func initializeConfig(cmd *cobra.Command) error {
-	viper.SetEnvPrefix("HEDDLE_CLIENT")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
-
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		viper.SetConfigName("heddle-client")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.heddle")
-	}
-
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
-	}
-
-	return nil
+func initializeConfig() error {
+	return config.Init("HEDDLE_CLIENT", cfgFile)
 }
 
 func init() {

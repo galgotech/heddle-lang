@@ -7,13 +7,13 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/google/go-dap"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -25,7 +25,7 @@ var rootCmd = &cobra.Command{
 	Use:   "heddle-dap",
 	Short: "Heddle Debug Adapter",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return initializeConfig(cmd)
+		return initializeConfig()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Initialize logger with file output
@@ -48,27 +48,8 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-func initializeConfig(cmd *cobra.Command) error {
-	viper.SetEnvPrefix("HEDDLE_DAP")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
-
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		viper.SetConfigName("heddle-dap")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.heddle")
-	}
-
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
-	}
-
-	return nil
+func initializeConfig() error {
+	return config.Init("HEDDLE_DAP", cfgFile)
 }
 
 func init() {

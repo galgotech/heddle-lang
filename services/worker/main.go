@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/execution"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	_ "github.com/galgotech/heddle-lang/pkg/stdlib/io"
@@ -25,7 +25,7 @@ var rootCmd = &cobra.Command{
 	Use:   "heddle-worker",
 	Short: "Heddle Worker executes tasks assigned by the control plane",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return initializeConfig(cmd)
+		return initializeConfig()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Initialize logger
@@ -66,27 +66,8 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-func initializeConfig(cmd *cobra.Command) error {
-	viper.SetEnvPrefix("HEDDLE_WORKER")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
-
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		viper.SetConfigName("heddle-worker")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.heddle")
-	}
-
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
-	}
-
-	return nil
+func initializeConfig() error {
+	return config.Init("HEDDLE_WORKER", cfgFile)
 }
 
 func init() {

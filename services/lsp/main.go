@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,6 +12,7 @@ import (
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 
+	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -39,7 +39,7 @@ var rootCmd = &cobra.Command{
 	Use:   "heddle-lsp",
 	Short: "Heddle Language Server",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return initializeConfig(cmd)
+		return initializeConfig()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		logPath := viper.GetString("log-path")
@@ -75,27 +75,8 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-func initializeConfig(cmd *cobra.Command) error {
-	viper.SetEnvPrefix("HEDDLE_LSP")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
-
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		viper.SetConfigName("heddle-lsp")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.heddle")
-	}
-
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
-	}
-
-	return nil
+func initializeConfig() error {
+	return config.Init("HEDDLE_LSP", cfgFile)
 }
 
 func init() {
