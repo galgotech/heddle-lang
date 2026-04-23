@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
-	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
 func TestEndToEndDataFlow(t *testing.T) {
@@ -23,11 +23,11 @@ func TestEndToEndDataFlow(t *testing.T) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	cpAddr := lis.Addr().String()
-	
+
 	server := grpc.NewServer()
 	cpServer := NewControlPlaneServer()
 	flight.RegisterFlightServiceServer(server, cpServer)
-	
+
 	go func() {
 		if err := server.Serve(lis); err != nil {
 			fmt.Printf("CP server error: %v\n", err)
@@ -71,10 +71,10 @@ workflow main {
 	}
 
 	programBody, _ := json.Marshal(program)
-	
+
 	conn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	client := flight.NewClientFromConn(conn, nil)
-	
+
 	action := &flight.Action{
 		Type: execution.ActionSubmitWorkflow,
 		Body: programBody,

@@ -10,7 +10,7 @@ import (
 	"github.com/google/go-dap"
 	"go.uber.org/zap"
 
-	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )

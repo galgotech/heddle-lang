@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 )

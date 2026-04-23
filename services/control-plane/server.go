@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
-	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )

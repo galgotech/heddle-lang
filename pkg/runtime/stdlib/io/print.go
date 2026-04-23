@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 
 	"github.com/apache/arrow/go/v18/arrow"
 )

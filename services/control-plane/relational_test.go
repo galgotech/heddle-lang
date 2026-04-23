@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
-	"github.com/galgotech/heddle-lang/pkg/execution"
 )
 
 func TestRelationalEngineIntegration(t *testing.T) {
@@ -26,11 +26,11 @@ func TestRelationalEngineIntegration(t *testing.T) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	cpAddr := lis.Addr().String()
-	
+
 	server := grpc.NewServer()
 	cpServer := NewControlPlaneServer()
 	flight.RegisterFlightServiceServer(server, cpServer)
-	
+
 	go func() {
 		if err := server.Serve(lis); err != nil {
 			fmt.Printf("CP server error: %v\n", err)
@@ -71,8 +71,8 @@ step prn: void -> void = io.print
 
 workflow main {
   gen
-  | (from input | filter val > 1)
-  | prn
+	| (from input | filter val > 1)
+	| prn
 }
 `
 	c := compiler.New()
@@ -82,10 +82,10 @@ workflow main {
 	}
 
 	programBody, _ := json.Marshal(program)
-	
+
 	conn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	client := flight.NewClientFromConn(conn, nil)
-	
+
 	action := &flight.Action{
 		Type: execution.ActionSubmitWorkflow,
 		Body: programBody,

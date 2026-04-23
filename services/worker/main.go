@@ -12,9 +12,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/config"
-	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/logger"
-	_ "github.com/galgotech/heddle-lang/pkg/stdlib/io"
+	_ "github.com/galgotech/heddle-lang/pkg/runtime/stdlib/io"
 )
 
 var (

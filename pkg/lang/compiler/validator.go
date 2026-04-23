@@ -338,7 +338,7 @@ func (v *Validator) validatePipelineTypes(ps *ast.PipelineStatement) error {
 			}
 
 			// 3. Ensure no void -> void in intermediate stages
-			if _, okIn := sig.Input.(*ast.VoidType); okIn {
+			if _, okIn := sig.Input.(*ast.VoidType); okIn && i > 0 {
 				if _, okOut := sig.Output.(*ast.VoidType); okOut {
 					return fmt.Errorf("invalid step '%s': 'void -> void' steps are not allowed in pipelines", currentStepName)
 				}
