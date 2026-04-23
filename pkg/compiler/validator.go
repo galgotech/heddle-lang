@@ -41,6 +41,11 @@ func (v *Validator) Validate() error {
 		return err
 	}
 
+	// 4. Validate types
+	if err := v.validateTypes(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -246,4 +251,157 @@ func (v *Validator) Lookup(name string) ast.Node {
 		return handler
 	}
 	return nil
+}
+
+// Type Checking logic
+
+func (v *Validator) validateTypes() error {
+	for _, stmt := range v.program.Statements {
+		switch s := stmt.(type) {
+		case *ast.WorkflowDefinition:
+			if err := v.validateWorkflowTypes(s); err != nil {
+				return err
+			}
+		case *ast.HandlerDefinition:
+			if err := v.validateHandlerTypes(s); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validateWorkflowTypes(wd *ast.WorkflowDefinition) error {
+	for _, ps := range wd.Statements {
+		if err := v.validatePipelineTypes(ps); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validateHandlerTypes(hd *ast.HandlerDefinition) error {
+	for _, stmt := range hd.Statements {
+		if ps, ok := stmt.(*ast.PipelineStatement); ok {
+			if err := v.validatePipelineTypes(ps); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validatePipelineTypes(ps *ast.PipelineStatement) error {
+	switch expr := ps.Expression.(type) {
+	case *ast.PipeChain:
+		var lastOutput ast.Node
+		var lastStepName string
+
+		for i, call := range expr.Calls {
+			sig, err := v.getStepSignature(call.Step)
+			if err != nil {
+				return err
+			}
+
+			currentStepName := v.getStepName(call.Step)
+
+			// 0. Check Trap Handler compatibility
+			if call.TrapHandler != nil {
+				handler := v.mapHandler[call.TrapHandler.Name.Value]
+				if len(handler.Statements) > 0 {
+					// Assume first statement in handler is a pipeline
+					if ps, ok := handler.Statements[0].(*ast.PipelineStatement); ok {
+						hSig, hErr := v.getPipelineFirstStepSignature(ps)
+						if hErr == nil {
+							if !v.areTypesCompatible(sig.Output, hSig.Input) {
+								return fmt.Errorf("type mismatch in handler: step '%s' outputs '%s' but handler '%s' expects '%s'",
+									currentStepName, sig.Output.String(), handler.Name.Value, hSig.Input.String())
+							}
+						}
+					}
+				}
+			}
+
+			// 1. Check if first step's input is void
+			if i == 0 {
+				if _, ok := sig.Input.(*ast.VoidType); !ok {
+					// We currently only support pipelines starting with void input
+					// unless they are explicitly fed by a resource/dataframe (not yet fully implemented in validation)
+					// return fmt.Errorf("pipeline starting step '%s' must have 'void' input, got '%s'", currentStepName, sig.Input.String())
+				}
+			} else {
+				// 2. Check compatibility with previous step
+				if !v.areTypesCompatible(lastOutput, sig.Input) {
+					return fmt.Errorf("type mismatch in pipe: step '%s' outputs '%s' but step '%s' expects '%s'",
+						lastStepName, lastOutput.String(), currentStepName, sig.Input.String())
+				}
+			}
+
+			// 3. Ensure no void -> void in intermediate stages
+			if _, okIn := sig.Input.(*ast.VoidType); okIn {
+				if _, okOut := sig.Output.(*ast.VoidType); okOut {
+					return fmt.Errorf("invalid step '%s': 'void -> void' steps are not allowed in pipelines", currentStepName)
+				}
+			}
+
+			lastOutput = sig.Output
+			lastStepName = currentStepName
+		}
+	}
+	return nil
+}
+
+func (v *Validator) getStepSignature(expr ast.Expression) (*ast.StepSignature, error) {
+	switch e := expr.(type) {
+	case *ast.StepCall:
+		sb, ok := v.mapStep[e.Name.Value]
+		if !ok {
+			return nil, fmt.Errorf("undefined step: %s", e.Name.Value)
+		}
+		return sb.Signature, nil
+	case *ast.AnonymousStepExpression:
+		return e.Signature, nil
+	default:
+		return nil, fmt.Errorf("unsupported step expression type: %T", expr)
+	}
+}
+
+func (v *Validator) getStepName(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.StepCall:
+		return e.Name.Value
+	case *ast.AnonymousStepExpression:
+		return "anonymous step"
+	default:
+		return "unknown"
+	}
+}
+
+func (v *Validator) areTypesCompatible(out, in ast.Node) bool {
+	if out == nil || in == nil {
+		return false
+	}
+
+	// Exact match for void
+	_, outVoid := out.(*ast.VoidType)
+	_, inVoid := in.(*ast.VoidType)
+	if outVoid && inVoid {
+		return true
+	}
+	if outVoid || inVoid {
+		return false
+	}
+
+	// Exact name match for schemas
+	return out.String() == in.String()
+}
+
+func (v *Validator) getPipelineFirstStepSignature(ps *ast.PipelineStatement) (*ast.StepSignature, error) {
+	switch expr := ps.Expression.(type) {
+	case *ast.PipeChain:
+		if len(expr.Calls) > 0 {
+			return v.getStepSignature(expr.Calls[0].Step)
+		}
+	}
+	return nil, fmt.Errorf("could not determine signature of pipeline")
 }
