@@ -1,4 +1,1 @@
 bin/**
-services/relational-worker/target/**
-editors/vscode/out/**
-editors/vscode/node_modules/**

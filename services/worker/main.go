@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"go.uber.org/zap"
+
 	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	_ "github.com/galgotech/heddle-lang/pkg/stdlib/io"
 )
 
@@ -17,9 +19,15 @@ func main() {
 	cpAddr := flag.String("cp", "localhost:50051", "Address of the control plane")
 	flag.Parse()
 
+	// Initialize logger
+	if err := logger.Init(logger.Config{Development: true}); err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+
 	worker, err := execution.NewWorker(*workerID, *cpAddr)
 	if err != nil {
-		log.Fatalf("Failed to create worker: %v", err)
+		logger.L().Fatal("Failed to create worker", zap.Error(err))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -34,13 +42,13 @@ func main() {
 	}()
 
 	if err := worker.Register(ctx); err != nil {
-		log.Fatalf("Failed to register worker: %v", err)
+		logger.L().Fatal("Failed to register worker", zap.Error(err))
 	}
 
 	go worker.StartHeartbeat(ctx)
 	go worker.StartExecutionLoop(ctx)
 
-	log.Printf("Worker %s is running", *workerID)
+	logger.L().Info("Worker is running", zap.String("workerID", *workerID))
 	<-ctx.Done()
-	log.Printf("Worker %s shutting down", *workerID)
+	logger.L().Info("Worker shutting down", zap.String("workerID", *workerID))
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -13,6 +12,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/pkg/data"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 type Worker struct {
@@ -69,7 +69,7 @@ func (w *Worker) Register(ctx context.Context) error {
 		return fmt.Errorf("failed to receive registration result: %w", err)
 	}
 
-	log.Printf("Worker %s registered successfully", w.ID)
+	logger.L().Info("Worker registered successfully", logger.String("workerID", w.ID))
 	return nil
 }
 
@@ -93,7 +93,7 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 
 			stream, err := w.Client.DoAction(ctx, action)
 			if err != nil {
-				log.Printf("Heartbeat failed: %v", err)
+				logger.L().Warn("Heartbeat failed", logger.Error(err))
 				continue
 			}
 			_, _ = stream.Recv() // Drain result
@@ -106,10 +106,10 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	stream, err := w.Client.DoExchange(ctx)
 	if err != nil {
-		log.Fatalf("failed to open exchange stream: %v", err)
+		logger.L().Fatal("failed to open exchange stream", logger.Error(err))
 	}
 
-	log.Printf("Worker %s execution loop started", w.ID)
+	logger.L().Info("Worker execution loop started", logger.String("workerID", w.ID))
 
 	for {
 		select {
@@ -118,17 +118,19 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 		default:
 			data, err := stream.Recv()
 			if err != nil {
-				log.Printf("Execution stream closed: %v", err)
+				logger.L().Info("Execution stream closed", logger.Error(err))
 				return
 			}
 
 			var task Task
 			if err := json.Unmarshal(data.DataBody, &task); err != nil {
-				log.Printf("Failed to unmarshal task: %v", err)
+				logger.L().Error("Failed to unmarshal task", logger.Error(err))
 				continue
 			}
 
-			log.Printf("Executing task %s (%s)", task.ID, task.Step.DefinitionName)
+			logger.L().Info("Executing task",
+				logger.String("taskID", task.ID),
+				logger.String("step", task.Step.DefinitionName))
 
 			// Execute step
 			outputHandle, err := w.executeTask(ctx, task)
@@ -147,7 +149,7 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 
 			updateBody, _ := json.Marshal(update)
 			if err := stream.Send(&flight.FlightData{DataBody: updateBody}); err != nil {
-				log.Printf("Failed to send task update: %v", err)
+				logger.L().Error("Failed to send task update", logger.Error(err))
 			}
 		}
 	}
@@ -192,7 +194,7 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 
 // DoExchange implements the plugin server's exchange logic.
 func (w *Worker) DoExchange(stream flight.FlightService_DoExchangeServer) error {
-	log.Println("New plugin client connected via DoExchange")
+	logger.L().Info("New plugin client connected via DoExchange")
 	for {
 		_, err := stream.Recv()
 		if err != nil {

@@ -3,16 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
 	"github.com/galgotech/heddle-lang/pkg/execution"
 	"github.com/galgotech/heddle-lang/pkg/ir"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 type ControlPlaneServer struct {
@@ -51,7 +52,10 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		}
 		s.mu.Unlock()
 
-		log.Printf("Worker registered: %s (%s) at %s", reg.WorkerID, reg.Runtime, reg.Address)
+		logger.L().Info("Worker registered",
+			zap.String("workerID", reg.WorkerID),
+			zap.String("runtime", reg.Runtime),
+			zap.String("address", reg.Address))
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case execution.ActionHeartbeat:
@@ -63,16 +67,19 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		s.mu.Lock()
 		if _, ok := s.workers[hb.WorkerID]; ok {
 			s.heartbeats[hb.WorkerID] = hb
-			log.Printf("Heartbeat received from %s (Status: %s, Load: %.2f)", hb.WorkerID, hb.Status, hb.Load)
+			logger.L().Info("Heartbeat received",
+				zap.String("workerID", hb.WorkerID),
+				zap.String("status", string(hb.Status)),
+				zap.Float64("load", hb.Load))
 		} else {
-			log.Printf("Heartbeat received from unknown worker: %s", hb.WorkerID)
+			logger.L().Warn("Heartbeat received from unknown worker", zap.String("workerID", hb.WorkerID))
 		}
 		s.mu.Unlock()
 
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case execution.ActionSubmitWorkflow:
-		log.Printf("Received workflow submission (%d bytes)", len(action.Body))
+		logger.L().Info("Received workflow submission", zap.Int("bytes", len(action.Body)))
 
 		var program ir.ProgramIR
 		if err := json.Unmarshal(action.Body, &program); err != nil {
@@ -87,7 +94,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		s.dispatcher = execution.NewDispatcher(&program)
 		s.mu.Unlock()
 
-		log.Printf("Workflow initialized with %d entry points", len(program.Workflows))
+		logger.L().Info("Workflow initialized", zap.Int("entryPoints", len(program.Workflows)))
 		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
 
 	case execution.ActionGetHistory:
@@ -109,7 +116,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 }
 
 func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
-	log.Printf("Worker established exchange stream")
+	logger.L().Info("Worker established exchange stream")
 
 	// This is a simplified execution loop.
 	// In a real implementation, we'd have a central loop that monitors dispatcher and idle workers.
@@ -121,7 +128,9 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		if disp != nil {
 			tasks := disp.NextTasks()
 			for _, task := range tasks {
-				log.Printf("Dispatching task %s (%s) to worker", task.ID, task.Step.DefinitionName)
+				logger.L().Info("Dispatching task",
+					zap.String("taskID", task.ID),
+					zap.String("step", task.Step.DefinitionName))
 
 				body, _ := json.Marshal(task)
 				if err := stream.Send(&flight.FlightData{DataBody: body}); err != nil {
@@ -132,20 +141,22 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 
 		data, err := stream.Recv()
 		if err != nil {
-			log.Printf("Exchange stream closed: %v", err)
+			logger.L().Info("Exchange stream closed", zap.Error(err))
 			return nil
 		}
 
 		var update execution.TaskUpdate
 		if err := json.Unmarshal(data.DataBody, &update); err == nil {
-			log.Printf("Received TaskUpdate: %s -> %s", update.TaskID, update.Status)
+			logger.L().Info("Received TaskUpdate",
+				zap.String("taskID", update.TaskID),
+				zap.String("status", string(update.Status)))
 			s.mu.Lock()
 			if s.dispatcher != nil {
 				s.dispatcher.ReportUpdate(update)
 			}
 			s.mu.Unlock()
 		} else {
-			log.Printf("Received non-update data from worker")
+			logger.L().Warn("Received non-update data from worker")
 		}
 
 		time.Sleep(1 * time.Second) // Slow down the loop for now
@@ -156,15 +167,15 @@ func StartServer(port int) {
 	addr := fmt.Sprintf(":%d", port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.L().Fatal("failed to listen", zap.Error(err))
 	}
 
 	server := grpc.NewServer()
 	cpServer := NewControlPlaneServer()
 	flight.RegisterFlightServiceServer(server, cpServer)
 
-	log.Printf("Control Plane Flight Server listening on %s", addr)
+	logger.L().Info("Control Plane Flight Server listening", zap.String("address", addr))
 	if err := server.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		logger.L().Fatal("failed to serve", zap.Error(err))
 	}
 }

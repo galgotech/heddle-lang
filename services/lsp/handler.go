@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/ast"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 func (h *lspHandler) debouncedPublishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
@@ -25,7 +25,7 @@ func (h *lspHandler) debouncedPublishDiagnostics(ctx context.Context, uri protoc
 }
 
 func (h *lspHandler) DidOpenTextDocument(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {
-	logger.Info("Document opened", zap.String("uri", string(params.TextDocument.URI)))
+	logger.L().Info("Document opened", logger.String("uri", string(params.TextDocument.URI)))
 	h.debouncedPublishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Text)
 	return nil
 }
@@ -92,7 +92,7 @@ func (h *lspHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*
 }
 
 func (h *lspHandler) publishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
-	logger.Info("Publishing diagnostics", zap.String("uri", string(uri)))
+	logger.L().Info("Publishing diagnostics", logger.String("uri", string(uri)))
 
 	_, parserErrors := state.UpdateDocument(string(uri), text)
 	doc, _ := state.GetDocument(string(uri))

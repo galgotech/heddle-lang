@@ -1,12 +1,21 @@
 package main
 
 import (
-	"fmt"
+	"go.uber.org/zap"
+
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 func main() {
+	// Initialize logger
+	if err := logger.Init(logger.Config{Development: true}); err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+
 	port := 50051
-	fmt.Printf("🚀 Heddle Control Plane starting on port %d...\n", port)
-	fmt.Println("📡 Arrow Flight server initializing...")
+	logger.L().Info("Heddle Control Plane starting", zap.Int("port", port))
+	logger.L().Info("Arrow Flight server initializing")
+
 	StartServer(port)
 }

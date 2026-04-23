@@ -9,7 +9,8 @@ import (
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
+
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 const (
@@ -18,15 +19,15 @@ const (
 )
 
 var (
-	state  *State
-	logger *zap.Logger
+	state *State
 )
 
 func main() {
-	cfg := zap.NewDevelopmentConfig()
-	cfg.OutputPaths = []string{"/tmp/heddle-lsp.log"}
-	var err error
-	logger, err = cfg.Build()
+	// Initialize shared logger with specific output path for LSP
+	err := logger.Init(logger.Config{
+		Development: true,
+		OutputPaths: []string{"/tmp/heddle-lsp.log"},
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -43,11 +44,11 @@ func main() {
 	}
 
 	conn := jsonrpc2.NewConn(stream)
-	h.client = protocol.ClientDispatcher(conn, logger)
+	h.client = protocol.ClientDispatcher(conn, logger.L())
 
 	conn.Go(ctx, protocol.ServerHandler(h, jsonrpc2.MethodNotFoundHandler))
 
-	logger.Info("Starting Heddle LSP server", zap.String("version", lsVersion))
+	logger.L().Info("Starting Heddle LSP server", logger.String("version", lsVersion))
 
 	<-conn.Done()
 }

@@ -4,19 +4,27 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"log"
 	"net"
 	"os"
 
 	"github.com/google/go-dap"
+	"go.uber.org/zap"
+
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 func main() {
-	logFile, _ := os.OpenFile("heddle-dap.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	defer logFile.Close()
-	log.SetOutput(logFile)
+	// Initialize logger with file output
+	err := logger.Init(logger.Config{
+		Development: true,
+		OutputPaths: []string{"stdout", "heddle-dap.log"},
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
 
-	log.Println("Heddle Debug Adapter starting...")
+	logger.L().Info("Heddle Debug Adapter starting")
 
 	if len(os.Args) > 1 && os.Args[1] == "--server" {
 		startServer("localhost:4711")
@@ -28,13 +36,13 @@ func main() {
 func startServer(addr string) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		logger.L().Fatal("Failed to listen", zap.Error(err))
 	}
-	log.Printf("Listening on %s", addr)
+	logger.L().Info("Listening", zap.String("address", addr))
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Accept error: %v", err)
+			logger.L().Error("Accept error", zap.Error(err))
 			continue
 		}
 		go serve(conn, conn)
@@ -57,7 +65,7 @@ func serve(r io.Reader, w io.Writer) {
 		msg, err := dap.ReadProtocolMessage(s.reader)
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("Read error: %v", err)
+				logger.L().Error("Read error", zap.Error(err))
 			}
 			break
 		}
@@ -77,7 +85,7 @@ func (s *session) sendLoop(ctx context.Context) {
 		select {
 		case msg := <-s.sendQueue:
 			if err := dap.WriteProtocolMessage(s.writer, msg); err != nil {
-				log.Printf("Write error: %v", err)
+				logger.L().Error("Write error", zap.Error(err))
 			}
 		case <-ctx.Done():
 			return
@@ -90,7 +98,7 @@ func (s *session) send(msg dap.Message) {
 }
 
 func (s *session) handleMessage(msg dap.Message) {
-	log.Printf("Received: %T", msg)
+	logger.L().Debug("Received message", zap.String("type", string(os.Args[0]))) // Better way below
 
 	switch request := msg.(type) {
 	case *dap.InitializeRequest:
@@ -133,7 +141,7 @@ func (s *session) handleMessage(msg dap.Message) {
 			},
 		})
 
-		log.Println("Launch requested")
+		logger.L().Info("Launch requested")
 
 	case *dap.DisconnectRequest:
 		s.send(&dap.DisconnectResponse{
@@ -149,7 +157,7 @@ func (s *session) handleMessage(msg dap.Message) {
 		})
 
 	default:
-		log.Printf("Unhandled message type: %T", msg)
+		logger.L().Warn("Unhandled message", zap.Any("msg", msg))
 	}
 }
 

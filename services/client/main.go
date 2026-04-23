@@ -5,16 +5,24 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"time"
 
-	"github.com/galgotech/heddle-lang/sdk/go"
+	"go.uber.org/zap"
+
+	"github.com/galgotech/heddle-lang/pkg/logger"
+	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )
 
 func main() {
 	serverAddr := flag.String("server", "localhost:50051", "Control plane address")
 	flag.Parse()
+
+	// Initialize logger
+	if err := logger.Init(logger.Config{Development: true}); err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
 
 	if flag.NArg() < 1 {
 		fmt.Println("Usage: heddle-client [options] <command> [args]")
@@ -30,37 +38,37 @@ func main() {
 
 	client, err := heddlesdk.NewControlPlaneClient(*serverAddr)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		logger.L().Fatal("Failed to create client", zap.Error(err))
 	}
 	defer client.Close()
 
 	switch command {
 	case "submit":
 		if flag.NArg() < 2 {
-			log.Fatal("Missing heddle file path")
+			logger.L().Fatal("Missing heddle file path")
 		}
 		filePath := flag.Arg(1)
-		
+
 		file, err := os.Open(filePath)
 		if err != nil {
-			log.Fatalf("Failed to open file: %v", err)
+			logger.L().Fatal("Failed to open file", zap.Error(err), zap.String("path", filePath))
 		}
 		defer file.Close()
 
 		content, err := io.ReadAll(file)
 		if err != nil {
-			log.Fatalf("Failed to read file: %v", err)
+			logger.L().Fatal("Failed to read file", zap.Error(err), zap.String("path", filePath))
 		}
 
-		log.Printf("Submitting workflow from %s...", filePath)
+		logger.L().Info("Submitting workflow", zap.String("path", filePath))
 		result, err := client.SubmitWorkflow(ctx, content)
 		if err != nil {
-			log.Fatalf("Submission failed: %v", err)
+			logger.L().Fatal("Submission failed", zap.Error(err))
 		}
 
 		fmt.Printf("Success: %s\n", result)
 
 	default:
-		log.Fatalf("Unknown command: %s", command)
+		logger.L().Fatal("Unknown command", zap.String("command", command))
 	}
 }
