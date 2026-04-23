@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.lsp.dev/protocol"
@@ -10,6 +11,46 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
+
+type lspHandler struct {
+	protocol.Server
+	client protocol.Client
+
+	mu     sync.Mutex
+	timers map[protocol.DocumentURI]*time.Timer
+}
+
+func (h *lspHandler) Initialize(ctx context.Context, params *protocol.InitializeParams) (*protocol.InitializeResult, error) {
+	return &protocol.InitializeResult{
+		Capabilities: protocol.ServerCapabilities{
+			TextDocumentSync: &protocol.TextDocumentSyncOptions{
+				OpenClose: true,
+				Change:    protocol.TextDocumentSyncKindFull,
+			},
+			HoverProvider:      true,
+			DefinitionProvider: true,
+			CompletionProvider: &protocol.CompletionOptions{
+				TriggerCharacters: []string{"."},
+			},
+		},
+		ServerInfo: &protocol.ServerInfo{
+			Name:    lsName,
+			Version: lsVersion,
+		},
+	}, nil
+}
+
+func (h *lspHandler) Initialized(ctx context.Context, params *protocol.InitializedParams) error {
+	return nil
+}
+
+func (h *lspHandler) Shutdown(ctx context.Context) error {
+	return nil
+}
+
+func (h *lspHandler) Exit(ctx context.Context) error {
+	return nil
+}
 
 func (h *lspHandler) debouncedPublishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
 	h.mu.Lock()
