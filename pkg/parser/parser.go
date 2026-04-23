@@ -496,6 +496,11 @@ func (p *Parser) parseCallExpression() *ast.CallExpression {
 			Token: p.curToken,
 			Name:  &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal},
 		}
+	} else if p.curTokenIs(lexer.PRQL_BLOCK) {
+		ce.Step = &ast.PRQLExpression{
+			Token: p.curToken,
+			Value: p.curToken.Literal,
+		}
 	} else {
 		msg := fmt.Sprintf("expected identifier or anonymous step, got %s at line %d, col %d",
 			p.curToken.Type, p.curToken.Line, p.curToken.Column)

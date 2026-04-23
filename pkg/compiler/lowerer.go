@@ -196,6 +196,7 @@ func (l *Lowerer) lowerCall(call *ast.CallExpression) (*ir.StepInstruction, erro
 			step.Resources = fr.Resource
 		} else if prql, ok := s.Ref.(*ast.PRQLExpression); ok {
 			step.Config = map[string]any{"query": prql.Value}
+			step.Call = []string{"std", "relational", "prql"}
 		}
 	}
 

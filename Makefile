@@ -6,9 +6,10 @@ GO=go
 
 # Services (Main build target)
 SERVICES=control-plane worker client
+RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
-.PHONY: all build clean test $(SERVICES) $(EXAMPLES) run-server submit
+.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit
 
 # Default target
 all: build
@@ -18,7 +19,7 @@ $(BINARY_DIR):
 	mkdir -p $(BINARY_DIR)
 
 # Build all services and examples
-build: $(BINARY_DIR) $(SERVICES) $(EXAMPLES)
+build: $(BINARY_DIR) $(SERVICES) $(RUST_SERVICES) $(EXAMPLES)
 	@echo "All build targets complete."
 
 # Individual Service Targets
@@ -33,6 +34,12 @@ worker: $(BINARY_DIR)
 client: $(BINARY_DIR)
 	@echo "Building Client CLI..."
 	$(GO) build -o $(BINARY_DIR)/heddle-client ./services/client
+
+# Rust Service Targets
+relational-worker: $(BINARY_DIR)
+	@echo "Building Relational Worker (Rust)..."
+	cd services/relational-worker && cargo build --release
+	cp services/relational-worker/target/release/relational-worker $(BINARY_DIR)/heddle-relational-worker
 
 # Individual Example Targets
 calculator-example: $(BINARY_DIR)
@@ -68,6 +75,7 @@ help:
 	@echo "  make control-plane - Build only the control plane"
 	@echo "  make worker        - Build only the worker service"
 	@echo "  make client        - Build only the client CLI"
+	@echo "  make relational-worker - Build only the Rust relational worker"
 	@echo "  make calculator-example - Build only the calculator example"
 	@echo "  make run-server    - Build and start the control plane"
 	@echo "  make submit FILE=f.he - Build and submit a heddle file"
