@@ -5,34 +5,43 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 )
 
-// DataManager handles shared memory allocation and Arrow IPC data exchange.
+// DataManager handles memory allocation, sharing, and spilling of HeddleFrames.
 type DataManager struct {
-	basePath string
+	basePath    string
+	memoryLimit int64
+	activeBytes int64
+	registry    *FrameRegistry
+	mu          sync.RWMutex
 }
 
-// NewDataManager creates a new DataManager.
-func NewDataManager(basePath string) *DataManager {
-	// Ensure the base path exists
+// NewDataManager creates a new DataManager with a memory limit and spill path.
+func NewDataManager(basePath string, memoryLimit int64) *DataManager {
 	_ = os.MkdirAll(basePath, 0777)
-	return &DataManager{basePath: basePath}
+	return &DataManager{
+		basePath:    basePath,
+		memoryLimit: memoryLimit,
+		registry:    NewFrameRegistry(),
+	}
 }
 
-// Put writes an Arrow Record to shared memory.
+// Put writes an Arrow Record to the managed storage.
+// It decides whether to use RAM (memfd), SHM, or Disk based on memory limits.
 func (m *DataManager) Put(id string, record arrow.Record) error {
-	path := filepath.Join(m.basePath, id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// 1. Serialize record to a buffer first to know the size
-	// (In a more optimized version, we'd pre-calculate or use a streaming approach)
+	// 1. Serialize to buffer to calculate size
 	var buf bytes.Buffer
 	writer := ipc.NewWriter(&buf, ipc.WithSchema(record.Schema()))
 	if err := writer.Write(record); err != nil {
-		return fmt.Errorf("failed to write record to buffer: %w", err)
+		return fmt.Errorf("failed to write record: %w", err)
 	}
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("failed to close writer: %w", err)
@@ -41,78 +50,123 @@ func (m *DataManager) Put(id string, record arrow.Record) error {
 	data := buf.Bytes()
 	size := int64(len(data))
 
-	// 2. Create the shared memory file
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	location := LocationShared
+	if m.memoryLimit > 0 && m.activeBytes+size > m.memoryLimit {
+		location = LocationDisk
+	}
+
+	var f *os.File
+	var err error
+
+	if location == LocationDisk {
+		path := filepath.Join(m.basePath, id+".arrow")
+		f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	} else {
+		if supportsMemfd() {
+			f, err = createMemfd(id, size)
+		} else {
+			path := filepath.Join(m.basePath, id)
+			f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+			if err == nil {
+				_ = f.Truncate(size)
+			}
+		}
+	}
+
 	if err != nil {
-		return fmt.Errorf("failed to create shm file: %w", err)
-	}
-	defer f.Close()
-
-	if err := f.Truncate(size); err != nil {
-		return fmt.Errorf("failed to truncate shm file: %w", err)
+		return fmt.Errorf("failed to allocate storage: %w", err)
 	}
 
-	// 3. Mmap the file and copy data
-	mmap, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-	if err != nil {
-		return fmt.Errorf("failed to mmap shm file: %w", err)
+	// Write data
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("failed to write data: %w", err)
 	}
-	defer syscall.Munmap(mmap)
 
-	copy(mmap, data)
+	// Create frame
+	var frame *ArrowFrame
+	if location == LocationDisk {
+		frame = &ArrowFrame{
+			record:   record,
+			location: LocationDisk,
+			handle:   f.Name(),
+			metadata: make(map[string]string),
+		}
+	} else {
+		frame = NewSharedFrame(record, f.Name())
+		m.activeBytes += size
+	}
 
+	m.registry.Register(id, frame, f)
 	return nil
 }
 
-// Get reads an Arrow Record from shared memory.
+// Get retrieves an Arrow Record from storage.
 func (m *DataManager) Get(id string) (arrow.Record, error) {
-	path := filepath.Join(m.basePath, id)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open shm file: %w", err)
+	frame := m.registry.Get(id)
+	if frame == nil {
+		return nil, fmt.Errorf("frame not found: %s", id)
 	}
-	defer f.Close()
+
+	var f *os.File
+	var err error
+
+	// Try to get open file from registry first
+	f = m.registry.GetFile(id)
+	if f == nil {
+		// Fallback to opening by handle (for non-memfd or cross-process)
+		f, err = os.Open(frame.Handle())
+		if err != nil {
+			return nil, fmt.Errorf("failed to open frame storage: %w", err)
+		}
+		defer f.Close()
+	}
 
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat shm file: %w", err)
+		return nil, fmt.Errorf("failed to stat frame storage: %w", err)
 	}
 
 	size := fi.Size()
-	if size == 0 {
-		return nil, fmt.Errorf("shm file is empty")
-	}
-
-	// Mmap the file for reading
 	mmap, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		return nil, fmt.Errorf("failed to mmap shm file for reading: %w", err)
+		return nil, fmt.Errorf("failed to mmap: %w", err)
 	}
+	defer syscall.Munmap(mmap)
 
 	reader, err := ipc.NewReader(bytes.NewReader(mmap))
 	if err != nil {
-		syscall.Munmap(mmap)
-		return nil, fmt.Errorf("failed to create ipc reader: %w", err)
+		return nil, fmt.Errorf("failed to create reader: %w", err)
 	}
 	defer reader.Release()
 
 	if !reader.Next() {
-		syscall.Munmap(mmap)
-		if err := reader.Err(); err != nil {
-			return nil, fmt.Errorf("failed to read record: %w", err)
-		}
-		return nil, fmt.Errorf("no record found in shm file")
+		return nil, fmt.Errorf("no record in storage")
 	}
 
 	rec := reader.Record()
-	rec.Retain() // Retain because reader.Release() will release it otherwise
-
-	syscall.Munmap(mmap)
+	rec.Retain()
 	return rec, nil
 }
 
-// Cleanup removes all shared memory resources managed by this instance.
+// GetRegistry returns the frame registry.
+func (m *DataManager) GetRegistry() *FrameRegistry {
+	return m.registry
+}
+
+// Cleanup removes all resources.
 func (m *DataManager) Cleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Release all registered frames
+	for id := range m.registry.frames {
+		m.registry.Release(id)
+	}
+
 	_ = os.RemoveAll(m.basePath)
+	m.activeBytes = 0
 }

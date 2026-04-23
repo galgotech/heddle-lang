@@ -9,7 +9,7 @@ import (
 )
 
 func TestDataManager_PutGet(t *testing.T) {
-	manager := NewDataManager("/dev/shm/heddle-test")
+	manager := NewDataManager("/dev/shm/heddle-test", 0) // No limit for this test
 	defer manager.Cleanup()
 
 	// 1. Create a dummy record

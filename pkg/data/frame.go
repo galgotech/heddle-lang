@@ -4,6 +4,15 @@ import (
 	"github.com/apache/arrow/go/v18/arrow"
 )
 
+// StorageLocation defines where the HeddleFrame data is physically stored.
+type StorageLocation int
+
+const (
+	LocationMemory StorageLocation = iota
+	LocationShared
+	LocationDisk
+)
+
 // HeddleFrame is the core data structure for Heddle pipelines.
 // It wraps an Apache Arrow Record to provide a high-level API
 // and ensure zero-copy data passing between steps.
@@ -28,22 +37,39 @@ type HeddleFrame interface {
 
 	// IsShared returns true if the frame is stored in shared memory.
 	IsShared() bool
+
+	// Location returns the current storage location of the frame.
+	Location() StorageLocation
+
+	// Metadata returns the metadata associated with the frame.
+	Metadata() map[string]string
 }
 
 // ArrowFrame is the default implementation of HeddleFrame using Apache Arrow.
 type ArrowFrame struct {
-	record arrow.Record
-	handle string
+	record   arrow.Record
+	handle   string
+	location StorageLocation
+	metadata map[string]string
 }
 
 // NewArrowFrame creates a new HeddleFrame from an Arrow Record.
 func NewArrowFrame(record arrow.Record) *ArrowFrame {
-	return &ArrowFrame{record: record}
+	return &ArrowFrame{
+		record:   record,
+		location: LocationMemory,
+		metadata: make(map[string]string),
+	}
 }
 
 // NewSharedFrame creates a new HeddleFrame that resides in shared memory.
 func NewSharedFrame(record arrow.Record, handle string) *ArrowFrame {
-	return &ArrowFrame{record: record, handle: handle}
+	return &ArrowFrame{
+		record:   record,
+		handle:   handle,
+		location: LocationShared,
+		metadata: make(map[string]string),
+	}
 }
 
 func (f *ArrowFrame) Record() arrow.Record {
@@ -74,4 +100,12 @@ func (f *ArrowFrame) Handle() string {
 
 func (f *ArrowFrame) IsShared() bool {
 	return f.handle != ""
+}
+
+func (f *ArrowFrame) Location() StorageLocation {
+	return f.location
+}
+
+func (f *ArrowFrame) Metadata() map[string]string {
+	return f.metadata
 }
