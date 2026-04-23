@@ -2,46 +2,45 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/google/uuid"
+	"github.com/galgotech/heddle-lang/pkg/execution"
+	_ "github.com/galgotech/heddle-lang/pkg/stdlib/io"
 )
 
 func main() {
-	workerID := "worker-" + uuid.New().String()[:8]
-	fmt.Printf("Heddle Go Worker %s starting...\n", workerID)
+	workerID := flag.String("id", "worker-1", "Unique ID for this worker")
+	cpAddr := flag.String("cp", "localhost:50051", "Address of the control plane")
+	flag.Parse()
 
-	worker, err := NewWorker(workerID, "localhost:50051")
+	worker, err := execution.NewWorker(*workerID, *cpAddr)
 	if err != nil {
-		log.Fatalf("failed to create worker: %v", err)
+		log.Fatalf("Failed to create worker: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle graceful shutdown
+	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		fmt.Println("\nShutting down worker...")
 		cancel()
 	}()
 
-	// Start plugin server
-	if err := worker.StartPluginServer(ctx); err != nil {
-		log.Fatalf("failed to start plugin server: %v", err)
-	}
-
 	if err := worker.Register(ctx); err != nil {
-		log.Printf("Warning: failed to register worker: %v", err)
-		// Don't fatal here in case CP is not up yet, but in production we might want to.
+		log.Fatalf("Failed to register worker: %v", err)
 	}
 
 	go worker.StartHeartbeat(ctx)
-	worker.StartExecutionLoop(ctx)
+	go worker.StartExecutionLoop(ctx)
+
+	log.Printf("Worker %s is running", *workerID)
+	<-ctx.Done()
+	log.Printf("Worker %s shutting down", *workerID)
 }

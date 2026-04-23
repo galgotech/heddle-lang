@@ -1,15 +1,11 @@
-package main
+package execution
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"time"
-
-	"github.com/galgotech/heddle-lang/pkg/execution"
-	_ "github.com/galgotech/heddle-lang/pkg/stdlib/io" // Register stdlib
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"google.golang.org/grpc"
@@ -45,7 +41,7 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 }
 
 func (w *Worker) Register(ctx context.Context) error {
-	reg := execution.WorkerRegistration{
+	reg := WorkerRegistration{
 		WorkerID: w.ID,
 		Address:  "localhost:0", // In a real scenario, this would be the worker's listen address
 		Runtime:  "go",
@@ -53,7 +49,7 @@ func (w *Worker) Register(ctx context.Context) error {
 
 	body, _ := json.Marshal(reg)
 	action := &flight.Action{
-		Type: execution.ActionRegisterWorker,
+		Type: ActionRegisterWorker,
 		Body: body,
 	}
 
@@ -78,14 +74,14 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			hb := execution.Heartbeat{
+			hb := Heartbeat{
 				WorkerID:  w.ID,
 				Timestamp: time.Now(),
-				Status:    execution.WorkerStatusIdle,
+				Status:    WorkerStatusIdle,
 			}
 			body, _ := json.Marshal(hb)
 			action := &flight.Action{
-				Type: execution.ActionHeartbeat,
+				Type: ActionHeartbeat,
 				Body: body,
 			}
 
@@ -114,41 +110,54 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			// In a real scenario, we would receive IR here and process it.
-			// For now, we just keep the stream alive.
-			_, err := stream.Recv()
+			data, err := stream.Recv()
 			if err != nil {
 				log.Printf("Execution stream closed: %v", err)
 				return
+			}
+
+			var task Task
+			if err := json.Unmarshal(data.DataBody, &task); err != nil {
+				log.Printf("Failed to unmarshal task: %v", err)
+				continue
+			}
+
+			log.Printf("Executing task %s (%s)", task.ID, task.Step.DefinitionName)
+
+			// Execute step
+			err = w.executeTask(ctx, task)
+
+			// Report update
+			update := TaskUpdate{
+				TaskID:    task.ID,
+				Status:    string(TaskStatusDone),
+				Timestamp: time.Now(),
+			}
+			if err != nil {
+				update.Status = string(TaskStatusFailed)
+				update.Error = err.Error()
+			}
+
+			updateBody, _ := json.Marshal(update)
+			if err := stream.Send(&flight.FlightData{DataBody: updateBody}); err != nil {
+				log.Printf("Failed to send task update: %v", err)
 			}
 		}
 	}
 }
 
-// StartPluginServer starts the server that plugins connect to.
-func (w *Worker) StartPluginServer(ctx context.Context) error {
-	lis, err := net.Listen("tcp", w.pluginAddr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", w.pluginAddr, err)
+func (w *Worker) executeTask(ctx context.Context, task Task) error {
+	module := task.Step.Call[0]
+	name := task.Step.Call[1]
+
+	fn, ok := GlobalRegistry.Get(module, name)
+	if !ok {
+		return fmt.Errorf("step implementation not found: %s:%s", module, name)
 	}
 
-	server := grpc.NewServer()
-	flight.RegisterFlightServiceServer(server, w)
-
-	log.Printf("Worker %s starting plugin server at %s", w.ID, w.pluginAddr)
-
-	go func() {
-		if err := server.Serve(lis); err != nil {
-			log.Printf("Plugin server error: %v", err)
-		}
-	}()
-
-	go func() {
-		<-ctx.Done()
-		server.Stop()
-	}()
-
-	return nil
+	// For now, we pass nil input as we haven't implemented data flow yet
+	_, err := fn(ctx, nil)
+	return err
 }
 
 // DoExchange implements the plugin server's exchange logic.

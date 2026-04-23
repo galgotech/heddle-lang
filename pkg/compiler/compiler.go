@@ -29,13 +29,26 @@ func (c *Compiler) Compile(source string) (*ir.ProgramIR, error) {
 		return nil, fmt.Errorf("parser errors: %v", p.Errors())
 	}
 
-	// 2. Lowering
+	// 2. Semantic Validation
+	v := NewValidator(program)
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+
+	// 3. Lowering
 	lowerer := NewLowerer()
 	return lowerer.Lower(program)
 }
 
 // CompileAST takes an AST and lowers it into IR.
 func (c *Compiler) CompileAST(program *ast.Program) (*ir.ProgramIR, error) {
+	// 1. Semantic Validation
+	v := NewValidator(program)
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+
+	// 2. Lowering
 	lowerer := NewLowerer()
 	return lowerer.Lower(program)
 }

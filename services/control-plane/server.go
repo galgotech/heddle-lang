@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/galgotech/heddle-lang/pkg/execution"
+	"github.com/galgotech/heddle-lang/pkg/ir"
 )
 
 type ControlPlaneServer struct {
@@ -20,6 +21,9 @@ type ControlPlaneServer struct {
 	mu         sync.RWMutex
 	workers    map[string]execution.WorkerRegistration
 	heartbeats map[string]execution.Heartbeat
+	
+	// Active dispatcher for the current workflow
+	dispatcher *execution.Dispatcher
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
@@ -69,7 +73,22 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 	case execution.ActionSubmitWorkflow:
 		log.Printf("Received workflow submission (%d bytes)", len(action.Body))
-		return stream.Send(&flight.Result{Body: []byte("Workflow received successfully")})
+		
+		var program ir.ProgramIR
+		if err := json.Unmarshal(action.Body, &program); err != nil {
+			return fmt.Errorf("failed to unmarshal IR: %w", err)
+		}
+
+		if err := program.Inflate(); err != nil {
+			return fmt.Errorf("failed to inflate IR: %w", err)
+		}
+
+		s.mu.Lock()
+		s.dispatcher = execution.NewDispatcher(&program)
+		s.mu.Unlock()
+
+		log.Printf("Workflow initialized with %d entry points", len(program.Workflows))
+		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
 
 	default:
 		return fmt.Errorf("unknown action: %s", action.Type)
@@ -77,20 +96,46 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 }
 
 func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
-	// For this initial implementation, we just echo back a "Connection established" message
-	// and wait for messages. Real logic would involve sending IR and receiving TaskUpdates.
 	log.Printf("Worker established exchange stream")
 
+	// This is a simplified execution loop. 
+	// In a real implementation, we'd have a central loop that monitors dispatcher and idle workers.
 	for {
+		s.mu.RLock()
+		disp := s.dispatcher
+		s.mu.RUnlock()
+
+		if disp != nil {
+			tasks := disp.NextTasks()
+			for _, task := range tasks {
+				log.Printf("Dispatching task %s (%s) to worker", task.ID, task.Step.DefinitionName)
+				
+				body, _ := json.Marshal(task)
+				if err := stream.Send(&flight.FlightData{DataBody: body}); err != nil {
+					return fmt.Errorf("failed to send task: %w", err)
+				}
+			}
+		}
+
 		data, err := stream.Recv()
 		if err != nil {
 			log.Printf("Exchange stream closed: %v", err)
 			return nil
 		}
 
-		// Process incoming TaskUpdates or results from worker
-		log.Printf("Received data from worker via exchange")
-		_ = data
+		var update execution.TaskUpdate
+		if err := json.Unmarshal(data.DataBody, &update); err == nil {
+			log.Printf("Received TaskUpdate: %s -> %s", update.TaskID, update.Status)
+			s.mu.Lock()
+			if s.dispatcher != nil {
+				s.dispatcher.ReportUpdate(update)
+			}
+			s.mu.Unlock()
+		} else {
+			log.Printf("Received non-update data from worker")
+		}
+		
+		time.Sleep(1 * time.Second) // Slow down the loop for now
 	}
 }
 
