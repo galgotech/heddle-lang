@@ -3,33 +3,56 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
 
 	"github.com/google/go-dap"
+	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
+var (
+	isServer bool
+	addr     string
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "heddle-dap",
+	Short: "Heddle Debug Adapter",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Initialize logger with file output
+		err := logger.Init(logger.Config{
+			Development: true,
+			OutputPaths: []string{"stdout", "heddle-dap.log"},
+		})
+		if err != nil {
+			panic(err)
+		}
+		defer logger.Sync()
+
+		logger.L().Info("Heddle Debug Adapter starting")
+
+		if isServer {
+			startServer(addr)
+		} else {
+			serve(os.Stdin, os.Stdout)
+		}
+	},
+}
+
+func init() {
+	rootCmd.Flags().BoolVar(&isServer, "server", false, "Start in server mode")
+	rootCmd.Flags().StringVar(&addr, "addr", "localhost:4711", "Address to listen on in server mode")
+}
+
 func main() {
-	// Initialize logger with file output
-	err := logger.Init(logger.Config{
-		Development: true,
-		OutputPaths: []string{"stdout", "heddle-dap.log"},
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer logger.Sync()
-
-	logger.L().Info("Heddle Debug Adapter starting")
-
-	if len(os.Args) > 1 && os.Args[1] == "--server" {
-		startServer("localhost:4711")
-	} else {
-		serve(os.Stdin, os.Stdout)
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 

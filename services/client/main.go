@@ -2,52 +2,48 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
+	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )
 
-func main() {
-	serverAddr := flag.String("server", "localhost:50051", "Control plane address")
-	flag.Parse()
+var (
+	serverAddr string
+)
 
-	// Initialize logger
-	if err := logger.Init(logger.Config{Development: true}); err != nil {
-		panic(err)
-	}
-	defer logger.Sync()
+var rootCmd = &cobra.Command{
+	Use:   "heddle-client",
+	Short: "Heddle Client interacts with the control plane",
+}
 
-	if flag.NArg() < 1 {
-		fmt.Println("Usage: heddle-client [options] <command> [args]")
-		fmt.Println("Commands:")
-		fmt.Println("  submit <file.he>  Submit a heddle file for processing")
-		os.Exit(1)
-	}
-
-	command := flag.Arg(0)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	client, err := heddlesdk.NewControlPlaneClient(*serverAddr)
-	if err != nil {
-		logger.L().Fatal("Failed to create client", zap.Error(err))
-	}
-	defer client.Close()
-
-	switch command {
-	case "submit":
-		if flag.NArg() < 2 {
-			logger.L().Fatal("Missing heddle file path")
+var submitCmd = &cobra.Command{
+	Use:   "submit <file.he>",
+	Short: "Submit a heddle file for processing",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		// Initialize logger
+		if err := logger.Init(logger.Config{Development: true}); err != nil {
+			panic(err)
 		}
-		filePath := flag.Arg(1)
+		defer logger.Sync()
+
+		filePath := args[0]
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		client, err := heddlesdk.NewControlPlaneClient(serverAddr)
+		if err != nil {
+			logger.L().Fatal("Failed to create client", zap.Error(err))
+		}
+		defer client.Close()
 
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -67,8 +63,17 @@ func main() {
 		}
 
 		fmt.Printf("Success: %s\n", result)
+	},
+}
 
-	default:
-		logger.L().Fatal("Unknown command", zap.String("command", command))
+func init() {
+	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:50051", "Control plane address")
+	rootCmd.AddCommand(submitCmd)
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
