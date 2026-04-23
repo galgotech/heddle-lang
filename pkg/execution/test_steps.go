@@ -40,6 +40,22 @@ func IncrementStep(ctx context.Context, input arrow.Record) (arrow.Record, error
 	return array.NewRecord(schema, []arrow.Array{newCol}, input.NumRows()), nil
 }
 
+// GenerateStep is a sample step that creates a dummy RecordBatch.
+func GenerateStep(ctx context.Context, input arrow.Record) (arrow.Record, error) {
+	pool := memory.NewGoAllocator()
+	schema := arrow.NewSchema(
+		[]arrow.Field{{Name: "val", Type: arrow.PrimitiveTypes.Int64}},
+		nil,
+	)
+	builder := array.NewInt64Builder(pool)
+	defer builder.Release()
+	builder.AppendValues([]int64{1, 2, 3}, nil)
+	newCol := builder.NewArray()
+	defer newCol.Release()
+	return array.NewRecord(schema, []arrow.Array{newCol}, 3), nil
+}
+
 func init() {
 	GlobalRegistry.Register("test", "increment", IncrementStep)
+	GlobalRegistry.Register("test", "generate", GenerateStep)
 }

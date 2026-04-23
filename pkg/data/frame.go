@@ -22,16 +22,28 @@ type HeddleFrame interface {
 
 	// Release releases the underlying memory (important for Arrow).
 	Release()
+
+	// Handle returns the shared memory identifier if the frame is stored in SHM.
+	Handle() string
+
+	// IsShared returns true if the frame is stored in shared memory.
+	IsShared() bool
 }
 
 // ArrowFrame is the default implementation of HeddleFrame using Apache Arrow.
 type ArrowFrame struct {
 	record arrow.Record
+	handle string
 }
 
 // NewArrowFrame creates a new HeddleFrame from an Arrow Record.
 func NewArrowFrame(record arrow.Record) *ArrowFrame {
 	return &ArrowFrame{record: record}
+}
+
+// NewSharedFrame creates a new HeddleFrame that resides in shared memory.
+func NewSharedFrame(record arrow.Record, handle string) *ArrowFrame {
+	return &ArrowFrame{record: record, handle: handle}
 }
 
 func (f *ArrowFrame) Record() arrow.Record {
@@ -54,4 +66,12 @@ func (f *ArrowFrame) Release() {
 	if f.record != nil {
 		f.record.Release()
 	}
+}
+
+func (f *ArrowFrame) Handle() string {
+	return f.handle
+}
+
+func (f *ArrowFrame) IsShared() bool {
+	return f.handle != ""
 }

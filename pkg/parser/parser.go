@@ -383,8 +383,9 @@ func (p *Parser) parseWorkflowDefinition() *ast.WorkflowDefinition {
 		}
 	}
 
-	if !p.expectPeek(lexer.DEDENT) {
-		return nil
+	// Consume all DEDENTs until we reach the block closing level
+	for p.peekTokenIs(lexer.DEDENT) {
+		p.nextToken()
 	}
 
 	for p.peekTokenIs(lexer.NEWLINE) {
@@ -456,8 +457,8 @@ func (p *Parser) parsePipeChain() *ast.PipeChain {
 			p.nextToken() // curToken = |
 			p.nextToken() // curToken = start of call
 			pc.Calls = append(pc.Calls, p.parseCallExpression())
-		} else if (p.peekTokenIs(lexer.NEWLINE) || p.peekTokenIs(lexer.DEDENT)) && p.isPipeOnNextLine() {
-			for p.peekTokenIs(lexer.NEWLINE) || p.peekTokenIs(lexer.INDENT) || p.peekTokenIs(lexer.DEDENT) {
+		} else if p.peekTokenIs(lexer.NEWLINE) && p.isPipeOnNextLine() {
+			for p.peekTokenIs(lexer.NEWLINE) || p.peekTokenIs(lexer.INDENT) {
 				p.nextToken()
 			}
 			if p.peekTokenIs(lexer.PIPE) {
@@ -478,7 +479,7 @@ func (p *Parser) parsePipeChain() *ast.PipeChain {
 func (p *Parser) isPipeOnNextLine() bool {
 	for i := 1; ; i++ {
 		tok := p.peekTokenN(i)
-		if tok.Type == lexer.NEWLINE || tok.Type == lexer.INDENT || tok.Type == lexer.DEDENT {
+		if tok.Type == lexer.NEWLINE || tok.Type == lexer.INDENT {
 			continue
 		}
 		return tok.Type == lexer.PIPE

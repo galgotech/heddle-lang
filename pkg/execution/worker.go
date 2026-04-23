@@ -7,9 +7,12 @@ import (
 	"log"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/galgotech/heddle-lang/pkg/data"
 )
 
 type Worker struct {
@@ -17,6 +20,8 @@ type Worker struct {
 	CPAddr string
 	Client flight.Client
 	conn   *grpc.ClientConn
+
+	dataMgr *data.DataManager
 
 	// Plugin server
 	flight.BaseFlightServer
@@ -36,6 +41,7 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 		CPAddr:     cpAddr,
 		Client:     client,
 		conn:       conn,
+		dataMgr:    data.NewDataManager("/dev/shm/heddle"),
 		pluginAddr: "localhost:50052", // Default plugin server address
 	}, nil
 }
@@ -125,13 +131,14 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 			log.Printf("Executing task %s (%s)", task.ID, task.Step.DefinitionName)
 
 			// Execute step
-			err = w.executeTask(ctx, task)
+			outputHandle, err := w.executeTask(ctx, task)
 
 			// Report update
 			update := TaskUpdate{
-				TaskID:    task.ID,
-				Status:    string(TaskStatusDone),
-				Timestamp: time.Now(),
+				TaskID:       task.ID,
+				Status:       string(TaskStatusDone),
+				OutputHandle: outputHandle,
+				Timestamp:    time.Now(),
 			}
 			if err != nil {
 				update.Status = string(TaskStatusFailed)
@@ -146,18 +153,41 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	}
 }
 
-func (w *Worker) executeTask(ctx context.Context, task Task) error {
+func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	module := task.Step.Call[0]
 	name := task.Step.Call[1]
 
 	fn, ok := GlobalRegistry.Get(module, name)
 	if !ok {
-		return fmt.Errorf("step implementation not found: %s:%s", module, name)
+		return "", fmt.Errorf("step implementation not found: %s:%s", module, name)
 	}
 
-	// For now, we pass nil input as we haven't implemented data flow yet
-	_, err := fn(ctx, nil)
-	return err
+	var input arrow.Record
+	var err error
+
+	if task.InputHandle != "" {
+		input, err = w.dataMgr.Get(task.InputHandle)
+		if err != nil {
+			return "", fmt.Errorf("failed to get input from shm: %w", err)
+		}
+		defer input.Release()
+	}
+
+	output, err := fn(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	if output != nil {
+		defer output.Release()
+		handle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
+		if err := w.dataMgr.Put(handle, output); err != nil {
+			return "", fmt.Errorf("failed to put output to shm: %w", err)
+		}
+		return handle, nil
+	}
+
+	return "", nil
 }
 
 // DoExchange implements the plugin server's exchange logic.

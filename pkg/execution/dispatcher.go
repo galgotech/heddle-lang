@@ -9,8 +9,9 @@ import (
 
 // Task represents an instruction assigned to a worker.
 type Task struct {
-	ID   string
-	Step *ir.StepInstruction
+	ID          string              `json:"id"`
+	Step        *ir.StepInstruction `json:"step"`
+	InputHandle string              `json:"input_handle,omitempty"`
 }
 
 // TaskStatus represents the lifecycle of a task.
@@ -25,8 +26,9 @@ const (
 
 // TaskState tracks the execution details of a specific instruction.
 type TaskState struct {
-	Status TaskStatus
-	Error  string
+	Status       TaskStatus
+	Error        string
+	OutputHandle string
 }
 
 // Dispatcher manages the execution state of a Heddle program.
@@ -34,6 +36,7 @@ type Dispatcher struct {
 	mu      sync.RWMutex
 	program *ir.ProgramIR
 	states  map[string]*TaskState
+	results map[string]string // Maps Assignment name or Step ID to OutputHandle
 }
 
 // NewDispatcher creates a new instance of the Dispatcher.
@@ -41,6 +44,7 @@ func NewDispatcher(program *ir.ProgramIR) *Dispatcher {
 	return &Dispatcher{
 		program: program,
 		states:  make(map[string]*TaskState),
+		results: make(map[string]string),
 	}
 }
 
@@ -56,7 +60,7 @@ func (d *Dispatcher) NextTasks() []Task {
 		flow := d.program.Instructions[flowID].(*ir.FlowInstruction)
 		for _, headID := range flow.Heads {
 			if d.isReady(headID) {
-				tasks = append(tasks, d.createTask(headID))
+				tasks = append(tasks, d.createTask(headID, ""))
 			}
 		}
 	}
@@ -66,12 +70,14 @@ func (d *Dispatcher) NextTasks() []Task {
 		if state.Status == TaskStatusDone {
 			inst := d.program.Instructions[id].(*ir.StepInstruction)
 			if inst.Next != "" && d.isReady(inst.Next) {
-				tasks = append(tasks, d.createTask(inst.Next))
+				// Pass the output of the current step as input to the next one
+				tasks = append(tasks, d.createTask(inst.Next, state.OutputHandle))
 			}
 		} else if state.Status == TaskStatusFailed {
 			inst := d.program.Instructions[id].(*ir.StepInstruction)
 			if inst.Handler != "" && d.isReady(inst.Handler) {
-				tasks = append(tasks, d.createTask(inst.Handler))
+				// Trigger handler
+				tasks = append(tasks, d.createTask(inst.Handler, ""))
 			}
 		}
 	}
@@ -82,17 +88,18 @@ func (d *Dispatcher) NextTasks() []Task {
 func (d *Dispatcher) isReady(id string) bool {
 	state, exists := d.states[id]
 	if !exists {
-		return true // Never seen before, so it's ready if its dependencies are met
+		return true
 	}
 	return state.Status == TaskStatusPending
 }
 
-func (d *Dispatcher) createTask(id string) Task {
+func (d *Dispatcher) createTask(id string, inputHandle string) Task {
 	inst := d.program.Instructions[id].(*ir.StepInstruction)
 	d.states[id] = &TaskState{Status: TaskStatusInFlight}
 	return Task{
-		ID:   id,
-		Step: inst,
+		ID:          id,
+		Step:        inst,
+		InputHandle: inputHandle,
 	}
 }
 
@@ -109,6 +116,14 @@ func (d *Dispatcher) ReportUpdate(update TaskUpdate) {
 
 	state.Status = TaskStatus(update.Status)
 	state.Error = update.Error
+	state.OutputHandle = update.OutputHandle
 
-	fmt.Printf("Dispatcher: Task %s updated to %s\n", update.TaskID, update.Status)
+	// Record assignment if present
+	inst := d.program.Instructions[update.TaskID].(*ir.StepInstruction)
+	if inst.Assignment != "" && update.Status == string(TaskStatusDone) {
+		d.results[inst.Assignment] = update.OutputHandle
+	}
+
+	fmt.Printf("Dispatcher: Task %s updated to %s (Handle: %s)\n",
+		update.TaskID, update.Status, update.OutputHandle)
 }

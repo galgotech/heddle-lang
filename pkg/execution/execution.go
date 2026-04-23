@@ -39,10 +39,11 @@ type WarmupRequest struct {
 
 // TaskUpdate reports the status of a specific instruction execution.
 type TaskUpdate struct {
-	TaskID    string    `json:"task_id"`
-	Status    string    `json:"status"` // "running", "completed", "failed"
-	Error     string    `json:"error,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	TaskID       string    `json:"task_id"`
+	Status       string    `json:"status"` // "running", "completed", "failed"
+	Error        string    `json:"error,omitempty"`
+	OutputHandle string    `json:"output_handle,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
 }
 
 // Action types for Arrow Flight
