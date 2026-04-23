@@ -3,7 +3,7 @@ package execution
 import (
 	"time"
 
-	"github.com/galgotech/heddle-lang/pkg/ir"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 // WorkerStatus defines the current state of a worker.

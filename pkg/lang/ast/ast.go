@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
 // Node is the base interface for all nodes in the Abstract Syntax Tree.

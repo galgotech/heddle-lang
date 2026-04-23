@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
 // PipeChain represents a sequence of steps connected by pipes.

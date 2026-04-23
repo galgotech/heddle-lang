@@ -3,17 +3,21 @@ package execution
 import (
 	"testing"
 
-	"github.com/galgotech/heddle-lang/pkg/compiler"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 )
 
 func TestDispatcher_BasicFlow(t *testing.T) {
 	code := `
 import "fhub/etl" etl
-step s1: void -> void = etl.extract
-step s2: void -> void = etl.transform
+schema df {
+    id: int
+}
+step s1: void -> df = etl.extract
+step s2: df -> void = etl.transform
 
 workflow main {
-  s1 | s2
+  s1
+    | s2
 }
 `
 	c := compiler.New()
@@ -23,7 +27,7 @@ workflow main {
 	}
 
 	d := NewDispatcher(program)
-	
+
 	// Initial tasks (heads of the workflow)
 	tasks := d.NextTasks()
 	if len(tasks) != 1 {
@@ -67,15 +71,18 @@ workflow main {
 func TestDispatcher_WithHandlers(t *testing.T) {
 	code := `
 import "fhub/etl" etl
-step s1: void -> void = etl.extract
-step r1: void -> void = etl.retry
+schema df {
+    id: int
+}
+step s1: void -> df = etl.extract
+step r1: df -> void = etl.retry
 
 handler recover {
-  r1
+    r1
 }
 
 workflow main {
-  s1 ? recover
+    s1 ? recover
 }
 `
 	c := compiler.New()
@@ -85,7 +92,7 @@ workflow main {
 	}
 
 	d := NewDispatcher(program)
-	
+
 	tasks := d.NextTasks()
 	task := tasks[0]
 

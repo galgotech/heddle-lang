@@ -7,7 +7,7 @@ import (
 
 	"go.lsp.dev/protocol"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 

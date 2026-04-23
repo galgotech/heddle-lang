@@ -3,7 +3,7 @@ package ast
 import (
 	"bytes"
 
-	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
 // Declaration is a statement that defines a reusable component (schema, resource, step).

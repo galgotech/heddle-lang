@@ -3,9 +3,9 @@ package compiler
 import (
 	"testing"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
-	"github.com/galgotech/heddle-lang/pkg/lexer"
-	"github.com/galgotech/heddle-lang/pkg/parser"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
 func TestValidator_UndefinedStep(t *testing.T) {

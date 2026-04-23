@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
-	"github.com/galgotech/heddle-lang/pkg/ir"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 // Lowerer handles the translation of the Abstract Syntax Tree (AST) into

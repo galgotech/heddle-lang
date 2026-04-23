@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/galgotech/heddle-lang/pkg/lexer"
-	"github.com/galgotech/heddle-lang/pkg/parser"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
 func TestValidator_TypeMismatch(t *testing.T) {

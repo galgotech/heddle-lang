@@ -3,10 +3,10 @@ package compiler
 import (
 	"fmt"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
-	"github.com/galgotech/heddle-lang/pkg/ir"
-	"github.com/galgotech/heddle-lang/pkg/lexer"
-	"github.com/galgotech/heddle-lang/pkg/parser"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
 // Compiler represents the Heddle compiler.

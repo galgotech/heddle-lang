@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
-	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
 // ParserError represents a structured error from the parser.

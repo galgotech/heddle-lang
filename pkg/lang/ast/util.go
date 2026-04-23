@@ -1,7 +1,7 @@
 package ast
 
 import (
-	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
 // Position represents a line and column in the source code.

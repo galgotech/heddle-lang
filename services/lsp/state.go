@@ -3,10 +3,10 @@ package main
 import (
 	"sync"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
-	"github.com/galgotech/heddle-lang/pkg/compiler"
-	"github.com/galgotech/heddle-lang/pkg/lexer"
-	"github.com/galgotech/heddle-lang/pkg/parser"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
 type Document struct {

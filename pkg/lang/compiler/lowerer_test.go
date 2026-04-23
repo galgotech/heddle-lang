@@ -3,7 +3,7 @@ package compiler
 import (
 	"testing"
 
-	"github.com/galgotech/heddle-lang/pkg/ir"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 func testCode(t *testing.T, code string) *ir.ProgramIR {

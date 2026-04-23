@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/galgotech/heddle-lang/pkg/ir"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 // Task represents an instruction assigned to a worker.

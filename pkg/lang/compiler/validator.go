@@ -3,7 +3,7 @@ package compiler
 import (
 	"fmt"
 
-	"github.com/galgotech/heddle-lang/pkg/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 )
 
 // Validator performs semantic analysis on the AST.

@@ -3,7 +3,7 @@ package ast
 import (
 	"testing"
 
-	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
 func TestString(t *testing.T) {
