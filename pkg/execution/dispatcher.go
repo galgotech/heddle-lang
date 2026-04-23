@@ -37,6 +37,7 @@ type Dispatcher struct {
 	program *ir.ProgramIR
 	states  map[string]*TaskState
 	results map[string]string // Maps Assignment name or Step ID to OutputHandle
+	History []TaskUpdate      // Store history of states for Time-Travel Debugging
 }
 
 // NewDispatcher creates a new instance of the Dispatcher.
@@ -123,6 +124,9 @@ func (d *Dispatcher) ReportUpdate(update TaskUpdate) {
 	if inst.Assignment != "" && update.Status == string(TaskStatusDone) {
 		d.results[inst.Assignment] = update.OutputHandle
 	}
+
+	// Record to history
+	d.History = append(d.History, update)
 
 	fmt.Printf("Dispatcher: Task %s updated to %s (Handle: %s)\n",
 		update.TaskID, update.Status, update.OutputHandle)

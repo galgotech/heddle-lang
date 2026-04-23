@@ -52,4 +52,5 @@ const (
 	ActionHeartbeat      = "heartbeat"
 	ActionWarmup         = "warmup"
 	ActionSubmitWorkflow = "submit-workflow"
+	ActionGetHistory     = "get-history"
 )

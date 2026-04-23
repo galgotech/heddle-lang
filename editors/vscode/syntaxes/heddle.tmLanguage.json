@@ -1,0 +1,366 @@
+{
+    "scopeName": "source.heddle",
+    "name": "Heddle",
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#numbers"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#constants"
+        },
+        {
+            "include": "#definitions"
+        },
+        {
+            "include": "#pipeline"
+        },
+        {
+            "include": "#prql"
+        },
+        {
+            "include": "#operators"
+        },
+        {
+            "include": "#punctuation"
+        },
+        {
+            "include": "#identifiers"
+        },
+        {
+            "include": "#types"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.heddle",
+                    "match": "//.*"
+                }
+            ]
+        },
+        "strings": {
+            "name": "string.quoted.double.heddle",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.heddle",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "numbers": {
+            "name": "constant.numeric.heddle",
+            "match": "\\b-?[0-9]+(\\.[0-9]+)?\\b"
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.import.heddle",
+                    "match": "\\b(import)\\b"
+                },
+                {
+                    "name": "keyword.control.heddle",
+                    "match": "\\b(resource|schema|step|handler|workflow)\\b"
+                }
+            ]
+        },
+        "constants": {
+            "match": "\\b(true|false|null)\\b",
+            "name": "constant.language.heddle"
+        },
+        "definitions": {
+            "patterns": [
+                {
+                    "match": "\\b(resource)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.resource.heddle"
+                        },
+                        "2": {
+                            "name": "entity.name.variable.heddle"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(schema)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.schema.heddle"
+                        },
+                        "2": {
+                            "name": "entity.name.type.heddle"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(step)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.step.heddle"
+                        },
+                        "2": {
+                            "name": "entity.name.function.heddle"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(handler)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.handler.heddle"
+                        },
+                        "2": {
+                            "name": "entity.name.function.heddle"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(workflow)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.workflow.heddle"
+                        },
+                        "2": {
+                            "name": "entity.name.function.heddle"
+                        }
+                    }
+                }
+            ]
+        },
+        "pipeline": {
+            "patterns": [
+                {
+                    "match": "(>|=|\\||->)",
+                    "name": "keyword.operator.heddle"
+                },
+                {
+                    "match": "\\?",
+                    "name": "keyword.operator.handler-application.heddle"
+                }
+            ]
+        },
+        "identifiers": {
+            "patterns": [
+                {
+                    "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+                    "name": "variable.other.heddle"
+                }
+            ]
+        },
+        "types": {
+            "match": "\\b(int|string|float|bool|timestamp|dict|list)\\b",
+            "name": "support.type.heddle"
+        },
+        "operators": {
+            "match": "[=:]",
+            "name": "keyword.operator.heddle"
+        },
+        "punctuation": {
+            "match": "[\\{\\}\\[\\]\\(\\),;]",
+            "name": "punctuation.definition.heddle"
+        },
+        "prql": {
+            "begin": "\\(",
+            "end": "\\)",
+            "patterns": [
+                {
+                    "include": "#prql-unicode-bidi"
+                },
+                {
+                    "include": "#prql-docblock"
+                },
+                {
+                    "include": "#prql-comment"
+                },
+                {
+                    "include": "#prql-constants"
+                },
+                {
+                    "include": "#prql-datatypes"
+                },
+                {
+                    "include": "#prql-keywords"
+                },
+                {
+                    "include": "#prql-keyword-operator"
+                },
+                {
+                    "include": "#prql-named-args"
+                },
+                {
+                    "include": "#prql-assigns"
+                },
+                {
+                    "include": "#prql-function-call"
+                },
+                {
+                    "include": "#prql-type-def"
+                },
+                {
+                    "include": "#prql-interpolation-strings"
+                },
+                {
+                    "include": "#prql-string-quoted-raw-single"
+                },
+                {
+                    "include": "#prql-string-quoted-raw-double"
+                },
+                {
+                    "include": "#prql-string-quoted-triple"
+                },
+                {
+                    "include": "#prql-string-quoted-single"
+                },
+                {
+                    "include": "#prql-string-quoted-double"
+                },
+                {
+                    "include": "#prql-time-units"
+                },
+                {
+                    "include": "#prql-ident"
+                }
+            ]
+        },
+        "prql-docblock": {
+            "name": "comment.block.documentation",
+            "match": "#!.*$"
+        },
+        "prql-comment": {
+            "name": "comment.line.number-sign",
+            "match": "#.*$"
+        },
+        "prql-constants": {
+            "name": "constant.language",
+            "match": "\\b(true|false|null)\\b"
+        },
+        "prql-datatypes": {
+            "name": "storage.type",
+            "match": "\\b(bool|int8|int16|int32|int64|int128|int|float|text|set)\\b"
+        },
+        "prql-escape": {
+            "name": "constant.character.escape",
+            "match": "\\\\."
+        },
+        "prql-keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.prql",
+                    "match": "\\b(let|into|case|prql|type|module|internal|from|from_text|select|derive|filter|take|sort|join|aggregate|group)\\b"
+                }
+            ]
+        },
+        "prql-keyword-operator": {
+            "name": "keyword.operator",
+            "match": "==|~=|\\+|-|\\*|!=|->|=>|<=|>=|&&|<|>"
+        },
+        "prql-time-units": {
+            "name": "keyword.other.unit",
+            "match": "years|months|weeks|days|hours|minutes|seconds|milliseconds|microseconds"
+        },
+        "prql-named-args": {
+            "match": "(\\w+)\\s*:",
+            "captures": {
+                "1": {
+                    "name": "entity.name.tag"
+                }
+            }
+        },
+        "prql-assigns": {
+            "match": "(\\w+)\\s*=(?!=)",
+            "captures": {
+                "1": {
+                    "name": "variable.name"
+                }
+            }
+        },
+        "prql-function-call": {
+            "match": "\\b(\\w+)\\b(\\s+(\\w|[.])+)+(\\s|$|,|]|\\))",
+            "captures": {
+                "1": {
+                    "name": "support.function"
+                },
+                "2": {
+                    "name": "variable.parameter"
+                }
+            }
+        },
+        "prql-type-def": {
+            "name": "support.type",
+            "match": "<\\w+>"
+        },
+        "prql-ident": {
+            "name": "variable",
+            "match": "\\b(\\w+)\\b"
+        },
+        "prql-interpolation-strings": {
+            "name": "string.interpolated",
+            "begin": "(s|f)\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "keyword.operator.new",
+                    "match": "\\{[^}]*}"
+                },
+                {
+                    "include": "#prql-escape"
+                }
+            ]
+        },
+        "prql-unicode-bidi": {
+            "name": "invalid.illegal",
+            "match": "(\u202A|\u202B|\u202D|\u202E|\u2066|\u2067|\u2068|\u202C|\u2069)"
+        },
+        "prql-string-quoted-raw-single": {
+            "name": "string.quoted",
+            "begin": "r'",
+            "end": "'"
+        },
+        "prql-string-quoted-raw-double": {
+            "name": "string.quoted",
+            "begin": "r\"",
+            "end": "\""
+        },
+        "prql-string-quoted-triple": {
+            "name": "string.quoted",
+            "begin": "\"\"\"",
+            "end": "\"\"\"",
+            "patterns": [
+                {
+                    "include": "#prql-escape"
+                }
+            ]
+        },
+        "prql-string-quoted-single": {
+            "name": "string.quoted",
+            "begin": "'",
+            "end": "'",
+            "patterns": [
+                {
+                    "include": "#prql-escape"
+                }
+            ]
+        },
+        "prql-string-quoted-double": {
+            "name": "string.quoted",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "include": "#prql-escape"
+                }
+            ]
+        }
+    }
+}

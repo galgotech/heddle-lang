@@ -21,7 +21,7 @@ type ControlPlaneServer struct {
 	mu         sync.RWMutex
 	workers    map[string]execution.WorkerRegistration
 	heartbeats map[string]execution.Heartbeat
-	
+
 	// Active dispatcher for the current workflow
 	dispatcher *execution.Dispatcher
 }
@@ -73,7 +73,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 	case execution.ActionSubmitWorkflow:
 		log.Printf("Received workflow submission (%d bytes)", len(action.Body))
-		
+
 		var program ir.ProgramIR
 		if err := json.Unmarshal(action.Body, &program); err != nil {
 			return fmt.Errorf("failed to unmarshal IR: %w", err)
@@ -90,6 +90,19 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		log.Printf("Workflow initialized with %d entry points", len(program.Workflows))
 		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
 
+	case execution.ActionGetHistory:
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if s.dispatcher == nil {
+			return fmt.Errorf("no active workflow")
+		}
+
+		body, err := json.Marshal(s.dispatcher.History)
+		if err != nil {
+			return fmt.Errorf("failed to marshal history: %w", err)
+		}
+		return stream.Send(&flight.Result{Body: body})
+
 	default:
 		return fmt.Errorf("unknown action: %s", action.Type)
 	}
@@ -98,7 +111,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
 	log.Printf("Worker established exchange stream")
 
-	// This is a simplified execution loop. 
+	// This is a simplified execution loop.
 	// In a real implementation, we'd have a central loop that monitors dispatcher and idle workers.
 	for {
 		s.mu.RLock()
@@ -109,7 +122,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 			tasks := disp.NextTasks()
 			for _, task := range tasks {
 				log.Printf("Dispatching task %s (%s) to worker", task.ID, task.Step.DefinitionName)
-				
+
 				body, _ := json.Marshal(task)
 				if err := stream.Send(&flight.FlightData{DataBody: body}); err != nil {
 					return fmt.Errorf("failed to send task: %w", err)
@@ -134,7 +147,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		} else {
 			log.Printf("Received non-update data from worker")
 		}
-		
+
 		time.Sleep(1 * time.Second) // Slow down the loop for now
 	}
 }

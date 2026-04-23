@@ -5,7 +5,7 @@ BINARY_DIR=bin
 GO=go
 
 # Services (Main build target)
-SERVICES=control-plane worker client
+SERVICES=control-plane worker client lsp debug-adapter
 RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
@@ -34,6 +34,14 @@ worker: $(BINARY_DIR)
 client: $(BINARY_DIR)
 	@echo "Building Client CLI..."
 	$(GO) build -o $(BINARY_DIR)/heddle-client ./services/client
+
+lsp: $(BINARY_DIR)
+	@echo "Building LSP Server..."
+	$(GO) build -o $(BINARY_DIR)/heddle-lsp ./services/lsp
+
+debug-adapter: $(BINARY_DIR)
+	@echo "Building Debug Adapter..."
+	$(GO) build -o $(BINARY_DIR)/heddle-dap ./services/debug-adapter
 
 # Rust Service Targets
 relational-worker: $(BINARY_DIR)

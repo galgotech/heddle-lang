@@ -8,10 +8,17 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lexer"
 )
 
+// ParserError represents a structured error from the parser.
+type ParserError struct {
+	Message string
+	Line    int
+	Column  int
+}
+
 // Parser represents the Heddle language parser.
 type Parser struct {
 	l      *lexer.Lexer
-	errors []string
+	errors []ParserError
 
 	curToken  lexer.Token
 	peekToken lexer.Token
@@ -24,7 +31,7 @@ type Parser struct {
 func New(l *lexer.Lexer) *Parser {
 	p := &Parser{
 		l:      l,
-		errors: []string{},
+		errors: []ParserError{},
 		tokens: []lexer.Token{},
 		pos:    0,
 	}
@@ -71,14 +78,18 @@ func (p *Parser) expectPeek(t lexer.TokenType) bool {
 	return false
 }
 
-func (p *Parser) Errors() []string {
+func (p *Parser) Errors() []ParserError {
 	return p.errors
 }
 
 func (p *Parser) peekError(t lexer.TokenType) {
-	msg := fmt.Sprintf("expected next token to be %s, got %s instead at line %d, col %d",
-		t, p.peekToken.Type, p.peekToken.Line, p.peekToken.Column)
-	p.errors = append(p.errors, msg)
+	msg := fmt.Sprintf("expected next token to be %s, got %s instead",
+		t, p.peekToken.Type)
+	p.errors = append(p.errors, ParserError{
+		Message: msg,
+		Line:    p.peekToken.Line,
+		Column:  p.peekToken.Column,
+	})
 }
 
 // Parse takes source code and returns an AST.
@@ -502,9 +513,13 @@ func (p *Parser) parseCallExpression() *ast.CallExpression {
 			Value: p.curToken.Literal,
 		}
 	} else {
-		msg := fmt.Sprintf("expected identifier or anonymous step, got %s at line %d, col %d",
-			p.curToken.Type, p.curToken.Line, p.curToken.Column)
-		p.errors = append(p.errors, msg)
+		msg := fmt.Sprintf("expected identifier or anonymous step, got %s",
+			p.curToken.Type)
+		p.errors = append(p.errors, ParserError{
+			Message: msg,
+			Line:    p.curToken.Line,
+			Column:  p.curToken.Column,
+		})
 		return nil
 	}
 

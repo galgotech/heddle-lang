@@ -1,13 +1,152 @@
 {
-  "name": "heddle-vscode",
-  "displayName": "Heddle Language Support",
-  "description": "VS Code extension for Heddle DSL",
+  "name": "heddle-language",
+  "displayName": "Heddle Language",
+  "description": "Language support for the heddle language",
+  "publisher": "galgotech",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.107.0"
   },
   "categories": [
-    "Programming Languages"
+    "Data Science",
+    "Formatters",
+    "Programming Languages",
+    "Debuggers"
   ],
-  "main": "./extension.js"
+  "keywords": [
+    "data tools",
+    "functional programming",
+    "workflow",
+    "pipeline"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/galgotech/heddle-vscode.git"
+  },
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vsce:package": "vsce package",
+    "vsce:publish": "vsce publish"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "heddle.runFile",
+        "title": "Run Heddle File",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "heddle.runFile",
+          "when": "resourceLangId == heddle",
+          "group": "navigation"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "heddle",
+        "aliases": [
+          "Heddle",
+          "heddle",
+          "he"
+        ],
+        "extensions": [
+          ".he"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Heddle",
+      "properties": {
+        "heddle.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional: Custom path to the heddle-lsp binary."
+        }
+      }
+    },
+    "debuggers": [
+      {
+        "type": "heddle-debug",
+        "label": "Heddle Debugger",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the .he file to debug",
+                "default": "${workspaceFolder}/main.he"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "heddle-debug",
+            "request": "launch",
+            "name": "Debug Heddle File",
+            "program": "${file}"
+          }
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "heddle"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "workbench.action.debug.stepOver",
+        "key": "f11",
+        "when": "debugType == 'heddle-debug'"
+      },
+      {
+        "command": "workbench.action.debug.stepOver",
+        "key": "shift+f11",
+        "when": "debugType == 'heddle-debug'"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "heddle",
+        "scopeName": "source.heddle",
+        "path": "./syntaxes/heddle.tmLanguage.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[heddle]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.formatOnType": true
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.10.1",
+    "@types/sinon": "^21.0.0",
+    "@types/vscode": "^1.104.0",
+    "@vscode/vsce": "^3.7.1",
+    "chai": "^6.2.2",
+    "mocha": "^11.7.5",
+    "sinon": "^21.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
 }
