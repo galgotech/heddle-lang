@@ -7,22 +7,26 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/google/go-dap"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var (
-	isServer bool
-	addr     string
+	cfgFile string
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "heddle-dap",
 	Short: "Heddle Debug Adapter",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return initializeConfig(cmd)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Initialize logger with file output
 		err := logger.Init(logger.Config{
@@ -36,17 +40,45 @@ var rootCmd = &cobra.Command{
 
 		logger.L().Info("Heddle Debug Adapter starting")
 
-		if isServer {
-			startServer(addr)
+		if viper.GetBool("server") {
+			startServer(viper.GetString("addr"))
 		} else {
 			serve(os.Stdin, os.Stdout)
 		}
 	},
 }
 
+func initializeConfig(cmd *cobra.Command) error {
+	viper.SetEnvPrefix("HEDDLE_DAP")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
+
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.SetConfigName("heddle-dap")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("$HOME/.heddle")
+	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func init() {
-	rootCmd.Flags().BoolVar(&isServer, "server", false, "Start in server mode")
-	rootCmd.Flags().StringVar(&addr, "addr", "localhost:4711", "Address to listen on in server mode")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./heddle-dap.yaml)")
+
+	rootCmd.Flags().Bool("server", false, "Start in server mode")
+	rootCmd.Flags().String("addr", "localhost:4711", "Address to listen on in server mode")
+
+	viper.BindPFlag("server", rootCmd.Flags().Lookup("server"))
+	viper.BindPFlag("addr", rootCmd.Flags().Lookup("addr"))
 }
 
 func main() {

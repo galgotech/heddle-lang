@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 
@@ -20,7 +22,8 @@ const (
 )
 
 var (
-	state *State
+	cfgFile string
+	state   *State
 )
 
 type stdioRW struct {
@@ -35,11 +38,16 @@ func (stdioRW) Close() error {
 var rootCmd = &cobra.Command{
 	Use:   "heddle-lsp",
 	Short: "Heddle Language Server",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return initializeConfig(cmd)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
+		logPath := viper.GetString("log-path")
+
 		// Initialize shared logger with specific output path for LSP
 		err := logger.Init(logger.Config{
 			Development: true,
-			OutputPaths: []string{"/tmp/heddle-lsp.log"},
+			OutputPaths: []string{logPath},
 		})
 		if err != nil {
 			panic(err)
@@ -65,6 +73,36 @@ var rootCmd = &cobra.Command{
 
 		<-conn.Done()
 	},
+}
+
+func initializeConfig(cmd *cobra.Command) error {
+	viper.SetEnvPrefix("HEDDLE_LSP")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
+
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.SetConfigName("heddle-lsp")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("$HOME/.heddle")
+	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func init() {
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./heddle-lsp.yaml)")
+
+	rootCmd.Flags().String("log-path", "/tmp/heddle-lsp.log", "Path to log file")
+	viper.BindPFlag("log-path", rootCmd.Flags().Lookup("log-path"))
 }
 
 func main() {

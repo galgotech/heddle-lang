@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/execution"
@@ -16,19 +18,24 @@ import (
 )
 
 var (
-	workerID string
-	cpAddr   string
+	cfgFile string
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "heddle-worker",
 	Short: "Heddle Worker executes tasks assigned by the control plane",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return initializeConfig(cmd)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Initialize logger
 		if err := logger.Init(logger.Config{Development: true}); err != nil {
 			panic(err)
 		}
 		defer logger.Sync()
+
+		workerID := viper.GetString("id")
+		cpAddr := viper.GetString("cp")
 
 		worker, err := execution.NewWorker(workerID, cpAddr)
 		if err != nil {
@@ -59,9 +66,37 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+func initializeConfig(cmd *cobra.Command) error {
+	viper.SetEnvPrefix("HEDDLE_WORKER")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
+
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.SetConfigName("heddle-worker")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("$HOME/.heddle")
+	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func init() {
-	rootCmd.Flags().StringVar(&workerID, "id", "worker-1", "Unique ID for this worker")
-	rootCmd.Flags().StringVar(&cpAddr, "cp", "localhost:50051", "Address of the control plane")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./heddle-worker.yaml)")
+
+	rootCmd.Flags().String("id", "worker-1", "Unique ID for this worker")
+	rootCmd.Flags().String("cp", "localhost:50051", "Address of the control plane")
+
+	viper.BindPFlag("id", rootCmd.Flags().Lookup("id"))
+	viper.BindPFlag("cp", rootCmd.Flags().Lookup("cp"))
 }
 
 func main() {
