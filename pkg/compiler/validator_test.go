@@ -2,6 +2,10 @@ package compiler
 
 import (
 	"testing"
+
+	"github.com/galgotech/heddle-lang/pkg/ast"
+	"github.com/galgotech/heddle-lang/pkg/lexer"
+	"github.com/galgotech/heddle-lang/pkg/parser"
 )
 
 func TestValidator_UndefinedStep(t *testing.T) {
@@ -85,3 +89,34 @@ workflow main {
 	}
 }
 
+func TestValidator_Lookup(t *testing.T) {
+	code := `resource res1 = fhub.res
+step s1: void -> void = fhub.my_step
+handler h1 {
+  s1
+}
+`
+	l := lexer.New(code)
+	p := parser.New(l)
+	prog := p.Parse()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parser errors: %v", p.Errors())
+	}
+
+	v := NewValidator(prog)
+	v.Validate()
+
+	assertNotNil := func(n ast.Node, name string) {
+		if n == nil {
+			t.Errorf("expected to find %s", name)
+		}
+	}
+
+	assertNotNil(v.Lookup("res1"), "res1")
+	assertNotNil(v.Lookup("s1"), "s1")
+	assertNotNil(v.Lookup("h1"), "h1")
+
+	if v.Lookup("nonexistent") != nil {
+		t.Error("expected nil for nonexistent")
+	}
+}

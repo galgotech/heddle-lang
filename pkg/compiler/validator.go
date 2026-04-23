@@ -233,3 +233,17 @@ func (v *Validator) checkPipelineCycle(ps *ast.PipelineStatement, visited, recSt
 	}
 	return nil
 }
+
+// Lookup returns the definition node for a given name if it exists.
+func (v *Validator) Lookup(name string) ast.Node {
+	if res, ok := v.mapResource[name]; ok {
+		return res
+	}
+	if step, ok := v.mapStep[name]; ok {
+		return step
+	}
+	if handler, ok := v.mapHandler[name]; ok {
+		return handler
+	}
+	return nil
+}

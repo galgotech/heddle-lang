@@ -16,44 +16,100 @@ type Range struct {
 	End   Position
 }
 
-// GetRange returns the range of a node based on its token and literal length.
+// GetRange returns the range of a node.
 func GetRange(node Node) Range {
-	// This is a simplified implementation. Some nodes might span multiple lines.
-	// For now, we use the start token.
-	var tok lexer.Token
+	if node == nil {
+		return Range{}
+	}
+
+	// Some nodes might have their own range calculation in the future.
+	// For now, we use the start token and calculate end based on length.
+	var startTok lexer.Token
+	var endTok lexer.Token
+
 	switch n := node.(type) {
 	case *Identifier:
-		tok = n.Token
+		startTok = n.Token
+		endTok = n.Token
 	case *StringLiteral:
-		tok = n.Token
+		startTok = n.Token
+		endTok = n.Token
 	case *NumberLiteral:
-		tok = n.Token
+		startTok = n.Token
+		endTok = n.Token
 	case *BooleanLiteral:
-		tok = n.Token
+		startTok = n.Token
+		endTok = n.Token
 	case *NullLiteral:
-		tok = n.Token
-	case *StepCall:
-		tok = n.Token
+		startTok = n.Token
+		endTok = n.Token
+	case *ResourceBinding:
+		startTok = n.Token
+		if n.Ref != nil {
+			return Range{
+				Start: Position{Line: n.Token.Line, Column: n.Token.Column},
+				End:   GetRange(n.Ref).End,
+			}
+		}
+		endTok = n.Name.Token
+	case *StepBinding:
+		startTok = n.Token
+		if n.Ref != nil {
+			return Range{
+				Start: Position{Line: n.Token.Line, Column: n.Token.Column},
+				End:   GetRange(n.Ref).End,
+			}
+		}
+		endTok = n.Name.Token
+	case *FunctionRef:
+		if n.Module != nil {
+			startTok = n.Module.Token
+		} else {
+			startTok = n.Name.Token
+		}
+		endTok = n.Name.Token
 	case *SchemaRef:
 		if n.Module != nil {
-			tok = n.Module.Token
+			startTok = n.Module.Token
 		} else {
-			tok = n.Name.Token
+			startTok = n.Name.Token
 		}
+		endTok = n.Name.Token
+	case *StepCall:
+		startTok = n.Token
+		endTok = n.Name.Token
 	default:
-		// Fallback to TokenLiteral if we can't get the token directly
-		// but this is not very reliable for range calculation.
 		return Range{}
 	}
 
 	return Range{
-		Start: Position{Line: tok.Line, Column: tok.Column},
-		End:   Position{Line: tok.Line, Column: tok.Column + len(tok.Literal)},
+		Start: Position{Line: startTok.Line, Column: startTok.Column},
+		End:   Position{Line: endTok.Line, Column: endTok.Column + len(endTok.Literal)},
 	}
+}
+
+// isWithin checks if the given line/column is within the range.
+func isWithin(r Range, line, column int) bool {
+	if r.Start.Line == 0 {
+		return false
+	}
+	if line < r.Start.Line || line > r.End.Line {
+		return false
+	}
+	if line == r.Start.Line && column < r.Start.Column {
+		return false
+	}
+	if line == r.End.Line && column > r.End.Column {
+		return false
+	}
+	return true
 }
 
 // FindNodeAt traverses the AST to find the deepest node that contains the given position.
 func FindNodeAt(program *Program, line, column int) Node {
+	if program == nil {
+		return nil
+	}
 	for _, stmt := range program.Statements {
 		if node := findInNode(stmt, line, column); node != nil {
 			return node
@@ -67,16 +123,28 @@ func findInNode(node Node, line, column int) Node {
 		return nil
 	}
 
-	// Check if the position is within the node's range
-	// For complex nodes, we first check their children.
-	
+	// Special check for typed nils which are common in ASTs
 	switch n := node.(type) {
-	case *Program:
-		for _, s := range n.Statements {
-			if found := findInNode(s, line, column); found != nil {
-				return found
-			}
+	case *Identifier:
+		if n == nil {
+			return nil
 		}
+	case *FunctionRef:
+		if n == nil {
+			return nil
+		}
+	case *SchemaRef:
+		if n == nil {
+			return nil
+		}
+	case *StepCall:
+		if n == nil {
+			return nil
+		}
+	}
+
+	// 1. Check children first (to find the deepest node)
+	switch n := node.(type) {
 	case *ImportStatement:
 		if found := findInNode(n.Path, line, column); found != nil {
 			return found
@@ -183,9 +251,8 @@ func findInNode(node Node, line, column int) Node {
 		}
 	}
 
-	// If it's a leaf node or none of the children matched, check the node itself.
-	r := GetRange(node)
-	if line == r.Start.Line && column >= r.Start.Column && column <= r.End.Column {
+	// 2. Check the node itself if no children matched
+	if isWithin(GetRange(node), line, column) {
 		return node
 	}
 

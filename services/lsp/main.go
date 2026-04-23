@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"io"
-	"log"
 	"os"
+	"sync"
+	"time"
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
+	"go.uber.org/zap"
 )
 
 const (
@@ -16,10 +18,20 @@ const (
 )
 
 var (
-	state *State
+	state  *State
+	logger *zap.Logger
 )
 
 func main() {
+	cfg := zap.NewDevelopmentConfig()
+	cfg.OutputPaths = []string{"/tmp/heddle-lsp.log"}
+	var err error
+	logger, err = cfg.Build()
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+
 	state = NewState()
 
 	ctx := context.Background()
@@ -27,14 +39,15 @@ func main() {
 
 	h := &lspHandler{
 		client: nil, // Will be set after connection
+		timers: make(map[protocol.DocumentURI]*time.Timer),
 	}
 
 	conn := jsonrpc2.NewConn(stream)
-	h.client = protocol.ClientDispatcher(conn, nil)
+	h.client = protocol.ClientDispatcher(conn, logger)
 
-	conn.Go(ctx, protocol.ServerHandler(h, nil))
+	conn.Go(ctx, protocol.ServerHandler(h, jsonrpc2.MethodNotFoundHandler))
 
-	log.Printf("Starting Heddle LSP server (go.lsp.dev) on stdin/stdout...")
+	logger.Info("Starting Heddle LSP server", zap.String("version", lsVersion))
 
 	<-conn.Done()
 }
@@ -51,6 +64,9 @@ func (stdioRW) Close() error {
 type lspHandler struct {
 	protocol.Server
 	client protocol.Client
+
+	mu     sync.Mutex
+	timers map[protocol.DocumentURI]*time.Timer
 }
 
 func (h *lspHandler) Initialize(ctx context.Context, params *protocol.InitializeParams) (*protocol.InitializeResult, error) {
@@ -60,7 +76,8 @@ func (h *lspHandler) Initialize(ctx context.Context, params *protocol.Initialize
 				OpenClose: true,
 				Change:    protocol.TextDocumentSyncKindFull,
 			},
-			HoverProvider: true,
+			HoverProvider:      true,
+			DefinitionProvider: true,
 			CompletionProvider: &protocol.CompletionOptions{
 				TriggerCharacters: []string{"."},
 			},

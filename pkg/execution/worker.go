@@ -41,8 +41,8 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 		CPAddr:     cpAddr,
 		Client:     client,
 		conn:       conn,
-		dataMgr:    data.NewDataManager("/dev/shm/heddle"),
-		pluginAddr: "localhost:50052", // Default plugin server address
+		dataMgr:    data.NewDataManager("/dev/shm/heddle", 1<<30), // 1GB limit
+		pluginAddr: "localhost:50052",                             // Default plugin server address
 	}, nil
 }
 
