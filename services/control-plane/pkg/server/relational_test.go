@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
 func TestRelationalEngineIntegration(t *testing.T) {
@@ -51,7 +51,7 @@ func TestRelationalEngineIntegration(t *testing.T) {
 	go goWorker.StartExecutionLoop(ctx)
 
 	// 3. Start Rust Relational Worker
-	rustWorkerPath, _ := filepath.Abs("../relational-worker")
+	rustWorkerPath, _ := filepath.Abs("../../../relational-worker")
 	cmd := exec.Command("cargo", "run")
 	cmd.Dir = rustWorkerPath
 	cmd.Env = append(os.Environ(), fmt.Sprintf("HEDDLE_CP_ADDR=http://%s", cpAddr))
@@ -66,8 +66,10 @@ func TestRelationalEngineIntegration(t *testing.T) {
 	code := `import "test" t
 import "std:io" io
 
-step gen: void -> void = t.generate
-step prn: void -> void = io.print
+schema Data { id: int }
+
+step gen: void -> Data = t.generate
+step prn: Data -> void = io.print
 
 workflow main {
   gen

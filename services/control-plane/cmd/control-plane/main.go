@@ -10,6 +10,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/server"
 )
 
 var (
@@ -33,7 +34,7 @@ var rootCmd = &cobra.Command{
 		logger.L().Info("Heddle Control Plane starting", zap.Int("port", port))
 		logger.L().Info("Arrow Flight server initializing")
 
-		StartServer(port)
+		server.StartServer(port)
 	},
 }
 

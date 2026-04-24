@@ -1,4 +1,4 @@
-package main
+package lsp
 
 import (
 	"context"
@@ -12,15 +12,28 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
-type lspHandler struct {
+const (
+	lsName    = "heddle"
+	lsVersion = "0.0.1"
+)
+
+type LSPHandler struct {
 	protocol.Server
-	client protocol.Client
+	Client protocol.Client
 
 	mu     sync.Mutex
 	timers map[protocol.DocumentURI]*time.Timer
+	state  *State
 }
 
-func (h *lspHandler) Initialize(ctx context.Context, params *protocol.InitializeParams) (*protocol.InitializeResult, error) {
+func NewLSPHandler(state *State) *LSPHandler {
+	return &LSPHandler{
+		state:  state,
+		timers: make(map[protocol.DocumentURI]*time.Timer),
+	}
+}
+
+func (h *LSPHandler) Initialize(ctx context.Context, params *protocol.InitializeParams) (*protocol.InitializeResult, error) {
 	return &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
 			TextDocumentSync: &protocol.TextDocumentSyncOptions{
@@ -40,19 +53,19 @@ func (h *lspHandler) Initialize(ctx context.Context, params *protocol.Initialize
 	}, nil
 }
 
-func (h *lspHandler) Initialized(ctx context.Context, params *protocol.InitializedParams) error {
+func (h *LSPHandler) Initialized(ctx context.Context, params *protocol.InitializedParams) error {
 	return nil
 }
 
-func (h *lspHandler) Shutdown(ctx context.Context) error {
+func (h *LSPHandler) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (h *lspHandler) Exit(ctx context.Context) error {
+func (h *LSPHandler) Exit(ctx context.Context) error {
 	return nil
 }
 
-func (h *lspHandler) debouncedPublishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
+func (h *LSPHandler) debouncedPublishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -65,13 +78,13 @@ func (h *lspHandler) debouncedPublishDiagnostics(ctx context.Context, uri protoc
 	})
 }
 
-func (h *lspHandler) DidOpenTextDocument(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {
+func (h *LSPHandler) DidOpenTextDocument(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {
 	logger.L().Info("Document opened", logger.String("uri", string(params.TextDocument.URI)))
 	h.debouncedPublishDiagnostics(ctx, params.TextDocument.URI, params.TextDocument.Text)
 	return nil
 }
 
-func (h *lspHandler) DidChangeTextDocument(ctx context.Context, params *protocol.DidChangeTextDocumentParams) error {
+func (h *LSPHandler) DidChangeTextDocument(ctx context.Context, params *protocol.DidChangeTextDocumentParams) error {
 	if len(params.ContentChanges) > 0 {
 		change := params.ContentChanges[0]
 		h.debouncedPublishDiagnostics(ctx, params.TextDocument.URI, change.Text)
@@ -79,12 +92,12 @@ func (h *lspHandler) DidChangeTextDocument(ctx context.Context, params *protocol
 	return nil
 }
 
-func (h *lspHandler) DidSaveTextDocument(ctx context.Context, params *protocol.DidSaveTextDocumentParams) error {
+func (h *LSPHandler) DidSaveTextDocument(ctx context.Context, params *protocol.DidSaveTextDocumentParams) error {
 	return nil
 }
 
-func (h *lspHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
-	doc, ok := state.GetDocument(string(params.TextDocument.URI))
+func (h *LSPHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
+	doc, ok := h.state.GetDocument(string(params.TextDocument.URI))
 	if !ok {
 		return nil, nil
 	}
@@ -132,11 +145,11 @@ func (h *lspHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*
 	}, nil
 }
 
-func (h *lspHandler) publishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
+func (h *LSPHandler) publishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
 	logger.L().Info("Publishing diagnostics", logger.String("uri", string(uri)))
 
-	_, parserErrors := state.UpdateDocument(string(uri), text)
-	doc, _ := state.GetDocument(string(uri))
+	_, parserErrors := h.state.UpdateDocument(string(uri), text)
+	doc, _ := h.state.GetDocument(string(uri))
 
 	var diagnostics []protocol.Diagnostic
 
@@ -166,14 +179,14 @@ func (h *lspHandler) publishDiagnostics(ctx context.Context, uri protocol.Docume
 		})
 	}
 
-	h.client.PublishDiagnostics(ctx, &protocol.PublishDiagnosticsParams{
+	h.Client.PublishDiagnostics(ctx, &protocol.PublishDiagnosticsParams{
 		URI:         uri,
 		Diagnostics: diagnostics,
 	})
 }
 
-func (h *lspHandler) Definition(ctx context.Context, params *protocol.DefinitionParams) ([]protocol.Location, error) {
-	doc, ok := state.GetDocument(string(params.TextDocument.URI))
+func (h *LSPHandler) Definition(ctx context.Context, params *protocol.DefinitionParams) ([]protocol.Location, error) {
+	doc, ok := h.state.GetDocument(string(params.TextDocument.URI))
 	if !ok {
 		return nil, nil
 	}

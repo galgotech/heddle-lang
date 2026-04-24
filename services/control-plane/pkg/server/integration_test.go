@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -54,9 +54,13 @@ func TestEndToEndDataFlow(t *testing.T) {
 	code := `import "test" t
 import "std:io" io
 
-step gen: void -> void = t.generate
-step inc: void -> void = t.increment
-step prn: void -> void = io.print
+schema Data {
+  id: int
+}
+
+step gen: void -> Data = t.generate
+step inc: Data -> Data = t.increment
+step prn: Data -> void = io.print
 
 workflow main {
   gen

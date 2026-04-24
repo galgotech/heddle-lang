@@ -1,20 +1,15 @@
 package main
 
 import (
-	"bufio"
-	"context"
 	"fmt"
-	"io"
-	"net"
 	"os"
 
-	"github.com/google/go-dap"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/services/debug-adapter/pkg/adapter"
 )
 
 var (
@@ -41,9 +36,9 @@ var rootCmd = &cobra.Command{
 		logger.L().Info("Heddle Debug Adapter starting")
 
 		if viper.GetBool("server") {
-			startServer(viper.GetString("addr"))
+			adapter.StartServer(viper.GetString("addr"))
 		} else {
-			serve(os.Stdin, os.Stdout)
+			adapter.Serve(os.Stdin, os.Stdout)
 		}
 	},
 }
@@ -66,45 +61,5 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
-	}
-}
-
-func startServer(addr string) {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		logger.L().Fatal("Failed to listen", zap.Error(err))
-	}
-	logger.L().Info("Listening", zap.String("address", addr))
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			logger.L().Error("Accept error", zap.Error(err))
-			continue
-		}
-		go serve(conn, conn)
-	}
-}
-
-func serve(r io.Reader, w io.Writer) {
-	s := &session{
-		reader:    bufio.NewReader(r),
-		writer:    w,
-		sendQueue: make(chan dap.Message),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go s.sendLoop(ctx)
-
-	for {
-		msg, err := dap.ReadProtocolMessage(s.reader)
-		if err != nil {
-			if err != io.EOF {
-				logger.L().Error("Read error", zap.Error(err))
-			}
-			break
-		}
-		s.handleMessage(msg)
 	}
 }

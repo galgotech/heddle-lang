@@ -1,21 +1,21 @@
-package main
+package adapter
 
 import (
 	"bufio"
 	"context"
 	"io"
-	"os"
+	"net"
 	"time"
 
 	"github.com/google/go-dap"
 	"go.uber.org/zap"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )
 
-type session struct {
+type Session struct {
 	reader    *bufio.Reader
 	writer    io.Writer
 	sendQueue chan dap.Message
@@ -26,7 +26,7 @@ type session struct {
 	curIndex int // Current index in history for Time-Travel
 }
 
-func (s *session) sendLoop(ctx context.Context) {
+func (s *Session) SendLoop(ctx context.Context) {
 	for {
 		select {
 		case msg := <-s.sendQueue:
@@ -39,13 +39,11 @@ func (s *session) sendLoop(ctx context.Context) {
 	}
 }
 
-func (s *session) send(msg dap.Message) {
+func (s *Session) send(msg dap.Message) {
 	s.sendQueue <- msg
 }
 
-func (s *session) handleMessage(msg dap.Message) {
-	logger.L().Debug("Received message", zap.String("type", string(os.Args[0]))) // Better way below
-
+func (s *Session) HandleMessage(msg dap.Message) {
 	switch request := msg.(type) {
 	case *dap.InitializeRequest:
 		s.send(&dap.InitializeResponse{
@@ -218,12 +216,12 @@ func (s *session) handleMessage(msg dap.Message) {
 	}
 }
 
-func (s *session) nextSeq() int {
+func (s *Session) nextSeq() int {
 	s.seq++
 	return s.seq
 }
 
-func (s *session) sendStoppedEvent(reason string) {
+func (s *Session) sendStoppedEvent(reason string) {
 	s.send(&dap.StoppedEvent{
 		Event: dap.Event{
 			ProtocolMessage: dap.ProtocolMessage{
@@ -240,7 +238,7 @@ func (s *session) sendStoppedEvent(reason string) {
 	})
 }
 
-func (s *session) syncHistory() {
+func (s *Session) syncHistory() {
 	if s.cpClient == nil {
 		return
 	}
@@ -252,4 +250,44 @@ func (s *session) syncHistory() {
 		return
 	}
 	s.history = history
+}
+
+func StartServer(addr string) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.L().Fatal("Failed to listen", zap.Error(err))
+	}
+	logger.L().Info("Listening", zap.String("address", addr))
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			logger.L().Error("Accept error", zap.Error(err))
+			continue
+		}
+		go Serve(conn, conn)
+	}
+}
+
+func Serve(r io.Reader, w io.Writer) {
+	s := &Session{
+		reader:    bufio.NewReader(r),
+		writer:    w,
+		sendQueue: make(chan dap.Message),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go s.SendLoop(ctx)
+
+	for {
+		msg, err := dap.ReadProtocolMessage(s.reader)
+		if err != nil {
+			if err != io.EOF {
+				logger.L().Error("Read error", zap.Error(err))
+			}
+			break
+		}
+		s.HandleMessage(msg)
+	}
 }

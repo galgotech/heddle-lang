@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/services/lsp/pkg/lsp"
 )
 
 const (
@@ -23,7 +23,6 @@ const (
 
 var (
 	cfgFile string
-	state   *State
 )
 
 type stdioRW struct {
@@ -54,22 +53,19 @@ var rootCmd = &cobra.Command{
 		}
 		defer logger.Sync()
 
-		state = NewState()
+		state := lsp.NewState()
 
 		ctx := context.Background()
 		stream := jsonrpc2.NewStream(stdioRW{os.Stdin, os.Stdout})
 
-		h := &lspHandler{
-			client: nil, // Will be set after connection
-			timers: make(map[protocol.DocumentURI]*time.Timer),
-		}
+		h := lsp.NewLSPHandler(state)
 
 		conn := jsonrpc2.NewConn(stream)
-		h.client = protocol.ClientDispatcher(conn, logger.L())
+		h.Client = protocol.ClientDispatcher(conn, logger.L())
 
 		conn.Go(ctx, protocol.ServerHandler(h, jsonrpc2.MethodNotFoundHandler))
 
-		logger.L().Info("Starting Heddle LSP server", logger.String("version", lsVersion))
+		logger.L().Info("Starting Heddle LSP server")
 
 		<-conn.Done()
 	},
