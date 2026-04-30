@@ -1,4 +1,4 @@
-package fastast
+package ast
 
 import (
 	"sync"
