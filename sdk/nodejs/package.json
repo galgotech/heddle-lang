@@ -4,5 +4,24 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
+  },
+  "description": "",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "class-validator": "^0.15.1",
+    "reflect-metadata": "^0.2.2",
+    "uuid": "^14.0.0",
+    "zod": "^4.4.1"
   }
 }
