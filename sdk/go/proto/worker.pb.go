@@ -7,11 +7,12 @@
 package proto
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -185,9 +186,11 @@ func (x *InitResourceResponse) GetErrorMessage() string {
 type ExecuteStepRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StepName      string                 `protobuf:"bytes,1,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	ResourceId    string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"` // Can be empty if the step doesn't require a resource
-	ConfigJson    string                 `protobuf:"bytes,3,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"` // Step configuration
-	InputTable    []byte                 `protobuf:"bytes,4,opt,name=input_table,json=inputTable,proto3" json:"input_table,omitempty"` // Placeholder for Arrow buffer
+	ResourceId    string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`    // Can be empty if the step doesn't require a resource
+	ConfigJson    string                 `protobuf:"bytes,3,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`    // Step configuration
+	InputTable    []byte                 `protobuf:"bytes,4,opt,name=input_table,json=inputTable,proto3" json:"input_table,omitempty"`    // Placeholder for Arrow buffer
+	InputHandle   string                 `protobuf:"bytes,5,opt,name=input_handle,json=inputHandle,proto3" json:"input_handle,omitempty"` // Handle for shared memory (zero-copy)
+	OutputHandle  string                 `protobuf:"bytes,6,opt,name=output_handle,json=outputHandle,proto3" json:"output_handle,omitempty"` // Handle for where to write result (zero-copy)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -250,11 +253,26 @@ func (x *ExecuteStepRequest) GetInputTable() []byte {
 	return nil
 }
 
+func (x *ExecuteStepRequest) GetInputHandle() string {
+	if x != nil {
+		return x.InputHandle
+	}
+	return ""
+}
+
+func (x *ExecuteStepRequest) GetOutputHandle() string {
+	if x != nil {
+		return x.OutputHandle
+	}
+	return ""
+}
+
 type ExecuteStepResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        StatusCode             `protobuf:"varint,1,opt,name=status,proto3,enum=heddle.worker.StatusCode" json:"status,omitempty"`
 	OutputTable   []byte                 `protobuf:"bytes,2,opt,name=output_table,json=outputTable,proto3" json:"output_table,omitempty"` // Placeholder for Arrow buffer
 	ErrorMessage  string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	OutputHandle  string                 `protobuf:"bytes,4,opt,name=output_handle,json=outputHandle,proto3" json:"output_handle,omitempty"` // Handle for shared memory (zero-copy)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -306,6 +324,13 @@ func (x *ExecuteStepResponse) GetOutputTable() []byte {
 func (x *ExecuteStepResponse) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ExecuteStepResponse) GetOutputHandle() string {
+	if x != nil {
+		return x.OutputHandle
 	}
 	return ""
 }

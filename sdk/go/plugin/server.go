@@ -32,7 +32,6 @@ func NewServer(registry *Registry) *Server {
 	}
 }
 
-
 // handleExecutionError maps domain errors to protobuf status codes.
 func handleExecutionError(err error) (pb.StatusCode, string) {
 	if err == nil {
@@ -202,7 +201,20 @@ func (s *Server) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest) (r
 	}
 
 	// Create and append input table
-	inputTable := core.NewTableFromBytes(req.InputTable)
+	var inputTable *core.Table
+	var errInput error
+	if req.GetInputHandle() != "" {
+		inputTable, errInput = core.ReadTableFromHandle(req.GetInputHandle())
+	} else {
+		inputTable, errInput = core.NewTableFromBytes(req.GetInputTable())
+	}
+
+	if errInput != nil {
+		return &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_FATAL_ERROR,
+			ErrorMessage: fmt.Sprintf("failed to prepare input table: %v", errInput),
+		}, nil
+	}
 	args = append(args, reflect.ValueOf(inputTable))
 
 	// Execute user function
@@ -226,12 +238,33 @@ func (s *Server) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest) (r
 			ErrorMessage: "step function returned nil table",
 		}, nil
 	}
-
 	outTable := outTableVal.Interface().(*core.Table)
+
+	// If an output handle is requested, write to it (zero-copy)
+	if req.OutputHandle != "" {
+		if err := outTable.WriteToHandle(req.OutputHandle); err != nil {
+			return &pb.ExecuteStepResponse{
+				Status:       pb.StatusCode_FATAL_ERROR,
+				ErrorMessage: fmt.Sprintf("failed to write output table to handle: %v", err),
+			}, nil
+		}
+		return &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_SUCCESS,
+			OutputHandle: req.OutputHandle,
+		}, nil
+	}
+
+	outputBytes, err := outTable.ToBytes()
+	if err != nil {
+		return &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_FATAL_ERROR,
+			ErrorMessage: fmt.Sprintf("failed to serialize output table: %v", err),
+		}, nil
+	}
 
 	return &pb.ExecuteStepResponse{
 		Status:      pb.StatusCode_SUCCESS,
-		OutputTable: outTable.ToBytes(),
+		OutputTable: outputBytes,
 	}, nil
 }
 
