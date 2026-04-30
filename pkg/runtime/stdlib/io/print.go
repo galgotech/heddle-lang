@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
-
 	"github.com/apache/arrow/go/v18/arrow"
+
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
 // PrintStep implements std:io:print.

@@ -5,12 +5,20 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
+// ParserError represents a syntax error found during parsing.
+type ParserError struct {
+	Message string
+	Line    int
+	Column  int
+}
+
 // Parser represents the pointerless AST parser.
 type Parser struct {
 	l         *lexer.Lexer
 	curToken  lexer.Token
 	peekToken lexer.Token
 	ctx       *ast.ASTContext
+	errors    []ParserError
 }
 
 // New creates a new parser. It requires an ASTContext.
@@ -43,7 +51,20 @@ func (p *Parser) expectPeek(t lexer.TokenType) bool {
 		p.nextToken()
 		return true
 	}
+	p.peekError(t)
 	return false
+}
+
+func (p *Parser) Errors() []ParserError {
+	return p.errors
+}
+
+func (p *Parser) peekError(t lexer.TokenType) {
+	p.errors = append(p.errors, ParserError{
+		Message: string(t) + " vs " + string(p.peekToken.Type), // Simplified message
+		Line:    p.peekToken.Line,
+		Column:  p.peekToken.Column,
+	})
 }
 
 // Parse parses the source code and constructs an AST inside the ASTContext.

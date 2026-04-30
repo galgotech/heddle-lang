@@ -2,13 +2,11 @@ package lsp
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"go.lsp.dev/protocol"
 
-	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -97,52 +95,8 @@ func (h *LSPHandler) DidSaveTextDocument(ctx context.Context, params *protocol.D
 }
 
 func (h *LSPHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
-	doc, ok := h.state.GetDocument(string(params.TextDocument.URI))
-	if !ok {
-		return nil, nil
-	}
-
-	node := ast.FindNodeAt(doc.Program, int(params.Position.Line+1), int(params.Position.Character+1))
-	if node == nil {
-		return nil, nil
-	}
-
-	var title string
-	var description string
-
-	switch n := node.(type) {
-	case *ast.Identifier:
-		title = "Identifier"
-		description = fmt.Sprintf("Name: `%s`", n.Value)
-	case *ast.StepCall:
-		title = "Step Call"
-		description = fmt.Sprintf("Executes step: `%s`", n.Name.Value)
-	case *ast.SchemaRef:
-		title = "Schema Reference"
-		description = fmt.Sprintf("Type: `%s`", n.String())
-	case *ast.FunctionRef:
-		title = "Host Function"
-		description = fmt.Sprintf("Implementation: `%s`", n.String())
-	case *ast.ResourceBinding:
-		title = "Resource Binding"
-		description = fmt.Sprintf("Defines resource: `%s`", n.Name.Value)
-	default:
-		title = "Heddle Node"
-		description = fmt.Sprintf("Type: `%T`", node)
-	}
-
-	content := fmt.Sprintf("### %s\n---\n%s", title, description)
-
-	return &protocol.Hover{
-		Contents: protocol.MarkupContent{
-			Kind:  protocol.Markdown,
-			Value: content,
-		},
-		Range: &protocol.Range{
-			Start: params.Position,
-			End:   params.Position, // Could be improved with actual node range
-		},
-	}, nil
+	// TODO: Implement FindNodeAt for pointerless AST
+	return nil, nil
 }
 
 func (h *LSPHandler) publishDiagnostics(ctx context.Context, uri protocol.DocumentURI, text string) {
@@ -186,37 +140,6 @@ func (h *LSPHandler) publishDiagnostics(ctx context.Context, uri protocol.Docume
 }
 
 func (h *LSPHandler) Definition(ctx context.Context, params *protocol.DefinitionParams) ([]protocol.Location, error) {
-	doc, ok := h.state.GetDocument(string(params.TextDocument.URI))
-	if !ok {
-		return nil, nil
-	}
-
-	node := ast.FindNodeAt(doc.Program, int(params.Position.Line+1), int(params.Position.Character+1))
-	if node == nil {
-		return nil, nil
-	}
-
-	var targetNode ast.Node
-
-	switch n := node.(type) {
-	case *ast.Identifier:
-		targetNode = doc.Validator.Lookup(n.Value)
-	case *ast.StepCall:
-		targetNode = doc.Validator.Lookup(n.Name.Value)
-	}
-
-	if targetNode == nil {
-		return nil, nil
-	}
-
-	r := ast.GetRange(targetNode)
-	return []protocol.Location{
-		{
-			URI: params.TextDocument.URI,
-			Range: protocol.Range{
-				Start: protocol.Position{Line: uint32(r.Start.Line - 1), Character: uint32(r.Start.Column - 1)},
-				End:   protocol.Position{Line: uint32(r.End.Line - 1), Character: uint32(r.End.Column - 1)},
-			},
-		},
-	}, nil
+	// TODO: Implement FindNodeAt and GetRange for pointerless AST
+	return nil, nil
 }

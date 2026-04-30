@@ -11,7 +11,8 @@ import (
 
 type Document struct {
 	Text      string
-	Program   *ast.Program
+	Ctx       *ast.ASTContext
+	Program   ast.ProgramNode
 	Validator *compiler.Validator
 }
 
@@ -26,21 +27,28 @@ func NewState() *State {
 	}
 }
 
-func (s *State) UpdateDocument(uri string, text string) (*ast.Program, []parser.ParserError) {
+func (s *State) UpdateDocument(uri string, text string) (ast.ProgramNode, []parser.ParserError) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Release previous context if exists
+	if old, ok := s.documents[uri]; ok {
+		ast.ReleaseASTContext(old.Ctx)
+	}
+
+	ctx := ast.AcquireASTContext()
 	l := lexer.New(text)
-	p := parser.New(l)
+	p := parser.New(l, ctx)
 	program := p.Parse()
 
-	v := compiler.NewValidator(program)
+	v := compiler.NewValidator(program, ctx)
 	// We don't care about validation errors here for the state,
 	// they will be handled by publishDiagnostics.
 	_ = v.Validate()
 
 	s.documents[uri] = &Document{
 		Text:      text,
+		Ctx:       ctx,
 		Program:   program,
 		Validator: v,
 	}
