@@ -108,10 +108,10 @@ schema Admin = User
 func TestWorkflowDefinition(t *testing.T) {
 	input := `
 workflow main ?onErr {
-    getData
+  getData
     | process?localErr
     | save
-    > result
+  > result
 }
 `
 	l := lexer.New(input)
