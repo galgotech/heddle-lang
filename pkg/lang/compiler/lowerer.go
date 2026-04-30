@@ -19,6 +19,7 @@ type Lowerer struct {
 	mapResource map[string]ast.NodeRef
 	mapStep     map[string]ast.NodeRef
 	mapHandler  map[string]ast.NodeRef
+	handlerIDs  map[string]string // name -> IR ID
 }
 
 // NewLowerer creates a new instance of the Lowerer.
@@ -38,6 +39,7 @@ func NewLowerer(ctx *ast.ASTContext) *Lowerer {
 		mapResource: make(map[string]ast.NodeRef),
 		mapStep:     make(map[string]ast.NodeRef),
 		mapHandler:  make(map[string]ast.NodeRef),
+		handlerIDs:  make(map[string]string),
 	}
 }
 
@@ -87,7 +89,19 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 		l.registerInstruction(res)
 	}
 
-	// Third pass: Lower workflows
+	// Third pass: Lower handlers
+	for i := astProgram.HandlerRefsStart; i < astProgram.HandlerRefsEnd; i++ {
+		ref := l.ctx.HandlerRefs[i]
+		node := l.ctx.HandlerNodes[ref]
+		flow, err := l.lowerHandler(node)
+		if err != nil {
+			return nil, err
+		}
+		l.registerInstruction(flow)
+		l.handlerIDs[flow.Name] = flow.ID
+	}
+
+	// Fourth pass: Lower workflows
 	for i := astProgram.WorkflowRefsStart; i < astProgram.WorkflowRefsEnd; i++ {
 		ref := l.ctx.WorkflowRefs[i]
 		node := l.ctx.WorkflowNodes[ref]
@@ -108,6 +122,25 @@ func (l *Lowerer) lowerResource(astResource ast.ResourceNode) (*ir.ResourceInstr
 		Name:            l.ctx.GetString(astResource.NameRef),
 	}
 	return res, nil
+}
+ 
+func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction, error) {
+	flow := &ir.FlowInstruction{
+		BaseInstruction: l.newBase(ir.FlowInst),
+		Name:            l.ctx.GetString(astHandler.NameRef),
+	}
+ 
+	for i := astHandler.StatementRefsStart; i < astHandler.StatementRefsEnd; i++ {
+		psRef := l.ctx.StatementRefs[i]
+		ps := l.ctx.PipelineStatementNodes[psRef]
+		headID, err := l.lowerPipeline(ps)
+		if err != nil {
+			return nil, err
+		}
+		flow.Heads = append(flow.Heads, headID)
+	}
+ 
+	return flow, nil
 }
 
 func (l *Lowerer) lowerWorkflow(astWorkflow ast.WorkflowNode) (*ir.FlowInstruction, error) {
@@ -173,6 +206,14 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 		BaseInstruction: l.newBase(ir.StepInst),
 	}
 	step.DefinitionName = l.ctx.GetString(call.NameRef)
+ 
+	if call.TrapRef != (ast.StringRef{}) {
+		handlerName := l.ctx.GetString(call.TrapRef)
+		if id, ok := l.handlerIDs[handlerName]; ok {
+			step.Handler = id
+		}
+	}
+ 
 	return step, nil
 }
 

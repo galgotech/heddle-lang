@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/time/rate"
 
-	"github.com/galgotech/heddle-lang/services/control-plane/pkg/heddle/scheduler"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
 )
 
 func TestRegistry_RegisterAndHeartbeat(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/pkg/logger"
@@ -59,6 +60,7 @@ func (w *Worker) Register(ctx context.Context) error {
 		Body: body,
 	}
 
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
 	stream, err := w.Client.DoAction(ctx, action)
 	if err != nil {
 		return fmt.Errorf("failed to register: %w", err)
@@ -91,7 +93,8 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 				Body: body,
 			}
 
-			stream, err := w.Client.DoAction(ctx, action)
+			hbCtx := metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
+			stream, err := w.Client.DoAction(hbCtx, action)
 			if err != nil {
 				logger.L().Warn("Heartbeat failed", logger.Error(err))
 				continue
@@ -104,7 +107,8 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 }
 
 func (w *Worker) StartExecutionLoop(ctx context.Context) {
-	stream, err := w.Client.DoExchange(ctx)
+	exCtx := metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
+	stream, err := w.Client.DoExchange(exCtx)
 	if err != nil {
 		logger.L().Fatal("failed to open exchange stream", logger.Error(err))
 	}
@@ -156,6 +160,9 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 }
 
 func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
+	if task.Step == nil || len(task.Step.Call) < 2 {
+		return "", fmt.Errorf("step implementation mapping invalid: %v", task.Step)
+	}
 	module := task.Step.Call[0]
 	name := task.Step.Call[1]
 

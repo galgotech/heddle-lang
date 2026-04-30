@@ -52,10 +52,9 @@ func TestControlPlaneServer_DoAction_RegisterWorker(t *testing.T) {
 	assert.Len(t, mockStream.results, 1)
 	assert.Equal(t, "OK", string(mockStream.results[0].Body))
 
-	server.mu.RLock()
-	defer server.mu.RUnlock()
-	assert.Contains(t, server.workers, "worker-1")
-	assert.Equal(t, "go", server.workers["worker-1"].Runtime)
+	worker, err := server.registry.GetHealthyWorker()
+	assert.NoError(t, err)
+	assert.Equal(t, "worker-1", worker.ID)
 }
 
 func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
@@ -63,8 +62,7 @@ func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
 	mockStream := &mockDoActionServer{}
 
 	// Register first
-	reg := execution.WorkerRegistration{WorkerID: "worker-1"}
-	server.workers["worker-1"] = reg
+	server.registry.Register("worker-1", nil)
 
 	hb := execution.Heartbeat{
 		WorkerID:  "worker-1",
@@ -84,10 +82,9 @@ func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
 	assert.Len(t, mockStream.results, 1)
 	assert.Equal(t, "OK", string(mockStream.results[0].Body))
 
-	server.mu.RLock()
-	defer server.mu.RUnlock()
-	assert.Contains(t, server.heartbeats, "worker-1")
-	assert.Equal(t, execution.WorkerStatusIdle, server.heartbeats["worker-1"].Status)
+	worker, err := server.registry.GetHealthyWorker()
+	assert.NoError(t, err)
+	assert.Equal(t, "worker-1", worker.ID)
 }
 
 func TestControlPlaneServer_DoAction_SubmitWorkflow(t *testing.T) {

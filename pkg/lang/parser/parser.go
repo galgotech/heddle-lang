@@ -459,8 +459,7 @@ func (p *Parser) parsePipeChain() ast.NodeRef {
 }
 
 func (p *Parser) isPipeOnNextLine() bool {
-	// Dummy implementation for now, in a real parser we'd need more lookahead
-	return false
+	return p.peekTokenIs(lexer.PIPE) || p.peekTokenIs(lexer.NEWLINE) || p.peekTokenIs(lexer.INDENT)
 }
 
 func (p *Parser) parseCall() ast.NodeRef {

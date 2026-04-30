@@ -6,16 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/galgotech/heddle-lang/services/control-plane/pkg/heddle/scheduler"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
 )
 
 // WorkerState represents the health state of a worker.
 type WorkerState string
 
 const (
-	WorkerHealthy WorkerState = "Healthy"
+	WorkerHealthy  WorkerState = "Healthy"
 	WorkerDegraded WorkerState = "Degraded"
-	WorkerOffline WorkerState = "Offline"
+	WorkerOffline  WorkerState = "Offline"
 )
 
 // Worker represents a "Dumb Worker" (e.g., Node.js, Python, Rust) executing DataFusion logic.

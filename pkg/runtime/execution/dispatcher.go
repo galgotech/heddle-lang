@@ -78,7 +78,18 @@ func (d *Dispatcher) NextTasks() []Task {
 			inst := d.program.Instructions[id].(*ir.StepInstruction)
 			if inst.Handler != "" && d.isReady(inst.Handler) {
 				// Trigger handler
-				tasks = append(tasks, d.createTask(inst.Handler, ""))
+				raw := d.program.Instructions[inst.Handler]
+				if flow, ok := raw.(*ir.FlowInstruction); ok {
+					for _, headID := range flow.Heads {
+						if d.isReady(headID) {
+							tasks = append(tasks, d.createTask(headID, ""))
+						}
+					}
+					// Mark the flow itself as in-flight
+					d.states[inst.Handler] = &TaskState{Status: TaskStatusInFlight}
+				} else {
+					tasks = append(tasks, d.createTask(inst.Handler, ""))
+				}
 			}
 		}
 	}
