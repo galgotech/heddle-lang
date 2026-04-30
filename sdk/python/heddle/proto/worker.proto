@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package heddle.worker;
+
+enum StatusCode {
+  SUCCESS = 0;
+  BUSINESS_ERROR = 1;
+  FATAL_ERROR = 2;
+}
+
+message InitResourceRequest {
+  string resource_name = 1;
+  string config_json = 2; // For now, pass config as JSON
+}
+
+message InitResourceResponse {
+  StatusCode status = 1;
+  string resource_id = 2;
+  string error_message = 3;
+}
+
+message ExecuteStepRequest {
+  string step_name = 1;
+  string resource_id = 2; // Can be empty if the step doesn't require a resource
+  string config_json = 3; // Step configuration
+  bytes input_table = 4; // Placeholder for Arrow buffer
+}
+
+message ExecuteStepResponse {
+  StatusCode status = 1;
+  bytes output_table = 2; // Placeholder for Arrow buffer
+  string error_message = 3;
+}
+
+service PluginService {
+  rpc InitResource(InitResourceRequest) returns (InitResourceResponse) {}
+  rpc ExecuteStep(ExecuteStepRequest) returns (ExecuteStepResponse) {}
+}
