@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	heddleclient "github.com/galgotech/heddle-lang/pkg/client"
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
-	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )
 
 var (
@@ -45,7 +45,7 @@ var submitCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		client, err := heddlesdk.NewControlPlaneClient(serverAddr)
+		client, err := heddleclient.NewControlPlaneClient(serverAddr)
 		if err != nil {
 			logger.L().Fatal("Failed to create client", zap.Error(err))
 		}

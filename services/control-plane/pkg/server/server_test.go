@@ -89,3 +89,27 @@ func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
 	assert.Contains(t, server.heartbeats, "worker-1")
 	assert.Equal(t, execution.WorkerStatusIdle, server.heartbeats["worker-1"].Status)
 }
+
+func TestControlPlaneServer_DoAction_SubmitWorkflow(t *testing.T) {
+	server := NewControlPlaneServer()
+	mockStream := &mockDoActionServer{}
+
+	source := `
+workflow main {
+  step1
+}
+`
+	action := &flight.Action{
+		Type: execution.ActionSubmitWorkflow,
+		Body: []byte(source),
+	}
+
+	err := server.DoAction(action, mockStream)
+	assert.NoError(t, err)
+	assert.Len(t, mockStream.results, 1)
+	assert.Equal(t, "Workflow initialized successfully", string(mockStream.results[0].Body))
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+	assert.NotNil(t, server.dispatcher)
+}

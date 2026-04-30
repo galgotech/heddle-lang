@@ -10,9 +10,9 @@ import (
 	"github.com/google/go-dap"
 	"go.uber.org/zap"
 
+	heddleclient "github.com/galgotech/heddle-lang/pkg/client"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
-	heddlesdk "github.com/galgotech/heddle-lang/sdk/go"
 )
 
 type Session struct {
@@ -21,7 +21,7 @@ type Session struct {
 	sendQueue chan dap.Message
 	seq       int
 
-	cpClient *heddlesdk.ControlPlaneClient
+	cpClient *heddleclient.ControlPlaneClient
 	history  []execution.TaskUpdate
 	curIndex int // Current index in history for Time-Travel
 }
@@ -75,7 +75,7 @@ func (s *Session) HandleMessage(msg dap.Message) {
 	case *dap.LaunchRequest:
 		// Initialize CP client
 		addr := "localhost:50051" // Default CP addr
-		client, err := heddlesdk.NewControlPlaneClient(addr)
+		client, err := heddleclient.NewControlPlaneClient(addr)
 		if err != nil {
 			logger.L().Error("Failed to connect to CP", zap.Error(err))
 		}

@@ -11,9 +11,9 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
 type ControlPlaneServer struct {
@@ -81,17 +81,18 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 	case execution.ActionSubmitWorkflow:
 		logger.L().Info("Received workflow submission", zap.Int("bytes", len(action.Body)))
 
-		var program ir.ProgramIR
-		if err := json.Unmarshal(action.Body, &program); err != nil {
-			return fmt.Errorf("failed to unmarshal IR: %w", err)
-		}
+		// Interpret body as Heddle source code
+		source := string(action.Body)
 
-		if err := program.Inflate(); err != nil {
-			return fmt.Errorf("failed to inflate IR: %w", err)
+		// Compile source code to IR
+		c := compiler.New()
+		program, err := c.Compile(source)
+		if err != nil {
+			return fmt.Errorf("failed to compile workflow: %w", err)
 		}
 
 		s.mu.Lock()
-		s.dispatcher = execution.NewDispatcher(&program)
+		s.dispatcher = execution.NewDispatcher(program)
 		s.mu.Unlock()
 
 		logger.L().Info("Workflow initialized", zap.Int("entryPoints", len(program.Workflows)))

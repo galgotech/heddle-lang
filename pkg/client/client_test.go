@@ -51,7 +51,7 @@ func TestControlPlaneClient_SubmitWorkflow(t *testing.T) {
 	defer client.Close()
 
 	// Test submission
-	workflow := []byte("flow hello { step world {} }")
+	workflow := []byte("wokflowflow hello {\n \n}")
 	result, err := client.SubmitWorkflow(context.Background(), workflow)
 	assert.NoError(t, err)
 	assert.Equal(t, "Workflow received successfully", result)

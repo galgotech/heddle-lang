@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
@@ -68,20 +66,13 @@ workflow main {
     | prn
 }
 `
-	c := compiler.New()
-	program, err := c.Compile(code)
-	if err != nil {
-		t.Fatalf("compile failed: %v", err)
-	}
-
-	programBody, _ := json.Marshal(program)
 
 	conn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	client := flight.NewClientFromConn(conn, nil)
 
 	action := &flight.Action{
 		Type: execution.ActionSubmitWorkflow,
-		Body: programBody,
+		Body: []byte(code),
 	}
 
 	resStream, err := client.DoAction(ctx, action)
