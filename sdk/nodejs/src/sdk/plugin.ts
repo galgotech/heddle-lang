@@ -3,6 +3,7 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { Table } from '../core/table';
 import { ResourceState } from '../core/resource';
+import { resolveTicket } from '../core/locality';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 
@@ -197,7 +198,13 @@ export class PluginRegistry {
                 config.resource = activeResource;
             }
 
-            const inputTable = req.input_table ? Table.fromBuffer(req.input_table) : null;
+            let inputTable: Table | null = null;
+            if (req.input_ticket) {
+                const arrowTable = await resolveTicket(req.input_ticket);
+                inputTable = new Table(arrowTable);
+            } else if (req.input_table) {
+                inputTable = Table.fromBuffer(req.input_table);
+            }
 
             const outputTable: Table = await method(config, inputTable);
 

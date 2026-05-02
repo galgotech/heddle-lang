@@ -8,6 +8,7 @@ import grpc
 
 from heddle.proto import worker_pb2, worker_pb2_grpc
 from heddle.core.table import Table
+from heddle.core.locality import resolve_ticket
 
 class HeddleBusinessException(Exception):
     pass
@@ -106,9 +107,17 @@ class PluginServicer(worker_pb2_grpc.PluginServiceServicer):
                     kwargs['config'] = config_class(**config_dict)
 
             if input_class and input_class != type(None):
-                # Placeholder for actual parsing of input_table
-                input_instance = input_class() if issubclass(input_class, Table) else None
-                kwargs['input'] = input_instance
+                if request.HasField("input_ticket"):
+                    # Fast-Path or Network-Path resolution
+                    pa_table = resolve_ticket(request.input_ticket)
+                    kwargs['input'] = Table(pa_table)
+                elif request.input_table:
+                    # Legacy byte-buffer fallback
+                    import pyarrow as pa
+                    reader = pa.ipc.open_stream(request.input_table)
+                    kwargs['input'] = Table(reader.read_all())
+                else:
+                    kwargs['input'] = None
             else:
                 kwargs['input'] = None
 

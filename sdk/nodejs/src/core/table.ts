@@ -1,14 +1,16 @@
+import { Table as ArrowTable, tableToIPC } from 'apache-arrow';
+
 export class Table {
-    // Encapsulate apache-arrow memory buffers or just basic JSON for now.
-    // In the future this should be extended to support arrow buffers zero-copy.
-    private _data: any;
+    private _data: ArrowTable | null = null;
     private _buffer: Buffer | null = null;
 
-    constructor(data?: any) {
-        this._data = data;
+    constructor(data?: ArrowTable) {
+        if (data) {
+            this._data = data;
+        }
     }
 
-    get data(): any {
+    get native(): ArrowTable | null {
         return this._data;
     }
 
@@ -23,15 +25,6 @@ export class Table {
     static fromBuffer(buffer: Buffer): Table {
         const table = new Table();
         table.buffer = buffer;
-        try {
-            // Placeholder: Parse Arrow buffer or JSON buffer
-            const jsonStr = buffer.toString('utf-8');
-            if (jsonStr) {
-                table._data = JSON.parse(jsonStr);
-            }
-        } catch (e) {
-            // Not json, maybe arrow or empty
-        }
         return table;
     }
 
@@ -40,8 +33,13 @@ export class Table {
             return this._buffer;
         }
         if (this._data) {
-            return Buffer.from(JSON.stringify(this._data));
+            // Serialize to Arrow IPC
+            return Buffer.from(tableToIPC(this._data));
         }
         return Buffer.alloc(0);
+    }
+
+    get numRows(): number {
+        return this._data ? this._data.numRows : 0;
     }
 }
