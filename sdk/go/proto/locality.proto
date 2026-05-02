@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package heddle.locality;
+
+option go_package = "github.com/galgotech/heddle-lang/sdk/go/proto";
+
+// RouteType defines how a resource should be accessed.
+enum RouteType {
+  LOCAL = 0;   // Access via Unix sockets or shared memory
+  REMOTE = 1;  // Access via network gRPC/Flight RPC
+}
+
+// FlightTicket provides the metadata required for a worker to retrieve a resource.
+// This is used as the 'Ticket' in Apache Arrow Flight GetStream or GetFlightInfo.
+message FlightTicket {
+  // route_type specifies whether the resource is local or remote.
+  RouteType route_type = 1;
+  
+  // address is the connection string (e.g., unix:///tmp/heddle.sock or grpc://10.0.0.1:50051).
+  string address = 2;
+  
+  // resource_id is the unique identifier of the allocated in-memory resource.
+  string resource_id = 3;
+}

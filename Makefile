@@ -5,7 +5,7 @@ BINARY_DIR=bin
 GO=go
 PROTOC=protoc
 PROTO_DIR=sdk/go/proto
-PROTO_FILES=$(PROTO_DIR)/worker.proto
+PROTO_FILES=$(PROTO_DIR)/worker.proto $(PROTO_DIR)/locality.proto
 
 # Services (Main build target)
 SERVICES=control-plane worker client lsp debug-adapter
