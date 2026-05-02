@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
+	"github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 type Worker struct {
@@ -22,7 +25,7 @@ type Worker struct {
 	Client flight.Client
 	conn   *grpc.ClientConn
 
-	dataMgr *data.DataManager
+	dataMgr   *data.DataManager
 	udsServer *data.UDSServer
 	udsAddr   string
 
@@ -171,6 +174,82 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	}
 }
 
+func (w *Worker) StartFlightServer(ctx context.Context, addr string) error {
+	server := flight.NewServerWithMiddleware(nil)
+	server.RegisterFlightService(&workerFlightServer{
+		Worker: w,
+	})
+
+	if err := server.Init(addr); err != nil {
+		return fmt.Errorf("failed to init flight server: %w", err)
+	}
+
+	logger.L().Info("P2P Flight Server started", logger.String("addr", addr))
+
+	go func() {
+		<-ctx.Done()
+		server.Shutdown()
+	}()
+
+	return server.Serve()
+}
+
+type workerFlightServer struct {
+	flight.BaseFlightServer
+	*Worker
+}
+
+func (s *workerFlightServer) DoGet(tkt *flight.Ticket, stream flight.FlightService_DoGetServer) error {
+	resourceID := string(tkt.Ticket)
+	logger.L().Debug("DoGet request received", logger.String("resourceID", resourceID))
+
+	rec, err := s.dataMgr.Get(resourceID)
+	if err != nil {
+		return fmt.Errorf("resource not found: %w", err)
+	}
+	defer rec.Release()
+
+	writer := flight.NewRecordWriter(stream, ipc.WithSchema(rec.Schema()))
+	if err := writer.Write(rec); err != nil {
+		return fmt.Errorf("failed to write record to flight stream: %w", err)
+	}
+	return writer.Close()
+}
+
+func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket) (string, error) {
+	addr := strings.TrimPrefix(ticket.Address, "grpc://")
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to peer %s: %w", addr, err)
+	}
+	defer conn.Close()
+
+	client := flight.NewClientFromConn(conn, nil)
+	stream, err := client.DoGet(ctx, &flight.Ticket{Ticket: []byte(ticket.ResourceId)})
+	if err != nil {
+		return "", fmt.Errorf("DoGet failed for %s: %w", ticket.ResourceId, err)
+	}
+
+	reader, err := flight.NewRecordReader(stream)
+	if err != nil {
+		return "", fmt.Errorf("failed to create record reader: %w", err)
+	}
+	defer reader.Release()
+
+	if !reader.Next() {
+		return "", fmt.Errorf("no data received from peer")
+	}
+
+	rec := reader.Record()
+	localHandle := fmt.Sprintf("remote-%s-%d", ticket.ResourceId, time.Now().UnixNano())
+	if err := w.dataMgr.Put(localHandle, rec); err != nil {
+		return "", fmt.Errorf("failed to store remote data locally: %w", err)
+	}
+
+	return localHandle, nil
+}
+
 func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	if task.Step == nil || len(task.Step.Call) < 2 {
 		return "", fmt.Errorf("step implementation mapping invalid: %v", task.Step)
@@ -185,6 +264,19 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 
 	var input arrow.Record
 	var err error
+
+	// If a REMOTE ticket is provided, fetch data from the peer first
+	if task.RemoteTicket != nil && task.RemoteTicket.RouteType == proto.RouteType_REMOTE {
+		logger.L().Info("Fetching remote data",
+			logger.String("peer", task.RemoteTicket.Address),
+			logger.String("resID", task.RemoteTicket.ResourceId))
+
+		localHandle, err := w.fetchRemoteData(ctx, task.RemoteTicket)
+		if err != nil {
+			return "", fmt.Errorf("failed to fetch remote data: %w", err)
+		}
+		task.InputHandle = localHandle
+	}
 
 	if task.InputHandle != "" {
 		input, err = w.dataMgr.Get(task.InputHandle)

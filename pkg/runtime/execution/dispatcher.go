@@ -5,13 +5,15 @@ import (
 	"sync"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 // Task represents an instruction assigned to a worker.
 type Task struct {
-	ID          string              `json:"id"`
-	Step        *ir.StepInstruction `json:"step"`
-	InputHandle string              `json:"input_handle,omitempty"`
+	ID           string              `json:"id"`
+	Step         *ir.StepInstruction `json:"step"`
+	InputHandle  string              `json:"input_handle,omitempty"`
+	RemoteTicket *proto.FlightTicket `json:"remote_ticket,omitempty"`
 }
 
 // TaskStatus represents the lifecycle of a task.
