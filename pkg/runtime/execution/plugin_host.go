@@ -10,9 +10,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/apache/arrow/go/v18/arrow/ipc"
+	"github.com/apache/arrow/go/v18/arrow/memory"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
+
+	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 // PluginInstance represents a running plugin process.
@@ -42,12 +48,12 @@ func NewPluginManager() *PluginManager {
 // StartPlugin spawns a new plugin process and connects to its Flight server.
 func (pm *PluginManager) StartPlugin(ctx context.Context, id string, command string, args ...string) (*PluginInstance, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
-	
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
-	
+
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
@@ -105,6 +111,90 @@ func (pm *PluginManager) StartPlugin(ctx context.Context, id string, command str
 	pm.mu.Unlock()
 
 	return instance, nil
+}
+
+// Describe retrieves metadata from the plugin.
+func (pi *PluginInstance) Describe(ctx context.Context) (*pb.DescribeResponse, error) {
+	action := &flight.Action{Type: "describe"}
+	stream, err := pi.Client.DoAction(ctx, action)
+	if err != nil {
+		return nil, err
+	}
+	res, err := stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	var desc pb.DescribeResponse
+	if err := proto.Unmarshal(res.Body, &desc); err != nil {
+		return nil, err
+	}
+	return &desc, nil
+}
+
+// InitResource initializes a stateful resource in the plugin.
+func (pi *PluginInstance) InitResource(ctx context.Context, req *pb.InitResourceRequest) (*pb.InitResourceResponse, error) {
+	body, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	action := &flight.Action{Type: "init_resource", Body: body}
+	stream, err := pi.Client.DoAction(ctx, action)
+	if err != nil {
+		return nil, err
+	}
+	res, err := stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	var resp pb.InitResourceResponse
+	if err := proto.Unmarshal(res.Body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ExecuteStep runs a step on the plugin via DoExchange.
+func (pi *PluginInstance) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest, input arrow.Record) (arrow.Record, error) {
+	stream, err := pi.Client.DoExchange(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Send metadata in first message
+	meta, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := stream.Send(&flight.FlightData{AppMetadata: meta}); err != nil {
+		return nil, err
+	}
+
+	// 2. Send input table
+	writer := flight.NewRecordWriter(stream, ipc.WithAllocator(memory.DefaultAllocator), ipc.WithSchema(input.Schema()))
+	if err := writer.Write(input); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	// 3. Receive output table
+	reader, err := flight.NewRecordReader(stream, ipc.WithAllocator(memory.DefaultAllocator))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Release()
+
+	if !reader.Next() {
+		return nil, fmt.Errorf("no output data received from plugin")
+	}
+
+	rec := reader.Record()
+	rec.Retain()
+	return rec, nil
 }
 
 // StopPlugin stops a plugin process and cleans up resources.

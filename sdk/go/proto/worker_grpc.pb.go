@@ -8,9 +8,11 @@ package proto
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -21,6 +23,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	PluginService_InitResource_FullMethodName = "/heddle.worker.PluginService/InitResource"
 	PluginService_ExecuteStep_FullMethodName  = "/heddle.worker.PluginService/ExecuteStep"
+	PluginService_Describe_FullMethodName     = "/heddle.worker.PluginService/Describe"
 )
 
 // PluginServiceClient is the client API for PluginService service.
@@ -29,6 +32,7 @@ const (
 type PluginServiceClient interface {
 	InitResource(ctx context.Context, in *InitResourceRequest, opts ...grpc.CallOption) (*InitResourceResponse, error)
 	ExecuteStep(ctx context.Context, in *ExecuteStepRequest, opts ...grpc.CallOption) (*ExecuteStepResponse, error)
+	Describe(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DescribeResponse, error)
 }
 
 type pluginServiceClient struct {
@@ -59,12 +63,23 @@ func (c *pluginServiceClient) ExecuteStep(ctx context.Context, in *ExecuteStepRe
 	return out, nil
 }
 
+func (c *pluginServiceClient) Describe(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DescribeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DescribeResponse)
+	err := c.cc.Invoke(ctx, PluginService_Describe_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PluginServiceServer is the server API for PluginService service.
 // All implementations must embed UnimplementedPluginServiceServer
 // for forward compatibility.
 type PluginServiceServer interface {
 	InitResource(context.Context, *InitResourceRequest) (*InitResourceResponse, error)
 	ExecuteStep(context.Context, *ExecuteStepRequest) (*ExecuteStepResponse, error)
+	Describe(context.Context, *emptypb.Empty) (*DescribeResponse, error)
 	mustEmbedUnimplementedPluginServiceServer()
 }
 
@@ -80,6 +95,9 @@ func (UnimplementedPluginServiceServer) InitResource(context.Context, *InitResou
 }
 func (UnimplementedPluginServiceServer) ExecuteStep(context.Context, *ExecuteStepRequest) (*ExecuteStepResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExecuteStep not implemented")
+}
+func (UnimplementedPluginServiceServer) Describe(context.Context, *emptypb.Empty) (*DescribeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Describe not implemented")
 }
 func (UnimplementedPluginServiceServer) mustEmbedUnimplementedPluginServiceServer() {}
 func (UnimplementedPluginServiceServer) testEmbeddedByValue()                       {}
@@ -138,6 +156,24 @@ func _PluginService_ExecuteStep_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PluginService_Describe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServiceServer).Describe(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PluginService_Describe_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServiceServer).Describe(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PluginService_ServiceDesc is the grpc.ServiceDesc for PluginService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +188,10 @@ var PluginService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExecuteStep",
 			Handler:    _PluginService_ExecuteStep_Handler,
+		},
+		{
+			MethodName: "Describe",
+			Handler:    _PluginService_Describe_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

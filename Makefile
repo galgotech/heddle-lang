@@ -3,16 +3,24 @@
 # Variables
 BINARY_DIR=bin
 GO=go
+PROTOC=protoc
+PROTO_DIR=sdk/go/proto
+PROTO_FILES=$(PROTO_DIR)/worker.proto
 
 # Services (Main build target)
 SERVICES=control-plane worker client lsp debug-adapter
 RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
-.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit
+.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit proto
 
 # Default target
 all: build
+
+proto:
+	$(PROTOC) --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		$(PROTO_FILES)
 
 # Create bin directory
 $(BINARY_DIR):
@@ -54,6 +62,10 @@ calculator-example: $(BINARY_DIR)
 	@echo "Building Calculator Example..."
 	$(GO) build -o $(BINARY_DIR)/example-calculator ./sdk-examples/go/calculator
 
+test-calculator:
+	@echo "Testing Calculator Example..."
+	$(GO) test -v ./sdk-examples/go/calculator
+
 # Run Helpers
 run-server: control-plane
 	@echo "Starting Control Plane..."
@@ -85,6 +97,7 @@ help:
 	@echo "  make client        - Build only the client CLI"
 	@echo "  make relational-worker - Build only the Rust relational worker"
 	@echo "  make calculator-example - Build only the calculator example"
+	@echo "  make test-calculator   - Run tests for the calculator example"
 	@echo "  make run-server    - Build and start the control plane"
 	@echo "  make submit FILE=f.he - Build and submit a heddle file"
 	@echo "  make test          - Run all tests"

@@ -8,17 +8,28 @@ import (
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 )
 
-// ResourceFunc signature matches: func(ctx context.Context, config T) (*R, error)
+// StepFunc is a strict signature for steps without resources.
+type StepFunc[C any] func(ctx context.Context, config C, input *core.Table) (*core.Table, error)
+
+// ResourceStepFunc is a strict signature for steps with resources.
+type ResourceStepFunc[C any, R any] func(ctx context.Context, config C, resource R, input *core.Table) (*core.Table, error)
+
+// ResourceFunc is a strict signature for resource initializers.
+type ResourceFunc[C any, R any] func(ctx context.Context, config C) (R, error)
+
+// ResourceRegistration stores metadata about a registered resource.
 type ResourceRegistration struct {
-	Name string
-	Fn   reflect.Value
+	Name         string
+	Fn           reflect.Value
+	ConfigSchema string
 }
 
-// StepFunc signature matches: func(ctx context.Context, config T, res *R, input *core.Table) (*core.Table, error)
+// StepRegistration stores metadata about a registered step.
 type StepRegistration struct {
 	Name         string
 	Fn           reflect.Value
 	ResourceName string // Optional: if empty, no resource is required
+	ConfigSchema string
 }
 
 // Registry stores registered resource and step functions.
@@ -46,7 +57,6 @@ func WithResource(resourceName string) StepOption {
 }
 
 // RegisterResource registers a resource function.
-// Expected fn signature: func(ctx context.Context, config ConfigType) (*ResourceType, error)
 func (r *Registry) RegisterResource(name string, fn interface{}) {
 	val := reflect.ValueOf(fn)
 	typ := val.Type()
@@ -75,14 +85,13 @@ func (r *Registry) RegisterResource(name string, fn interface{}) {
 	}
 
 	r.resources[name] = ResourceRegistration{
-		Name: name,
-		Fn:   val,
+		Name:         name,
+		Fn:           val,
+		ConfigSchema: generateJSONSchema(typ.In(1)),
 	}
 }
 
 // RegisterStep registers a step function.
-// Expected fn signature without resource: func(ctx context.Context, config ConfigType, input *core.Table) (*core.Table, error)
-// Expected fn signature with resource:    func(ctx context.Context, config ConfigType, res *ResourceType, input *core.Table) (*core.Table, error)
 func (r *Registry) RegisterStep(name string, fn interface{}, opts ...StepOption) {
 	val := reflect.ValueOf(fn)
 	typ := val.Type()
@@ -92,8 +101,9 @@ func (r *Registry) RegisterStep(name string, fn interface{}, opts ...StepOption)
 	}
 
 	reg := StepRegistration{
-		Name: name,
-		Fn:   val,
+		Name:         name,
+		Fn:           val,
+		ConfigSchema: generateJSONSchema(typ.In(1)),
 	}
 
 	for _, opt := range opts {
@@ -133,6 +143,27 @@ func (r *Registry) RegisterStep(name string, fn interface{}, opts ...StepOption)
 	}
 
 	r.steps[name] = reg
+}
+
+// generateJSONSchema is a helper to extract a basic JSON schema from a type.
+func generateJSONSchema(t reflect.Type) string {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return fmt.Sprintf(`{"type": "%s"}`, t.Kind().String())
+	}
+
+	schema := `{"type": "object", "properties": {`
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if i > 0 {
+			schema += ", "
+		}
+		schema += fmt.Sprintf(`"%s": {"type": "%s"}`, field.Name, field.Type.Kind().String())
+	}
+	schema += `}}`
+	return schema
 }
 
 // GetResource returns a registered resource function.

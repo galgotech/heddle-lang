@@ -139,7 +139,6 @@ Before complete, verify:
 - [ ] All public functions/methods are documented (e.g., docstrings, JSDoc, GoDoc)
 - [ ] Type safety is enforced (e.g., type hints, TypeScript types, Go types)
 - [ ] No linting or static analysis errors (using the project's configured tools)
-- [ ] Works correctly on mobile (if applicable)
 - [ ] Documentation updated if needed
 - [ ] No security vulnerabilities introduced
 
@@ -156,13 +155,6 @@ Before complete, verify:
 - Verify database transactions
 - Test authentication and authorization
 - Check form submissions
-
-### Mobile Testing
-- Test on actual iPhone when possible
-- Use Safari developer tools
-- Test touch interactions
-- Verify responsive layouts
-- Check performance on 3G/4G
 
 ## Code Review Process
 
@@ -196,12 +188,6 @@ Before requesting review:
    - Images optimized
    - Caching implemented where needed
 
-6. **Mobile Experience**
-   - Touch targets adequate (44x44px)
-   - Text readable without zooming
-   - Performance acceptable on mobile
-   - Interactions feel native
-
 ## Definition of Done
 
 A task is complete when:
@@ -211,7 +197,6 @@ A task is complete when:
 3. Code coverage meets project requirements
 4. Documentation complete (if applicable)
 5. Code passes all configured linting and static analysis checks
-6. Works beautifully on mobile (if applicable)
 
 ## Emergency Procedures
 
@@ -219,6 +204,5 @@ A task is complete when:
 1. Create hotfix branch from main
 2. Write failing test for bug
 3. Implement minimal fix
-4. Test thoroughly including mobile
 5. Deploy immediately
 6. Document in plan.md

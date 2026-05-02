@@ -4,6 +4,8 @@ package heddle.worker;
 
 option go_package = "github.com/galgotech/heddle-lang/sdk/go/proto";
 
+import "google/protobuf/empty.proto";
+
 enum StatusCode {
   SUCCESS = 0;
   BUSINESS_ERROR = 1;
@@ -37,7 +39,26 @@ message ExecuteStepResponse {
   string output_handle = 4; // Handle for shared memory (zero-copy)
 }
 
-service PluginService {
-  rpc InitResource(InitResourceRequest) returns (InitResourceResponse) {}
-  rpc ExecuteStep(ExecuteStepRequest) returns (ExecuteStepResponse) {}
+message StepMetadata {
+  string name = 1;
+  string config_json_schema = 2;
+  bool requires_resource = 3;
+  string resource_name = 4;
 }
+
+message ResourceMetadata {
+  string name = 1;
+  string config_json_schema = 2;
+}
+
+message DescribeResponse {
+  repeated StepMetadata steps = 1;
+  repeated ResourceMetadata resources = 2;
+}
+
+// PluginService is replaced by Arrow Flight standard service
+// service PluginService {
+//   rpc InitResource(InitResourceRequest) returns (InitResourceResponse) {}
+//   rpc ExecuteStep(ExecuteStepRequest) returns (ExecuteStepResponse) {}
+//   rpc Describe(google.protobuf.Empty) returns (DescribeResponse) {}
+// }
