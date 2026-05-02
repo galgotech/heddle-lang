@@ -37,55 +37,53 @@ func (m *DataManager) Put(id string, record arrow.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. Serialize to buffer to calculate size
-	var buf bytes.Buffer
-	writer := ipc.NewWriter(&buf, ipc.WithSchema(record.Schema()))
-	if err := writer.Write(record); err != nil {
-		return fmt.Errorf("failed to write record: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("failed to close writer: %w", err)
-	}
+	// 1. Create memfd or file
+	// Note: In a full implementation, we might estimate size or use a temp buffer
+	// but for Phase 2, we prioritize direct FD writing if possible.
+	// We'll use a conservative estimate or a growing file.
 
-	data := buf.Bytes()
-	size := int64(len(data))
-
-	location := LocationShared
-	if m.memoryLimit > 0 && m.activeBytes+size > m.memoryLimit {
-		location = LocationDisk
-	}
+	// For now, we still need to know the size for memfd_create if we want it to be contiguous
+	// but memfd can be truncated later.
+	// Let's use a two-pass approach only if necessary, or just write to FD.
 
 	var f *os.File
 	var err error
 
-	if location == LocationDisk {
-		path := filepath.Join(m.basePath, id+".arrow")
-		f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	// Create with an initial size or grow as needed
+	if supportsMemfd() {
+		f, err = createMemfd(id, 0)
 	} else {
-		if supportsMemfd() {
-			f, err = createMemfd(id, size)
-		} else {
-			path := filepath.Join(m.basePath, id)
-			f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-			if err == nil {
-				_ = f.Truncate(size)
-			}
-		}
+		path := filepath.Join(m.basePath, id)
+		f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	}
 
 	if err != nil {
 		return fmt.Errorf("failed to allocate storage: %w", err)
 	}
 
-	// Write data
-	if _, err := f.Write(data); err != nil {
+	// 2. Write Arrow Record directly to FD
+	writer := ipc.NewWriter(f, ipc.WithSchema(record.Schema()))
+	if err := writer.Write(record); err != nil {
 		f.Close()
-		return fmt.Errorf("failed to write data: %w", err)
+		return fmt.Errorf("failed to write record: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		f.Close()
+		return fmt.Errorf("failed to close writer: %w", err)
+	}
+
+	// Get final size
+	fi, _ := f.Stat()
+	size := fi.Size()
+
+	var loc StorageLocation = LocationShared
+	if m.memoryLimit > 0 && m.activeBytes+size > m.memoryLimit {
+		loc = LocationDisk
 	}
 
 	// Create frame
 	var frame *ArrowFrame
-	if location == LocationDisk {
+	if loc == LocationDisk {
 		frame = &ArrowFrame{
 			record:   record,
 			location: LocationDisk,

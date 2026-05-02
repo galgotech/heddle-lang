@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 )
 
 type Worker struct {
@@ -23,6 +23,8 @@ type Worker struct {
 	conn   *grpc.ClientConn
 
 	dataMgr *data.DataManager
+	udsServer *data.UDSServer
+	udsAddr   string
 
 	// Plugin server
 	flight.BaseFlightServer
@@ -36,14 +38,18 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 	}
 
 	client := flight.NewClientFromConn(conn, nil)
+	dataMgr := data.NewDataManager("/dev/shm/heddle", 1<<30) // 1GB limit
+	udsAddr := fmt.Sprintf("/tmp/heddle-%s.sock", id)
 
 	return &Worker{
 		ID:         id,
 		CPAddr:     cpAddr,
 		Client:     client,
 		conn:       conn,
-		dataMgr:    data.NewDataManager("/dev/shm/heddle", 1<<30), // 1GB limit
-		pluginAddr: "localhost:50052",                             // Default plugin server address
+		dataMgr:    dataMgr,
+		udsServer:  data.NewUDSServer(udsAddr, dataMgr),
+		udsAddr:    udsAddr,
+		pluginAddr: "localhost:50052", // Default plugin server address
 	}, nil
 }
 
@@ -103,6 +109,12 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (w *Worker) StartUDSServer(ctx context.Context) {
+	if err := w.udsServer.Start(ctx); err != nil {
+		logger.L().Error("UDS Server failed", logger.Error(err))
 	}
 }
 
