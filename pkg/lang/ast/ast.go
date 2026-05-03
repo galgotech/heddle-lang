@@ -9,6 +9,18 @@ type StringRef struct {
 	End   uint32
 }
 
+// Position represents a line and column in the source file.
+type Position struct {
+	Line uint32
+	Col  uint32
+}
+
+// Range represents a start and end position in the source file.
+type Range struct {
+	Start Position
+	End   Position
+}
+
 // ImportNode represents an import statement.
 type ImportNode struct {
 	PathRef  StringRef

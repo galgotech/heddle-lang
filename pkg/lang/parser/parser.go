@@ -67,6 +67,20 @@ func (p *Parser) peekError(t lexer.TokenType) {
 	})
 }
 
+func (p *Parser) getPos() ast.Position {
+	return ast.Position{
+		Line: uint32(p.curToken.Line),
+		Col:  uint32(p.curToken.Column),
+	}
+}
+
+func (p *Parser) getRange(start ast.Position) ast.Range {
+	return ast.Range{
+		Start: start,
+		End:   p.getPos(),
+	}
+}
+
 // Parse parses the source code and constructs an AST inside the ASTContext.
 func (p *Parser) Parse() ast.ProgramNode {
 	program := ast.ProgramNode{
@@ -128,6 +142,7 @@ func (p *Parser) parseImport() ast.NodeRef {
 }
 
 func (p *Parser) parseSchema() ast.NodeRef {
+	start := p.getPos()
 	node := ast.SchemaNode{}
 
 	if !p.expectPeek(lexer.IDENT) {
@@ -144,7 +159,9 @@ func (p *Parser) parseSchema() ast.NodeRef {
 		node.RefRef = p.parseSchemaRef()
 	}
 
-	return p.ctx.AddSchemaNode(node)
+	ref := p.ctx.AddSchemaNode(node)
+	p.ctx.SetSchemaRange(ref, p.getRange(start))
+	return ref
 }
 
 func (p *Parser) parseSchemaBlock() ast.NodeRef {
@@ -175,7 +192,8 @@ func (p *Parser) parseSchemaBlock() ast.NodeRef {
 				if p.peekTokenIs(lexer.LBRACE) {
 					p.nextToken()
 					field.BlockRef = p.parseSchemaBlock()
-				} else if p.expectPeek(lexer.IDENT) || p.expectPeek(lexer.STRING) || p.expectPeek(lexer.INT) || p.expectPeek(lexer.BOOL) || p.expectPeek(lexer.FLOAT) || p.expectPeek(lexer.TIMESTAMP) {
+				} else if p.peekTokenIs(lexer.IDENT) || p.peekTokenIs(lexer.STRING) || p.peekTokenIs(lexer.INT) || p.peekTokenIs(lexer.BOOL) || p.peekTokenIs(lexer.FLOAT) || p.peekTokenIs(lexer.TIMESTAMP) {
+					p.nextToken()
 					field.TypeRef = p.ctx.AddString(p.curToken.Literal)
 				}
 			}
@@ -240,6 +258,7 @@ func (p *Parser) parseResource() ast.NodeRef {
 }
 
 func (p *Parser) parseStepBinding() ast.NodeRef {
+	start := p.getPos()
 	node := ast.StepBindingNode{}
 
 	if !p.expectPeek(lexer.IDENT) {
@@ -261,7 +280,9 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 	p.nextToken()
 	node.RefRef = p.parseFunctionRef()
 
-	return p.ctx.AddStepBindingNode(node)
+	ref := p.ctx.AddStepBindingNode(node)
+	p.ctx.SetStepRange(ref, p.getRange(start))
+	return ref
 }
 
 func (p *Parser) parseStepSignature() ast.NodeRef {
@@ -463,6 +484,7 @@ func (p *Parser) isPipeOnNextLine() bool {
 }
 
 func (p *Parser) parseCall() ast.NodeRef {
+	start := p.getPos()
 	node := ast.CallNode{}
 
 	if p.curTokenIs(lexer.IDENT) {
@@ -476,5 +498,7 @@ func (p *Parser) parseCall() ast.NodeRef {
 		}
 	}
 
-	return p.ctx.AddCallNode(node)
+	ref := p.ctx.AddCallNode(node)
+	p.ctx.SetCallRange(ref, p.getRange(start))
+	return ref
 }

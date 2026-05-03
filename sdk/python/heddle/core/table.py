@@ -29,3 +29,10 @@ class Table:
 
     def to_pydict(self) -> dict:
         return self._data.to_pydict()
+
+    def to_bytes(self) -> bytes:
+        """Serializes the table to Arrow IPC stream format."""
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(sink, self._data.schema) as writer:
+            writer.write_table(self._data)
+        return sink.getvalue().to_pybytes()

@@ -138,7 +138,92 @@ func (v *Validator) detectCycles() error {
 }
 
 func (v *Validator) validateTypes() error {
-	return nil // Simplified for migration
+	for i := v.program.WorkflowRefsStart; i < v.program.WorkflowRefsEnd; i++ {
+		ref := v.ctx.WorkflowRefs[i]
+		node := v.ctx.WorkflowNodes[ref]
+		if err := v.validateWorkflowTypes(node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validateWorkflowTypes(wd ast.WorkflowNode) error {
+	for i := wd.StatementRefsStart; i < wd.StatementRefsEnd; i++ {
+		psRef := v.ctx.StatementRefs[i]
+		ps := v.ctx.PipelineStatementNodes[psRef]
+		if err := v.validatePipelineTypes(ps); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validatePipelineTypes(ps ast.PipelineStatementNode) error {
+	ref := ps.ExprRef
+	pc := v.ctx.PipeChainNodes[ref]
+
+	var lastOutput ast.NodeRef
+	first := true
+
+	for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
+		callRef := v.ctx.CallRefs[i]
+		call := v.ctx.CallNodes[callRef]
+		name := v.ctx.GetString(call.NameRef)
+
+		stepRef, ok := v.mapStep[name]
+		if !ok {
+			return fmt.Errorf("undefined step: %s", name)
+		}
+
+		step := v.ctx.StepBindingNodes[stepRef]
+		sig := v.ctx.StepSignatureNodes[step.SignatureRef]
+
+		if !first {
+			// Check input matches last output
+			if !v.typesCompatible(lastOutput, sig.InputRef) {
+				return fmt.Errorf("type mismatch in pipeline: step '%s' expects %s, but receives %s",
+					name, v.TypeName(sig.InputRef), v.TypeName(lastOutput))
+			}
+		}
+
+		lastOutput = sig.OutputRef
+		first = false
+	}
+	return nil
+}
+
+func (v *Validator) typesCompatible(expected, actual ast.NodeRef) bool {
+	if expected == actual {
+		return true
+	}
+	if expected == 0 || actual == 0 {
+		return expected == actual
+	}
+
+	sr1 := v.ctx.SchemaRefNodes[expected]
+	sr2 := v.ctx.SchemaRefNodes[actual]
+
+	if v.ctx.GetString(sr1.NameRef) != v.ctx.GetString(sr2.NameRef) {
+		return false
+	}
+	if v.ctx.GetString(sr1.ModuleRef) != v.ctx.GetString(sr2.ModuleRef) {
+		return false
+	}
+
+	return true
+}
+
+func (v *Validator) TypeName(ref ast.NodeRef) string {
+	if ref == 0 {
+		return "void"
+	}
+	sr := v.ctx.SchemaRefNodes[ref]
+	name := v.ctx.GetString(sr.NameRef)
+	if sr.ModuleRef.Start != sr.ModuleRef.End {
+		return v.ctx.GetString(sr.ModuleRef) + "." + name
+	}
+	return name
 }
 
 // Lookup returns the definition node for a given name if it exists.

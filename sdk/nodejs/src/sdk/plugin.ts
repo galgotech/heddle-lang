@@ -206,7 +206,11 @@ export class PluginRegistry {
                 inputTable = Table.fromBuffer(req.input_table);
             }
 
-            const outputTable: Table = await method(config, inputTable);
+            const outputTable: any = await method(config, inputTable);
+
+            if (outputTable && !(outputTable instanceof Table)) {
+                throw new HeddleBusinessError(`Step must return an instance of Table, got ${typeof outputTable}`);
+            }
 
             callback(null, {
                 status: 'SUCCESS',

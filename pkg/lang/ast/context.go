@@ -34,6 +34,14 @@ type ASTContext struct {
 	StatementRefs []NodeRef
 	FieldRefs     []NodeRef
 	CallRefs      []NodeRef
+
+	// Range slices (parallel to node slices)
+	ResourceRanges []Range
+	StepRanges     []Range
+	HandlerRanges  []Range
+	WorkflowRanges []Range
+	CallRanges     []Range
+	SchemaRanges   []Range
 }
 
 // Reset clears the context for reuse without reallocating the underlying arrays.
@@ -63,6 +71,13 @@ func (ctx *ASTContext) Reset() {
 	ctx.StatementRefs = ctx.StatementRefs[:0]
 	ctx.FieldRefs = ctx.FieldRefs[:0]
 	ctx.CallRefs = ctx.CallRefs[:0]
+
+	ctx.ResourceRanges = ctx.ResourceRanges[:0]
+	ctx.StepRanges = ctx.StepRanges[:0]
+	ctx.HandlerRanges = ctx.HandlerRanges[:0]
+	ctx.WorkflowRanges = ctx.WorkflowRanges[:0]
+	ctx.CallRanges = ctx.CallRanges[:0]
+	ctx.SchemaRanges = ctx.SchemaRanges[:0]
 }
 
 // AddString appends a string to the buffer and returns its reference.
@@ -91,7 +106,12 @@ func (ctx *ASTContext) AddImportNode(n ImportNode) NodeRef {
 func (ctx *ASTContext) AddSchemaNode(n SchemaNode) NodeRef {
 	idx := uint32(len(ctx.SchemaNodes))
 	ctx.SchemaNodes = append(ctx.SchemaNodes, n)
+	ctx.SchemaRanges = append(ctx.SchemaRanges, Range{})
 	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) SetSchemaRange(ref NodeRef, r Range) {
+	ctx.SchemaRanges[ref] = r
 }
 
 func (ctx *ASTContext) AddSchemaBlockNode(n SchemaBlockNode) NodeRef {
@@ -115,13 +135,23 @@ func (ctx *ASTContext) AddSchemaRefNode(n SchemaRefNode) NodeRef {
 func (ctx *ASTContext) AddResourceNode(n ResourceNode) NodeRef {
 	idx := uint32(len(ctx.ResourceNodes))
 	ctx.ResourceNodes = append(ctx.ResourceNodes, n)
+	ctx.ResourceRanges = append(ctx.ResourceRanges, Range{})
 	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) SetResourceRange(ref NodeRef, r Range) {
+	ctx.ResourceRanges[ref] = r
 }
 
 func (ctx *ASTContext) AddStepBindingNode(n StepBindingNode) NodeRef {
 	idx := uint32(len(ctx.StepBindingNodes))
 	ctx.StepBindingNodes = append(ctx.StepBindingNodes, n)
+	ctx.StepRanges = append(ctx.StepRanges, Range{})
 	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) SetStepRange(ref NodeRef, r Range) {
+	ctx.StepRanges[ref] = r
 }
 
 func (ctx *ASTContext) AddStepSignatureNode(n StepSignatureNode) NodeRef {
@@ -139,13 +169,23 @@ func (ctx *ASTContext) AddFunctionRefNode(n FunctionRefNode) NodeRef {
 func (ctx *ASTContext) AddHandlerNode(n HandlerNode) NodeRef {
 	idx := uint32(len(ctx.HandlerNodes))
 	ctx.HandlerNodes = append(ctx.HandlerNodes, n)
+	ctx.HandlerRanges = append(ctx.HandlerRanges, Range{})
 	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) SetHandlerRange(ref NodeRef, r Range) {
+	ctx.HandlerRanges[ref] = r
 }
 
 func (ctx *ASTContext) AddWorkflowNode(n WorkflowNode) NodeRef {
 	idx := uint32(len(ctx.WorkflowNodes))
 	ctx.WorkflowNodes = append(ctx.WorkflowNodes, n)
+	ctx.WorkflowRanges = append(ctx.WorkflowRanges, Range{})
 	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) SetWorkflowRange(ref NodeRef, r Range) {
+	ctx.WorkflowRanges[ref] = r
 }
 
 func (ctx *ASTContext) AddPipelineStatementNode(n PipelineStatementNode) NodeRef {
@@ -163,7 +203,12 @@ func (ctx *ASTContext) AddPipeChainNode(n PipeChainNode) NodeRef {
 func (ctx *ASTContext) AddCallNode(n CallNode) NodeRef {
 	idx := uint32(len(ctx.CallNodes))
 	ctx.CallNodes = append(ctx.CallNodes, n)
+	ctx.CallRanges = append(ctx.CallRanges, Range{})
 	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) SetCallRange(ref NodeRef, r Range) {
+	ctx.CallRanges[ref] = r
 }
 
 // Helper methods to add refs
@@ -207,6 +252,13 @@ var astContextPool = sync.Pool{
 			StatementRefs: make([]NodeRef, 0, 256),
 			FieldRefs:     make([]NodeRef, 0, 128),
 			CallRefs:      make([]NodeRef, 0, 256),
+
+			ResourceRanges: make([]Range, 0, 16),
+			StepRanges:     make([]Range, 0, 32),
+			HandlerRanges:  make([]Range, 0, 16),
+			WorkflowRanges: make([]Range, 0, 16),
+			CallRanges:     make([]Range, 0, 256),
+			SchemaRanges:   make([]Range, 0, 32),
 		}
 	},
 }

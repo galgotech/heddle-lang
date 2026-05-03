@@ -27,6 +27,15 @@ class PluginRegistry:
 
     def step(self, name: str, resource: Optional[str] = None):
         def decorator(func: Callable):
+            # Semantic enforcement: Inputs and Outputs MUST be Table
+            annotations = func.__annotations__
+            if 'input' in annotations and annotations['input'] != Table and annotations['input'] != type(None):
+                 raise TypeError(f"Step '{name}' input must be heddle.core.Table, got {annotations['input']}")
+            
+            # Note: Python's return type annotation is 'return'
+            if 'return' in annotations and annotations['return'] != Table and annotations['return'] != type(None):
+                 raise TypeError(f"Step '{name}' return type must be heddle.core.Table, got {annotations['return']}")
+
             self.steps[name] = {
                 "func": func,
                 "resource": resource
@@ -126,9 +135,12 @@ class PluginServicer(worker_pb2_grpc.PluginServiceServicer):
 
             result = func(**kwargs)
 
-            # Serialize result (Table) to bytes
-            # Placeholder: returning empty bytes
+            # Strict Output Enforcement
             output_bytes = b""
+            if result is not None:
+                if not isinstance(result, Table):
+                    raise HeddleBusinessException(f"Step '{request.step_name}' must return a Table object, got {type(result)}")
+                output_bytes = result.to_bytes()
 
             return worker_pb2.ExecuteStepResponse(
                 status=worker_pb2.StatusCode.SUCCESS,
