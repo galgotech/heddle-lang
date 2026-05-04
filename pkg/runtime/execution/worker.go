@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -218,6 +219,41 @@ func (s *workerFlightServer) DoGet(tkt *flight.Ticket, stream flight.FlightServi
 		return fmt.Errorf("failed to write record to flight stream: %w", err)
 	}
 	return writer.Close()
+}
+
+func (s *workerFlightServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
+	logger.L().Debug("DoExchange request received")
+
+	reader, err := flight.NewRecordReader(stream)
+	if err != nil {
+		return fmt.Errorf("failed to create record reader: %w", err)
+	}
+	defer reader.Release()
+
+	// In a real scenario, we might use the FlightDescriptor to identify the stream purpose.
+	// For now, we'll store incoming records if they have a handle in metadata.
+	md, _ := metadata.FromIncomingContext(stream.Context())
+
+	for {
+		rec, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("failed to read from exchange stream: %w", err)
+		}
+
+		handles := md.Get("x-heddle-handle")
+		if len(handles) > 0 {
+			handle := handles[0]
+			if err := s.dataMgr.Put(handle, rec); err != nil {
+				logger.L().Error("Failed to store record from exchange", logger.String("handle", handle), logger.Error(err))
+			}
+		}
+
+		// Optional: Echo back or process records. 
+		// For high performance, we avoid unnecessary work.
+	}
 }
 
 func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket) (string, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 )
@@ -110,4 +111,30 @@ workflow main {
 	server.mu.RLock()
 	defer server.mu.RUnlock()
 	assert.NotNil(t, server.dispatcher)
+}
+
+func TestControlPlaneServer_DoAction_GetHistory(t *testing.T) {
+	server := NewControlPlaneServer()
+	mockStream := &mockDoActionServer{}
+
+	// Add a node to state machine
+	node := state.NewNode("task-1")
+	// Using the internal node directly for simplicity in testing
+	server.sm.AddNode(node)
+	server.sm.Transition("task-1", state.Pending, state.Completed, nil)
+
+	action := &flight.Action{
+		Type: execution.ActionGetHistory,
+	}
+
+	err := server.DoAction(action, mockStream)
+	assert.NoError(t, err)
+	assert.Len(t, mockStream.results, 1)
+
+	var history []state.NodeSnapshot
+	err = json.Unmarshal(mockStream.results[0].Body, &history)
+	assert.NoError(t, err)
+	assert.Len(t, history, 1)
+	assert.Equal(t, "task-1", history[0].ID)
+	assert.Equal(t, "Completed", history[0].State)
 }

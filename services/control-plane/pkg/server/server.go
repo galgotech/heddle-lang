@@ -142,8 +142,12 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
 
 	case execution.ActionGetHistory:
-		// TODO: Implement history retrieval using s.sm
-		return stream.Send(&flight.Result{Body: []byte("[]")})
+		history := s.sm.GetHistory()
+		body, err := json.Marshal(history)
+		if err != nil {
+			return fmt.Errorf("failed to marshal history: %w", err)
+		}
+		return stream.Send(&flight.Result{Body: body})
 
 	default:
 		return fmt.Errorf("unknown action: %s", action.Type)

@@ -50,7 +50,16 @@ type Lineage struct {
 
 // Metadata contains execution metadata.
 type Metadata struct {
-	Values map[string]interface{}
+	Values map[string]interface{} `json:"values"`
+}
+
+// NodeSnapshot represents a serializable view of a node's state.
+type NodeSnapshot struct {
+	ID        string    `json:"id"`
+	State     string    `json:"state"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // HeddleContext is a robust Context wrapper carrying security credentials, execution metadata, and DAG lineage.
@@ -161,4 +170,27 @@ func (sm *StateMachine) Transition(id string, expected State, next State, err er
 	}
 
 	return nil
+}
+
+// GetHistory returns a snapshot of all nodes in the state machine.
+func (sm *StateMachine) GetHistory() []NodeSnapshot {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	history := make([]NodeSnapshot, 0, len(sm.nodes))
+	for _, node := range sm.nodes {
+		node.mu.RLock()
+		snapshot := NodeSnapshot{
+			ID:        node.ID,
+			State:     node.State.String(),
+			CreatedAt: node.CreatedAt,
+			UpdatedAt: node.UpdatedAt,
+		}
+		if node.Error != nil {
+			snapshot.Error = node.Error.Error()
+		}
+		node.mu.RUnlock()
+		history = append(history, snapshot)
+	}
+	return history
 }
