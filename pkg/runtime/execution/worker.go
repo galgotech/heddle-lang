@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -12,11 +13,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	pb "google.golang.org/protobuf/proto"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/sdk/go/proto"
-	pb "google.golang.org/protobuf/proto"
 )
 
 type Worker struct {
@@ -287,7 +288,6 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 	name := task.Step.Call[1]
 
 	// Determine language from module (e.g., "py:foo" or "std:io")
-	// For now, we assume a simple mapping or use a default plugin.
 	lang := "go" // Default to Go plugin for stdlib
 	if strings.HasPrefix(module, "py:") {
 		lang = "python"
@@ -297,12 +297,9 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 		lang = "node"
 	}
 
-	// Get or start plugin instance
+	// 1. Get or start plugin instance to get its address
 	plugin, ok := w.pm.GetPlugin(lang)
 	if !ok {
-		// In a real scenario, we might start it here.
-		// For Phase 2, we assume plugins are pre-registered or we use a default address.
-		// Let's try to connect to a default UDS for the language if not found.
 		addr := fmt.Sprintf("unix:///tmp/heddle-plugin-%s.sock", lang)
 		var err error
 		plugin, err = w.pm.ConnectPlugin(ctx, lang, addr)
@@ -311,37 +308,56 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 		}
 	}
 
-	// Prepare output handle
+	// 2. Prepare UDS connection to plugin for proactive FD passing
+	pluginUdsPath := strings.TrimPrefix(plugin.Address, "unix://")
+	conn, err := net.Dial("unix", pluginUdsPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to dial plugin UDS: %w", err)
+	}
+	defer conn.Close()
+	unixConn := conn.(*net.UnixConn)
+
+	// 3. Retrieve FD for input handle
+	file := w.dataMgr.GetRegistry().GetFile(task.InputHandle)
+	if file == nil {
+		// If not in registry (e.g. from local storage), we might need to open it
+		// but for this refactor we assume it's already managed by DataManager.
+		return "", fmt.Errorf("input handle %s not found in DataManager registry", task.InputHandle)
+	}
+
+	// 4. Prepare output handle
 	outputHandle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
 
-	// Prepare request
+	// 5. Prepare and transmit metadata + FD
 	req := &proto.ExecuteStepRequest{
-		StepName:      name,
-		InputHandle:   task.InputHandle,
-		OutputHandle:  outputHandle,
-		WorkerUdsPath: w.udsAddr,
+		StepName:     name,
+		InputHandle:  task.InputHandle,
+		OutputHandle: outputHandle,
 	}
 
-	// Call DoExchange on the plugin
-	stream, err := plugin.Client.DoExchange(ctx)
+	meta, err := pb.Marshal(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	meta, _ := pb.Marshal(req)
-	if err := stream.Send(&flight.FlightData{AppMetadata: meta}); err != nil {
-		return "", err
+	logger.L().Debug("Transmitting FD and metadata to plugin",
+		logger.String("lang", lang),
+		logger.String("handle", task.InputHandle))
+
+	if err := data.SendFDWithMetadata(unixConn, int(file.Fd()), meta); err != nil {
+		return "", fmt.Errorf("failed to transmit FD and metadata: %w", err)
 	}
 
-	// Receive response
-	respData, err := stream.Recv()
+	// 6. Receive response from plugin
+	respBuf := make([]byte, 4096)
+	n, err := unixConn.Read(respBuf)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to read response from plugin: %w", err)
 	}
 
 	var resp proto.ExecuteStepResponse
-	if err := pb.Unmarshal(respData.AppMetadata, &resp); err != nil {
-		return "", err
+	if err := pb.Unmarshal(respBuf[:n], &resp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if resp.Status != proto.StatusCode_SUCCESS {

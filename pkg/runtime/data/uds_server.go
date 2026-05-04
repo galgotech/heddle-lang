@@ -94,28 +94,36 @@ func SendFD(conn *net.UnixConn, fd int) error {
 	return err
 }
 
-// RecvFD is a helper for low-level FD receiving.
-func RecvFD(conn *net.UnixConn) (int, error) {
+// SendFDWithMetadata sends an FD and associated metadata over a UDS connection.
+func SendFDWithMetadata(conn *net.UnixConn, fd int, metadata []byte) error {
+	rights := unix.UnixRights(fd)
+	// We send the metadata as the main payload of the message
+	_, _, err := conn.WriteMsgUnix(metadata, rights, nil)
+	return err
+}
+
+// RecvFDWithMetadata receives an FD and associated metadata over a UDS connection.
+func RecvFDWithMetadata(conn *net.UnixConn) (int, []byte, error) {
 	oob := make([]byte, unix.CmsgSpace(4))
-	buf := make([]byte, 10)
-	_, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
+	buf := make([]byte, 4096) // Large enough for typical metadata
+	n, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
 	if err != nil {
-		return -1, err
+		return -1, nil, err
 	}
 
 	msgs, err := syscall.ParseSocketControlMessage(oob[:oobn])
 	if err != nil {
-		return -1, err
+		return -1, nil, err
 	}
 
 	fds, err := syscall.ParseUnixRights(&msgs[0])
 	if err != nil {
-		return -1, err
+		return -1, nil, err
 	}
 
 	if len(fds) == 0 {
-		return -1, fmt.Errorf("no FD received")
+		return -1, nil, fmt.Errorf("no FD received")
 	}
 
-	return fds[0], nil
+	return fds[0], buf[:n], nil
 }
