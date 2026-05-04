@@ -3,6 +3,7 @@ import json
 import logging
 import traceback
 from typing import Callable, Dict, Any, Optional
+from concurrent import futures
 
 import grpc
 
@@ -14,7 +15,8 @@ class HeddleBusinessException(Exception):
     pass
 
 class PluginRegistry:
-    def __init__(self):
+    def __init__(self, namespace: str):
+        self.namespace = namespace
         self.resources: Dict[str, Callable] = {}
         self.steps: Dict[str, Dict[str, Any]] = {}
         self.resource_instances: Dict[str, Any] = {}
@@ -43,11 +45,36 @@ class PluginRegistry:
             return func
         return decorator
 
-plugin = PluginRegistry()
-
 class PluginServicer(worker_pb2_grpc.PluginServiceServicer):
     def __init__(self, registry: PluginRegistry):
         self.registry = registry
+
+    def Handshake(self, request, context):
+        if request.namespace and request.namespace != self.registry.namespace:
+            return worker_pb2.HandshakeResponse(
+                status=worker_pb2.StatusCode.FATAL_ERROR,
+                error_message=f"Namespace mismatch: expected {self.registry.namespace}, got {request.namespace}"
+            )
+        return worker_pb2.HandshakeResponse(status=worker_pb2.StatusCode.SUCCESS)
+
+    def Describe(self, request, context):
+        steps = []
+        for name, info in self.registry.steps.items():
+            steps.append(worker_pb2.StepMetadata(
+                name=name,
+                requires_resource=info["resource"] is not None,
+                resource_name=info["resource"] or ""
+            ))
+        
+        resources = []
+        for name in self.registry.resources:
+            resources.append(worker_pb2.ResourceMetadata(name=name))
+
+        return worker_pb2.DescribeResponse(
+            namespace=self.registry.namespace,
+            steps=steps,
+            resources=resources
+        )
 
     def InitResource(self, request, context):
         try:
@@ -157,3 +184,24 @@ class PluginServicer(worker_pb2_grpc.PluginServiceServicer):
                 status=worker_pb2.StatusCode.FATAL_ERROR,
                 error_message=f"{str(e)}\n{traceback.format_exc()}"
             )
+
+class Plugin:
+    def __init__(self, namespace: str):
+        self.registry = PluginRegistry(namespace)
+        self.servicer = PluginServicer(self.registry)
+
+    def resource(self, name: str):
+        return self.registry.resource(name)
+
+    def step(self, name: str, resource: Optional[str] = None):
+        return self.registry.step(name, resource)
+
+    def serve(self, addr: str = '[::]:50051'):
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+        worker_pb2_grpc.add_PluginServiceServicer_to_server(self.servicer, server)
+        server.add_insecure_port(addr)
+        logging.info(f"Python Plugin [{self.registry.namespace}] listening on {addr}")
+        # Signal the worker if it's monitoring stdout
+        print(f"ADDRESS={addr}")
+        server.start()
+        server.wait_for_termination()

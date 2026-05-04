@@ -39,6 +39,17 @@ message ExecuteStepResponse {
   string output_handle = 4; // Handle for shared memory (zero-copy)
 }
 
+message HandshakeRequest {
+  string namespace = 1;
+  string language = 2;
+  string version = 3;
+}
+
+message HandshakeResponse {
+  StatusCode status = 1;
+  string error_message = 2;
+}
+
 message StepMetadata {
   string name = 1;
   string config_json_schema = 2;
@@ -52,12 +63,14 @@ message ResourceMetadata {
 }
 
 message DescribeResponse {
-  repeated StepMetadata steps = 1;
-  repeated ResourceMetadata resources = 2;
+  string namespace = 1;
+  repeated StepMetadata steps = 2;
+  repeated ResourceMetadata resources = 3;
 }
 
 // PluginService is replaced by Arrow Flight standard service
 // service PluginService {
+//   rpc Handshake(HandshakeRequest) returns (HandshakeResponse) {}
 //   rpc InitResource(InitResourceRequest) returns (InitResourceResponse) {}
 //   rpc ExecuteStep(ExecuteStepRequest) returns (ExecuteStepResponse) {}
 //   rpc Describe(google.protobuf.Empty) returns (DescribeResponse) {}

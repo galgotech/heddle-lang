@@ -30,12 +30,16 @@ type Server struct {
 	flight.BaseFlightServer
 	registry  *Registry
 	resources sync.Map // map[string]interface{} (UUID -> Resource Instance)
+	Namespace string
+	Language  string
 }
 
-// NewServer creates a new Server with a given registry.
-func NewServer(registry *Registry) *Server {
+// NewServer creates a new Server with a given registry and namespace.
+func NewServer(registry *Registry, namespace string) *Server {
 	return &Server{
-		registry: registry,
+		registry:  registry,
+		Namespace: namespace,
+		Language:  "go",
 	}
 }
 
@@ -311,6 +315,7 @@ func (s *Server) Describe(ctx context.Context, _ *emptypb.Empty) (*pb.DescribeRe
 	}
 
 	return &pb.DescribeResponse{
+		Namespace: s.Namespace,
 		Steps:     steps,
 		Resources: resources,
 	}, nil
@@ -320,6 +325,25 @@ func (s *Server) Describe(ctx context.Context, _ *emptypb.Empty) (*pb.DescribeRe
 func (s *Server) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
 	ctx := stream.Context()
 	switch action.Type {
+	case "handshake":
+		var req pb.HandshakeRequest
+		if err := proto.Unmarshal(action.Body, &req); err != nil {
+			return err
+		}
+		// Verify namespace if requested, or just acknowledge
+		res := &pb.HandshakeResponse{
+			Status: pb.StatusCode_SUCCESS,
+		}
+		if req.Namespace != "" && req.Namespace != s.Namespace {
+			res.Status = pb.StatusCode_FATAL_ERROR
+			res.ErrorMessage = fmt.Sprintf("namespace mismatch: expected %s, got %s", s.Namespace, req.Namespace)
+		}
+		body, err := proto.Marshal(res)
+		if err != nil {
+			return err
+		}
+		return stream.Send(&flight.Result{Body: body})
+
 	case "describe":
 		res, err := s.Describe(ctx, &emptypb.Empty{})
 		if err != nil {
@@ -554,12 +578,12 @@ type Plugin struct {
 	server   *Server
 }
 
-// New creates a new SDK Plugin instance.
-func New() *Plugin {
+// New creates a new SDK Plugin instance with the specified namespace.
+func New(namespace string) *Plugin {
 	registry := NewRegistry()
 	return &Plugin{
 		registry: registry,
-		server:   NewServer(registry),
+		server:   NewServer(registry, namespace),
 	}
 }
 
@@ -618,7 +642,8 @@ func (l *multiplexListener) Accept() (net.Conn, error) {
 		// We use a small peek to see if it's gRPC (HTTP/2) or our raw UDS protocol.
 		// gRPC preface starts with "PRI "
 		buf := make([]byte, 4)
-		n, _, _, _, err := unixConn.ReadMsgUnix(buf, nil)
+		oob := make([]byte, 64)
+		n, oobn, _, _, err := unixConn.ReadMsgUnix(buf, oob)
 		if err != nil {
 			unixConn.Close()
 			continue
@@ -626,13 +651,11 @@ func (l *multiplexListener) Accept() (net.Conn, error) {
 
 		if string(buf[:n]) == "PRI " {
 			// It's gRPC. We need to "un-read" these bytes.
-			// Since we can't easily un-read on a net.Conn for gRPC,
-			// we wrap it in a peekConn.
 			return &peekConn{UnixConn: unixConn, peeked: buf[:n]}, nil
 		}
 
 		// It's our raw UDS protocol. We handle it in a goroutine and keep accepting.
-		go l.server.HandleUDSWithInitialData(unixConn, buf[:n])
+		go l.server.HandleUDSWithInitialData(unixConn, buf[:n], oob[:oobn])
 	}
 }
 
@@ -650,19 +673,19 @@ func (c *peekConn) Read(b []byte) (int, error) {
 	return c.UnixConn.Read(b)
 }
 
-// HandleUDSWithInitialData is like HandleUDSConnection but with already read data.
-func (s *Server) HandleUDSWithInitialData(conn *net.UnixConn, initialData []byte) {
+// HandleUDSWithInitialData is like HandleUDSConnection but with already read data and OOB.
+func (s *Server) HandleUDSWithInitialData(conn *net.UnixConn, initialData []byte, initialOOB []byte) {
 	defer conn.Close()
 
-	// Receive FD and the rest of metadata
-	oob := make([]byte, 64) // space for FD
+	// Receive the rest of metadata (if any)
 	buf := make([]byte, 4096)
-	n, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
-	if err != nil {
-		return
-	}
+	n, _, _, _, _ := conn.ReadMsgUnix(buf, nil)
 
-	msgs, err := unix.ParseSocketControlMessage(oob[:oobn])
+	// Combine initial data with the rest of metadata
+	meta := append(initialData, buf[:n]...)
+
+	// Parse OOB (FDs)
+	msgs, err := unix.ParseSocketControlMessage(initialOOB)
 	if err != nil || len(msgs) == 0 {
 		return
 	}
@@ -672,9 +695,6 @@ func (s *Server) HandleUDSWithInitialData(conn *net.UnixConn, initialData []byte
 	}
 	fd := fds[0]
 	defer os.NewFile(uintptr(fd), "shm").Close()
-
-	// Combine initial data with the rest of metadata
-	meta := append(initialData, buf[:n]...)
 
 	var req pb.ExecuteStepRequest
 	if err := proto.Unmarshal(meta, &req); err != nil {

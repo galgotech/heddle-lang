@@ -36,7 +36,40 @@ message ExecuteStepResponse {
   string output_handle = 4;
 }
 
+message HandshakeRequest {
+  string namespace = 1;
+  string language = 2;
+  string version = 3;
+}
+
+message HandshakeResponse {
+  StatusCode status = 1;
+  string error_message = 2;
+}
+
+message StepMetadata {
+  string name = 1;
+  string config_json_schema = 2;
+  bool requires_resource = 3;
+  string resource_name = 4;
+}
+
+message ResourceMetadata {
+  string name = 1;
+  string config_json_schema = 2;
+}
+
+message DescribeResponse {
+  string namespace = 1;
+  repeated StepMetadata steps = 2;
+  repeated ResourceMetadata resources = 3;
+}
+
+message Empty {}
+
 service PluginService {
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse) {}
   rpc InitResource(InitResourceRequest) returns (InitResourceResponse) {}
   rpc ExecuteStep(ExecuteStepRequest) returns (ExecuteStepResponse) {}
+  rpc Describe(Empty) returns (DescribeResponse) {}
 }

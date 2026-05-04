@@ -51,12 +51,10 @@ export function Step(options: { name: string; resource?: string }) {
     };
 }
 
-export class PluginRegistry {
-    private activeResources: Map<string, ResourceState> = new Map();
-    private pluginInstances: Map<any, any> = new Map();
-    private server: grpc.Server;
+    private namespace: string;
 
-    constructor() {
+    constructor(namespace: string) {
+        this.namespace = namespace;
         this.server = new grpc.Server();
     }
 
@@ -85,8 +83,10 @@ export class PluginRegistry {
         }
 
         this.server.addService(heddle.worker.PluginService.service, {
+            Handshake: this.handshake.bind(this),
             InitResource: this.initResource.bind(this),
             ExecuteStep: this.executeStep.bind(this),
+            Describe: this.describe.bind(this),
         });
 
         return new Promise<void>((resolve, reject) => {
@@ -103,6 +103,41 @@ export class PluginRegistry {
                     }
                 }
             );
+        });
+    }
+
+    private async handshake(
+        call: grpc.ServerUnaryCall<any, any>,
+        callback: grpc.sendUnaryData<any>
+    ) {
+        const req = call.request;
+        if (req.namespace && req.namespace !== this.namespace) {
+            callback(null, {
+                status: 'FATAL_ERROR',
+                error_message: `Namespace mismatch: expected ${this.namespace}, got ${req.namespace}`,
+            });
+            return;
+        }
+        callback(null, { status: 'SUCCESS' });
+    }
+
+    private async describe(
+        call: grpc.ServerUnaryCall<any, any>,
+        callback: grpc.sendUnaryData<any>
+    ) {
+        const steps = Object.keys(STEP_REGISTRY).map((name) => ({
+            name,
+            requires_resource: !!STEP_REGISTRY[name].resource,
+            resource_name: STEP_REGISTRY[name].resource || '',
+        }));
+        const resources = Object.keys(RESOURCE_REGISTRY).map((name) => ({
+            name,
+        }));
+
+        callback(null, {
+            namespace: this.namespace,
+            steps,
+            resources,
         });
     }
 

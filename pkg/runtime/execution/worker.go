@@ -271,30 +271,27 @@ func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket
 	return localHandle, nil
 }
 
-// delegateTask identifies the target runtime and transmits execution instructions
+// delegateTask identifies the target namespace and transmits execution instructions
 // to a polyglot plugin using SCM_RIGHTS for zero-copy file descriptor (FD) passing.
 func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 	module := task.Step.Call[0]
 	name := task.Step.Call[1]
 
-	// Map the module prefix (e.g., "py:", "rs:") to the corresponding SDK runtime.
-	lang := "go"
-	if strings.HasPrefix(module, "py:") {
-		lang = "python"
-	} else if strings.HasPrefix(module, "rs:") {
-		lang = "rust"
-	} else if strings.HasPrefix(module, "js:") {
-		lang = "node"
+	// The module part is now treated as the plugin's namespace.
+	// We may still have prefixes like "py:" or "go:", but the routing is namespace-based.
+	namespace := module
+	if parts := strings.Split(module, ":"); len(parts) > 1 {
+		namespace = parts[1]
 	}
 
-	// 1. Resolve an active UDS connection to the target plugin runtime host.
-	plugin, ok := w.pm.GetPlugin(lang)
+	// 1. Resolve an active UDS connection to the target plugin namespace host.
+	plugin, ok := w.pm.GetPlugin(namespace)
 	if !ok {
-		addr := fmt.Sprintf("unix:///tmp/heddle-plugin-%s.sock", lang)
+		addr := fmt.Sprintf("unix:///tmp/heddle-plugin-%s.sock", namespace)
 		var err error
-		plugin, err = w.pm.ConnectPlugin(ctx, lang, addr)
+		plugin, err = w.pm.ConnectPlugin(ctx, namespace, addr)
 		if err != nil {
-			return "", fmt.Errorf("failed to connect to %s plugin: %w", lang, err)
+			return "", fmt.Errorf("failed to connect to %s plugin: %w", namespace, err)
 		}
 	}
 
@@ -324,7 +321,7 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 	// 6. Execute the step via UDS. The input file descriptor is passed out-of-band
 	// using SCM_RIGHTS, ensuring zero-copy access for the plugin.
 	logger.L().Debug("Delegating task to plugin via ExecuteStep",
-		logger.String("lang", lang),
+		logger.String("namespace", namespace),
 		logger.String("step", name),
 		logger.String("input", inputHandle))
 

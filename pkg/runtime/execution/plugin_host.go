@@ -36,7 +36,7 @@ type PluginInstance struct {
 // and connection to language-specific execution runtimes.
 type PluginManager struct {
 	mu        sync.RWMutex
-	plugins   map[string]*PluginInstance
+	plugins   map[string]*PluginInstance // Keyed by namespace
 	discovery chan string
 }
 
@@ -48,17 +48,18 @@ func NewPluginManager() *PluginManager {
 	}
 }
 
-// GetPlugin retrieves a running plugin instance.
-func (pm *PluginManager) GetPlugin(id string) (*PluginInstance, bool) {
+// GetPlugin retrieves a running plugin instance by its namespace.
+func (pm *PluginManager) GetPlugin(namespace string) (*PluginInstance, bool) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	instance, ok := pm.plugins[id]
+	instance, ok := pm.plugins[namespace]
 	return instance, ok
 }
 
 // StartPlugin spawns a new plugin process and establishes an Arrow Flight control
 // channel. It monitors the process's stdout to discover its dynamic listen address.
-func (pm *PluginManager) StartPlugin(ctx context.Context, id string, command string, args ...string) (*PluginInstance, error) {
+// After connection, it performs a handshake to verify the plugin's namespace.
+func (pm *PluginManager) StartPlugin(ctx context.Context, namespace string, command string, args ...string) (*PluginInstance, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -111,22 +112,28 @@ func (pm *PluginManager) StartPlugin(ctx context.Context, id string, command str
 	client := flight.NewClientFromConn(conn, nil)
 
 	instance := &PluginInstance{
-		ID:      id,
+		ID:      namespace,
 		Cmd:     cmd,
 		Address: address,
 		Client:  client,
 		conn:    conn,
 	}
 
+	// Verify the plugin's namespace via handshake.
+	if _, err := instance.Handshake(ctx, namespace); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("handshake failed: %w", err)
+	}
+
 	pm.mu.Lock()
-	pm.plugins[id] = instance
+	pm.plugins[namespace] = instance
 	pm.mu.Unlock()
 
 	return instance, nil
 }
 
 // ConnectPlugin establishes an Arrow Flight connection to an already running plugin process.
-func (pm *PluginManager) ConnectPlugin(ctx context.Context, id string, address string) (*PluginInstance, error) {
+func (pm *PluginManager) ConnectPlugin(ctx context.Context, namespace string, address string) (*PluginInstance, error) {
 	// Connect to the plugin's control-plane endpoint.
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -136,17 +143,54 @@ func (pm *PluginManager) ConnectPlugin(ctx context.Context, id string, address s
 	client := flight.NewClientFromConn(conn, nil)
 
 	instance := &PluginInstance{
-		ID:      id,
+		ID:      namespace,
 		Address: address,
 		Client:  client,
 		conn:    conn,
 	}
 
+	// Note: We skip full handshake here if the plugin was already verified or
+	// we just want to establish a connection. In a production environment,
+	// we would still perform a handshake to ensure the namespace matches.
+
 	pm.mu.Lock()
-	pm.plugins[id] = instance
+	pm.plugins[namespace] = instance
 	pm.mu.Unlock()
 
 	return instance, nil
+}
+
+// Handshake performs the initial registration handshake with the plugin.
+func (pi *PluginInstance) Handshake(ctx context.Context, namespace string) (*pb.HandshakeResponse, error) {
+	req := &pb.HandshakeRequest{
+		Namespace: namespace,
+		Language:  "unknown", // Language is metadata
+	}
+	body, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	action := &flight.Action{Type: "handshake", Body: body}
+	stream, err := pi.Client.DoAction(ctx, action)
+	if err != nil {
+		return nil, err
+	}
+	res, err := stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	var resp pb.HandshakeResponse
+	if err := proto.Unmarshal(res.Body, &resp); err != nil {
+		return nil, err
+	}
+
+	if resp.Status != pb.StatusCode_SUCCESS {
+		return nil, fmt.Errorf("handshake failed: %s", resp.ErrorMessage)
+	}
+
+	return &resp, nil
 }
 
 // Describe retrieves the plugin's capabilities and step definitions using Flight DoAction.
@@ -237,14 +281,14 @@ func (pi *PluginInstance) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRe
 }
 
 // StopPlugin terminates a running plugin process and releases associated resources.
-func (pm *PluginManager) StopPlugin(id string) error {
+func (pm *PluginManager) StopPlugin(namespace string) error {
 	pm.mu.Lock()
-	instance, ok := pm.plugins[id]
+	instance, ok := pm.plugins[namespace]
 	if !ok {
 		pm.mu.Unlock()
-		return fmt.Errorf("plugin %s not found", id)
+		return fmt.Errorf("plugin namespace %s not found", namespace)
 	}
-	delete(pm.plugins, id)
+	delete(pm.plugins, namespace)
 	pm.mu.Unlock()
 
 	// Terminate the gRPC control-plane connection.

@@ -31,13 +31,14 @@ func PrintStep(ctx context.Context, config struct{}, input *core.Table) (*core.T
 }
 
 func main() {
-	p := plugin.New()
+	namespace := "std"
+	p := plugin.New(namespace)
 
 	// Register stdlib steps
 	p.RegisterStep("print", PrintStep)
 
 	// Listen on UDS
-	socketPath := "/tmp/heddle-plugin-go.sock"
+	socketPath := fmt.Sprintf("/tmp/heddle-plugin-%s.sock", namespace)
 	if os.Getenv("HEDDLE_PLUGIN_ADDR") != "" {
 		socketPath = os.Getenv("HEDDLE_PLUGIN_ADDR")
 	}
@@ -53,7 +54,10 @@ func main() {
 	}
 	defer os.Remove(socketPath)
 
-	log.Printf("Go Plugin listening on %s", socketPath)
+	// Print the address for the worker to discover
+	fmt.Printf("ADDRESS=unix://%s\n", socketPath)
+
+	log.Printf("Go Plugin [%s] listening on %s", namespace, socketPath)
 	if err := p.ServeListener(lis); err != nil {
 		log.Fatalf("plugin server failed: %v", err)
 	}
