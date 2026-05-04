@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	pb "google.golang.org/protobuf/proto"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
@@ -335,7 +333,7 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 		lang = "node"
 	}
 
-	// 1. Get or start plugin instance to get its address
+	// 1. Get or start plugin instance
 	plugin, ok := w.pm.GetPlugin(lang)
 	if !ok {
 		addr := fmt.Sprintf("unix:///tmp/heddle-plugin-%s.sock", lang)
@@ -346,62 +344,37 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 		}
 	}
 
-	// 2. Prepare UDS connection to plugin for proactive FD passing
-	pluginUdsPath := strings.TrimPrefix(plugin.Address, "unix://")
-	conn, err := net.Dial("unix", pluginUdsPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to dial plugin UDS: %w", err)
-	}
-	defer conn.Close()
-	unixConn := conn.(*net.UnixConn)
-
-	// 3. Identify input handle (for now, assume one input or pick 'default')
+	// 2. Identify input handle (assume one input for now)
 	var inputHandle string
 	for _, ticket := range task.Tickets {
-		inputHandle = ticket.ResourceId // Just take the last one or 'default' for now
+		inputHandle = ticket.ResourceId
 	}
 
-	// 4. Retrieve FD for input handle
+	// 3. Retrieve FD for input handle
 	file := w.dataMgr.GetRegistry().GetFile(inputHandle)
 	if file == nil {
-		// If not in registry (e.g. from local storage), we might need to open it
-		// but for this refactor we assume it's already managed by DataManager.
 		return "", fmt.Errorf("input handle %s not found in DataManager registry", inputHandle)
 	}
 
-	// 5. Prepare output handle
+	// 4. Prepare output handle
 	outputHandle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
 
-	// 6. Prepare and transmit metadata + FD
+	// 5. Prepare request
 	req := &proto.ExecuteStepRequest{
 		StepName:     name,
 		InputHandle:  inputHandle,
 		OutputHandle: outputHandle,
 	}
 
-	meta, err := pb.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	logger.L().Debug("Transmitting FD and metadata to plugin",
+	// 6. Delegate to plugin via zero-copy ExecuteStep
+	logger.L().Debug("Delegating task to plugin via ExecuteStep",
 		logger.String("lang", lang),
-		logger.String("handle", inputHandle))
+		logger.String("step", name),
+		logger.String("input", inputHandle))
 
-	if err := data.SendFDWithMetadata(unixConn, int(file.Fd()), meta); err != nil {
-		return "", fmt.Errorf("failed to transmit FD and metadata: %w", err)
-	}
-
-	// 6. Receive response from plugin
-	respBuf := make([]byte, 4096)
-	n, err := unixConn.Read(respBuf)
+	resp, err := plugin.ExecuteStep(ctx, req, int(file.Fd()))
 	if err != nil {
-		return "", fmt.Errorf("failed to read response from plugin: %w", err)
-	}
-
-	var resp proto.ExecuteStepResponse
-	if err := pb.Unmarshal(respBuf[:n], &resp); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+		return "", fmt.Errorf("plugin execution failed: %w", err)
 	}
 
 	if resp.Status != proto.StatusCode_SUCCESS {

@@ -19,8 +19,10 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
+	"golang.org/x/sys/unix"
 )
 
 // Server is the main Plugin server implementing the Arrow Flight interface.
@@ -585,11 +587,180 @@ func (p *Plugin) Serve() error {
 	return p.ServeListener(lis)
 }
 
-// ServeListener starts the Arrow Flight server on a specific listener.
+// ServeListener starts the Arrow Flight server and UDS handler on a specific listener.
 func (p *Plugin) ServeListener(lis net.Listener) error {
+	// If it's a unix socket, we use a multiplexing listener to handle both gRPC and raw UDS.
+	if _, ok := lis.(*net.UnixListener); ok {
+		mux := &multiplexListener{Listener: lis, server: p.server}
+		grpcServer := grpc.NewServer()
+		flight.RegisterFlightServiceServer(grpcServer, p.server)
+		return grpcServer.Serve(mux)
+	}
+
 	grpcServer := grpc.NewServer()
 	flight.RegisterFlightServiceServer(grpcServer, p.server)
 	return grpcServer.Serve(lis)
+}
+
+type multiplexListener struct {
+	net.Listener
+	server *Server
+}
+
+func (l *multiplexListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+
+		unixConn := conn.(*net.UnixConn)
+		// We use a small peek to see if it's gRPC (HTTP/2) or our raw UDS protocol.
+		// gRPC preface starts with "PRI "
+		buf := make([]byte, 4)
+		n, _, _, _, err := unixConn.ReadMsgUnix(buf, nil)
+		if err != nil {
+			unixConn.Close()
+			continue
+		}
+
+		if string(buf[:n]) == "PRI " {
+			// It's gRPC. We need to "un-read" these bytes.
+			// Since we can't easily un-read on a net.Conn for gRPC,
+			// we wrap it in a peekConn.
+			return &peekConn{UnixConn: unixConn, peeked: buf[:n]}, nil
+		}
+
+		// It's our raw UDS protocol. We handle it in a goroutine and keep accepting.
+		go l.server.HandleUDSWithInitialData(unixConn, buf[:n])
+	}
+}
+
+type peekConn struct {
+	*net.UnixConn
+	peeked []byte
+}
+
+func (c *peekConn) Read(b []byte) (int, error) {
+	if len(c.peeked) > 0 {
+		n := copy(b, c.peeked)
+		c.peeked = c.peeked[n:]
+		return n, nil
+	}
+	return c.UnixConn.Read(b)
+}
+
+// HandleUDSWithInitialData is like HandleUDSConnection but with already read data.
+func (s *Server) HandleUDSWithInitialData(conn *net.UnixConn, initialData []byte) {
+	defer conn.Close()
+
+	// Receive FD and the rest of metadata
+	oob := make([]byte, 64) // space for FD
+	buf := make([]byte, 4096)
+	n, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
+	if err != nil {
+		return
+	}
+
+	msgs, err := unix.ParseSocketControlMessage(oob[:oobn])
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+	fds, err := unix.ParseUnixRights(&msgs[0])
+	if err != nil || len(fds) == 0 {
+		return
+	}
+	fd := fds[0]
+	defer os.NewFile(uintptr(fd), "shm").Close()
+
+	// Combine initial data with the rest of metadata
+	meta := append(initialData, buf[:n]...)
+
+	var req pb.ExecuteStepRequest
+	if err := proto.Unmarshal(meta, &req); err != nil {
+		return
+	}
+
+	// Create Table from FD
+	inputTable, err := core.ReadTableFromFD(fd)
+	if err != nil {
+		resp := &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_FATAL_ERROR,
+			ErrorMessage: fmt.Sprintf("failed to read table from FD: %v", err),
+		}
+		s.respondUDS(conn, resp)
+		return
+	}
+	defer inputTable.Release()
+
+	// Execute step
+	res, err := s.executeStepWithTable(context.Background(), &req, inputTable)
+	if err != nil {
+		res = &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_FATAL_ERROR,
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	s.respondUDS(conn, res)
+}
+
+func (s *Server) AcceptUDS(lis net.Listener) {
+	// No longer used, replaced by multiplexListener
+}
+
+// HandleUDSConnection handles a raw UDS connection for proactive FD passing.
+func (s *Server) HandleUDSConnection(conn net.Conn) {
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		conn.Close()
+		return
+	}
+
+	// We try to receive FD and metadata. If it fails or doesn't look like our protocol,
+	// we just close it (since we are not multiplexing perfectly with gRPC yet).
+	// In a real scenario, the worker knows which protocol to use.
+	fd, meta, err := data.RecvFDWithMetadata(unixConn)
+	if err != nil {
+		unixConn.Close()
+		return
+	}
+	defer os.NewFile(uintptr(fd), "shm").Close()
+
+	var req pb.ExecuteStepRequest
+	if err := proto.Unmarshal(meta, &req); err != nil {
+		unixConn.Close()
+		return
+	}
+
+	// Create Table from FD
+	inputTable, err := core.ReadTableFromFD(fd)
+	if err != nil {
+		resp := &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_FATAL_ERROR,
+			ErrorMessage: fmt.Sprintf("failed to read table from FD: %v", err),
+		}
+		s.respondUDS(unixConn, resp)
+		return
+	}
+	defer inputTable.Release()
+
+	// Execute step
+	res, err := s.executeStepWithTable(context.Background(), &req, inputTable)
+	if err != nil {
+		res = &pb.ExecuteStepResponse{
+			Status:       pb.StatusCode_FATAL_ERROR,
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	s.respondUDS(unixConn, res)
+}
+
+func (s *Server) respondUDS(conn *net.UnixConn, resp *pb.ExecuteStepResponse) {
+	defer conn.Close()
+	data, _ := proto.Marshal(resp)
+	_, _ = conn.Write(data)
 }
 
 // RegisterStep is a generic helper to register a step function with strict signature.

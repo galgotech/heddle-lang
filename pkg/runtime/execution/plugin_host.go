@@ -4,21 +4,20 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/apache/arrow/go/v18/arrow/ipc"
-	"github.com/apache/arrow/go/v18/arrow/memory"
+	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
-	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 )
 
 // PluginInstance represents a running plugin process.
@@ -178,46 +177,45 @@ func (pi *PluginInstance) InitResource(ctx context.Context, req *pb.InitResource
 	return &resp, nil
 }
 
-// ExecuteStep runs a step on the plugin via DoExchange.
-func (pi *PluginInstance) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest, input arrow.Record) (arrow.Record, error) {
-	stream, err := pi.Client.DoExchange(ctx)
+// ExecuteStep runs a step on the plugin via UDS/FD passing (zero-copy).
+func (pi *PluginInstance) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest, inputFd int) (*pb.ExecuteStepResponse, error) {
+	// 1. Prepare UDS connection to plugin
+	udsPath := strings.TrimPrefix(pi.Address, "unix://")
+	conn, err := net.Dial("unix", udsPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to dial plugin UDS: %w", err)
+	}
+	defer conn.Close()
+
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return nil, fmt.Errorf("connection is not a unix socket")
 	}
 
-	// 1. Send metadata in first message
+	// 2. Marshal request for metadata
 	meta, err := proto.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	if err := stream.Send(&flight.FlightData{AppMetadata: meta}); err != nil {
-		return nil, err
+	// 3. Transmit FD and metadata
+	if err := data.SendFDWithMetadata(unixConn, inputFd, meta); err != nil {
+		return nil, fmt.Errorf("failed to transmit FD and metadata: %w", err)
 	}
 
-	// 2. Send input table
-	writer := flight.NewRecordWriter(stream, ipc.WithAllocator(memory.DefaultAllocator), ipc.WithSchema(input.Schema()))
-	if err := writer.Write(input); err != nil {
-		return nil, err
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-
-	// 3. Receive output table
-	reader, err := flight.NewRecordReader(stream, ipc.WithAllocator(memory.DefaultAllocator))
+	// 4. Receive response from plugin
+	respBuf := make([]byte, 4096)
+	n, err := unixConn.Read(respBuf)
 	if err != nil {
-		return nil, err
-	}
-	defer reader.Release()
-
-	if !reader.Next() {
-		return nil, fmt.Errorf("no output data received from plugin")
+		return nil, fmt.Errorf("failed to read response from plugin: %w", err)
 	}
 
-	rec := reader.Record()
-	rec.Retain()
-	return rec, nil
+	var resp pb.ExecuteStepResponse
+	if err := proto.Unmarshal(respBuf[:n], &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &resp, nil
 }
 
 // StopPlugin stops a plugin process and cleans up resources.
