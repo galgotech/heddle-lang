@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"google.golang.org/grpc"
@@ -17,6 +16,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/sdk/go/proto"
+	pb "google.golang.org/protobuf/proto"
 )
 
 type Worker struct {
@@ -29,9 +29,11 @@ type Worker struct {
 	udsServer *data.UDSServer
 	udsAddr   string
 
-	// Plugin server
+	// Plugin management
+	pm *PluginManager
+
+	// Flight server for P2P
 	flight.BaseFlightServer
-	pluginAddr string
 }
 
 func NewWorker(id, cpAddr string) (*Worker, error) {
@@ -45,14 +47,14 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 	udsAddr := fmt.Sprintf("/tmp/heddle-%s.sock", id)
 
 	return &Worker{
-		ID:         id,
-		CPAddr:     cpAddr,
-		Client:     client,
-		conn:       conn,
-		dataMgr:    dataMgr,
-		udsServer:  data.NewUDSServer(udsAddr, dataMgr),
-		udsAddr:    udsAddr,
-		pluginAddr: "localhost:50052", // Default plugin server address
+		ID:        id,
+		CPAddr:    cpAddr,
+		Client:    client,
+		conn:      conn,
+		dataMgr:   dataMgr,
+		udsServer: data.NewUDSServer(udsAddr, dataMgr),
+		udsAddr:   udsAddr,
+		pm:        NewPluginManager(),
 	}, nil
 }
 
@@ -254,23 +256,9 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	if task.Step == nil || len(task.Step.Call) < 2 {
 		return "", fmt.Errorf("step implementation mapping invalid: %v", task.Step)
 	}
-	module := task.Step.Call[0]
-	name := task.Step.Call[1]
 
-	fn, ok := GlobalRegistry.Get(module, name)
-	if !ok {
-		return "", fmt.Errorf("step implementation not found: %s:%s", module, name)
-	}
-
-	var input arrow.Record
-	var err error
-
-	// If a REMOTE ticket is provided, fetch data from the peer first
+	// 1. Fetch remote data if necessary
 	if task.RemoteTicket != nil && task.RemoteTicket.RouteType == proto.RouteType_REMOTE {
-		logger.L().Info("Fetching remote data",
-			logger.String("peer", task.RemoteTicket.Address),
-			logger.String("resID", task.RemoteTicket.ResourceId))
-
 		localHandle, err := w.fetchRemoteData(ctx, task.RemoteTicket)
 		if err != nil {
 			return "", fmt.Errorf("failed to fetch remote data: %w", err)
@@ -278,39 +266,87 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 		task.InputHandle = localHandle
 	}
 
-	if task.InputHandle != "" {
-		input, err = w.dataMgr.Get(task.InputHandle)
-		if err != nil {
-			return "", fmt.Errorf("failed to get input from shm: %w", err)
-		}
-		defer input.Release()
+	// 2. Delegate execution to polyglot plugin
+	outputHandle, err := w.delegateTask(ctx, task)
+	if err != nil {
+		return "", fmt.Errorf("delegation failed: %w", err)
 	}
 
-	output, err := fn(ctx, input)
+	// 3. Register output in DataManager if it's a new handle
+	if outputHandle != "" {
+		if err := w.dataMgr.Import(outputHandle); err != nil {
+			return "", fmt.Errorf("failed to import output handle %s: %w", outputHandle, err)
+		}
+	}
+
+	return outputHandle, nil
+}
+
+func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
+	module := task.Step.Call[0]
+	name := task.Step.Call[1]
+
+	// Determine language from module (e.g., "py:foo" or "std:io")
+	// For now, we assume a simple mapping or use a default plugin.
+	lang := "go" // Default to Go plugin for stdlib
+	if strings.HasPrefix(module, "py:") {
+		lang = "python"
+	} else if strings.HasPrefix(module, "rs:") {
+		lang = "rust"
+	} else if strings.HasPrefix(module, "js:") {
+		lang = "node"
+	}
+
+	// Get or start plugin instance
+	plugin, ok := w.pm.GetPlugin(lang)
+	if !ok {
+		// In a real scenario, we might start it here.
+		// For Phase 2, we assume plugins are pre-registered or we use a default address.
+		// Let's try to connect to a default UDS for the language if not found.
+		addr := fmt.Sprintf("unix:///tmp/heddle-plugin-%s.sock", lang)
+		var err error
+		plugin, err = w.pm.ConnectPlugin(ctx, lang, addr)
+		if err != nil {
+			return "", fmt.Errorf("failed to connect to %s plugin: %w", lang, err)
+		}
+	}
+
+	// Prepare output handle
+	outputHandle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
+
+	// Prepare request
+	req := &proto.ExecuteStepRequest{
+		StepName:      name,
+		InputHandle:   task.InputHandle,
+		OutputHandle:  outputHandle,
+		WorkerUdsPath: w.udsAddr,
+	}
+
+	// Call DoExchange on the plugin
+	stream, err := plugin.Client.DoExchange(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	if output != nil {
-		defer output.Release()
-		handle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
-		if err := w.dataMgr.Put(handle, output); err != nil {
-			return "", fmt.Errorf("failed to put output to shm: %w", err)
-		}
-		return handle, nil
+	meta, _ := pb.Marshal(req)
+	if err := stream.Send(&flight.FlightData{AppMetadata: meta}); err != nil {
+		return "", err
 	}
 
-	return "", nil
-}
-
-// DoExchange implements the plugin server's exchange logic.
-func (w *Worker) DoExchange(stream flight.FlightService_DoExchangeServer) error {
-	logger.L().Info("New plugin client connected via DoExchange")
-	for {
-		_, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		// Here we would send tasks to the plugin
+	// Receive response
+	respData, err := stream.Recv()
+	if err != nil {
+		return "", err
 	}
+
+	var resp proto.ExecuteStepResponse
+	if err := pb.Unmarshal(respData.AppMetadata, &resp); err != nil {
+		return "", err
+	}
+
+	if resp.Status != proto.StatusCode_SUCCESS {
+		return "", fmt.Errorf("plugin error: %s", resp.ErrorMessage)
+	}
+
+	return resp.OutputHandle, nil
 }

@@ -9,6 +9,16 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 )
 
+// IsAbsolutePath checks if a path is absolute.
+func IsAbsolutePath(path string) bool {
+	return len(path) > 0 && path[0] == '/'
+}
+
+// GetSharedMemoryPath returns the full path for a Heddle SHM handle.
+func GetSharedMemoryPath(handle string) string {
+	return "/dev/shm/heddle/" + handle
+}
+
 // ReadTableFromHandle reads an Arrow Record from a file handle (e.g., in SHM)
 // and returns a Table wrapping it. This uses mmap for zero-copy reading.
 func ReadTableFromHandle(handle string) (*Table, error) {

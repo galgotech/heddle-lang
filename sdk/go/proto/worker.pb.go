@@ -186,11 +186,12 @@ func (x *InitResourceResponse) GetErrorMessage() string {
 type ExecuteStepRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StepName      string                 `protobuf:"bytes,1,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	ResourceId    string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`       // Can be empty if the step doesn't require a resource
-	ConfigJson    string                 `protobuf:"bytes,3,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`       // Step configuration
-	InputTable    []byte                 `protobuf:"bytes,4,opt,name=input_table,json=inputTable,proto3" json:"input_table,omitempty"`       // Placeholder for Arrow buffer
-	InputHandle   string                 `protobuf:"bytes,5,opt,name=input_handle,json=inputHandle,proto3" json:"input_handle,omitempty"`    // Handle for shared memory (zero-copy)
-	OutputHandle  string                 `protobuf:"bytes,6,opt,name=output_handle,json=outputHandle,proto3" json:"output_handle,omitempty"` // Handle for where to write result (zero-copy)
+	ResourceId    string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`            // Can be empty if the step doesn't require a resource
+	ConfigJson    string                 `protobuf:"bytes,3,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`            // Step configuration
+	InputTable    []byte                 `protobuf:"bytes,4,opt,name=input_table,json=inputTable,proto3" json:"input_table,omitempty"`            // Placeholder for Arrow buffer
+	InputHandle   string                 `protobuf:"bytes,5,opt,name=input_handle,json=inputHandle,proto3" json:"input_handle,omitempty"`         // Handle for shared memory (zero-copy)
+	OutputHandle  string                 `protobuf:"bytes,6,opt,name=output_handle,json=outputHandle,proto3" json:"output_handle,omitempty"`      // Handle for where to write result (zero-copy)
+	WorkerUdsPath string                 `protobuf:"bytes,7,opt,name=worker_uds_path,json=workerUdsPath,proto3" json:"worker_uds_path,omitempty"` // Path to worker's UDS for FD passing
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -263,6 +264,13 @@ func (x *ExecuteStepRequest) GetInputHandle() string {
 func (x *ExecuteStepRequest) GetOutputHandle() string {
 	if x != nil {
 		return x.OutputHandle
+	}
+	return ""
+}
+
+func (x *ExecuteStepRequest) GetWorkerUdsPath() string {
+	if x != nil {
+		return x.WorkerUdsPath
 	}
 	return ""
 }
@@ -520,7 +528,7 @@ const file_sdk_go_proto_worker_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\x0e2\x19.heddle.worker.StatusCodeR\x06status\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
 	"resourceId\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xdc\x01\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\x84\x02\n" +
 	"\x12ExecuteStepRequest\x12\x1b\n" +
 	"\tstep_name\x18\x01 \x01(\tR\bstepName\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
@@ -530,7 +538,8 @@ const file_sdk_go_proto_worker_proto_rawDesc = "" +
 	"\vinput_table\x18\x04 \x01(\fR\n" +
 	"inputTable\x12!\n" +
 	"\finput_handle\x18\x05 \x01(\tR\vinputHandle\x12#\n" +
-	"\routput_handle\x18\x06 \x01(\tR\foutputHandle\"\xb5\x01\n" +
+	"\routput_handle\x18\x06 \x01(\tR\foutputHandle\x12&\n" +
+	"\x0fworker_uds_path\x18\a \x01(\tR\rworkerUdsPath\"\xb5\x01\n" +
 	"\x13ExecuteStepResponse\x121\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x19.heddle.worker.StatusCodeR\x06status\x12!\n" +
 	"\foutput_table\x18\x02 \x01(\fR\voutputTable\x12#\n" +

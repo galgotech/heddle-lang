@@ -30,6 +30,7 @@ message ExecuteStepRequest {
   bytes input_table = 4; // Placeholder for Arrow buffer
   string input_handle = 5; // Handle for shared memory (zero-copy)
   string output_handle = 6; // Handle for where to write result (zero-copy)
+  string worker_uds_path = 7; // Path to worker's UDS for FD passing
 }
 
 message ExecuteStepResponse {

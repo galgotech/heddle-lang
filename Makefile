@@ -8,7 +8,7 @@ PROTO_DIR=sdk/go/proto
 PROTO_FILES=$(PROTO_DIR)/worker.proto $(PROTO_DIR)/locality.proto
 
 # Services (Main build target)
-SERVICES=control-plane worker client lsp debug-adapter
+SERVICES=control-plane worker client lsp debug-adapter heddle-plugin-go
 RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
@@ -50,6 +50,10 @@ lsp: $(BINARY_DIR)
 debug-adapter: $(BINARY_DIR)
 	@echo "Building Debug Adapter..."
 	$(GO) build -o $(BINARY_DIR)/heddle-dap ./services/debug-adapter/cmd/heddle-dap
+
+heddle-plugin-go: $(BINARY_DIR)
+	@echo "Building Go SDK Plugin..."
+	$(GO) build -o $(BINARY_DIR)/heddle-plugin-go ./sdk/go/cmd/heddle-plugin-go
 
 # Rust Service Targets
 relational-worker: $(BINARY_DIR)

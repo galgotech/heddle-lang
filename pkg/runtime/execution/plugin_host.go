@@ -113,6 +113,29 @@ func (pm *PluginManager) StartPlugin(ctx context.Context, id string, command str
 	return instance, nil
 }
 
+// ConnectPlugin connects to an existing plugin Flight server.
+func (pm *PluginManager) ConnectPlugin(ctx context.Context, id string, address string) (*PluginInstance, error) {
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to plugin: %w", err)
+	}
+
+	client := flight.NewClientFromConn(conn, nil)
+
+	instance := &PluginInstance{
+		ID:      id,
+		Address: address,
+		Client:  client,
+		conn:    conn,
+	}
+
+	pm.mu.Lock()
+	pm.plugins[id] = instance
+	pm.mu.Unlock()
+
+	return instance, nil
+}
+
 // Describe retrieves metadata from the plugin.
 func (pi *PluginInstance) Describe(ctx context.Context) (*pb.DescribeResponse, error) {
 	action := &flight.Action{Type: "describe"}

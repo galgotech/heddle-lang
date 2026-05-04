@@ -33,6 +33,72 @@ func NewDataManager(basePath string, memoryLimit int64) *DataManager {
 
 // Put writes an Arrow Record to the managed storage.
 // It decides whether to use RAM (memfd), SHM, or Disk based on memory limits.
+// Import registers an existing handle from shared memory.
+// It opens the file, reads the Arrow metadata, and creates a HeddleFrame.
+func (m *DataManager) Import(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.registry.Exists(id) {
+		return nil // Already registered
+	}
+
+	path := filepath.Join(m.basePath, id)
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open handle %s: %w", id, err)
+	}
+
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("failed to stat handle %s: %w", id, err)
+	}
+
+	size := fi.Size()
+	if size == 0 {
+		f.Close()
+		return fmt.Errorf("handle %s is empty", id)
+	}
+
+	// Mmap to read the record without copying
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("failed to mmap handle %s: %w", id, err)
+	}
+	// We don't munmap here if we want the record to stay valid, 
+	// but Arrow's ipc.Reader might need the buffer to stay alive.
+	// Actually, Arrow Record retains the underlying memory if managed correctly.
+	// For simplicity in this implementation, we read the record and keep it in memory.
+
+	reader, err := ipc.NewReader(bytes.NewReader(data))
+	if err != nil {
+		syscall.Munmap(data)
+		f.Close()
+		return fmt.Errorf("failed to create reader for handle %s: %w", id, err)
+	}
+	defer reader.Release()
+
+	if !reader.Next() {
+		syscall.Munmap(data)
+		f.Close()
+		return fmt.Errorf("no record found in handle %s", id)
+	}
+
+	rec := reader.Record()
+	rec.Retain()
+
+	// Register the frame
+	frame := NewSharedFrame(rec, f.Name())
+	m.registry.Register(id, frame, f)
+	
+	// Note: activeBytes tracking for imported frames
+	m.activeBytes += size
+
+	return nil
+}
+
 func (m *DataManager) Put(id string, record arrow.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
