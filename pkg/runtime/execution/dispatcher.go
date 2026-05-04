@@ -10,10 +10,9 @@ import (
 
 // Task represents an instruction assigned to a worker.
 type Task struct {
-	ID           string              `json:"id"`
-	Step         *ir.StepInstruction `json:"step"`
-	InputHandle  string              `json:"input_handle,omitempty"`
-	RemoteTicket *proto.FlightTicket `json:"remote_ticket,omitempty"`
+	ID      string                        `json:"id"`
+	Step    *ir.StepInstruction           `json:"step"`
+	Tickets map[string]*proto.FlightTicket `json:"tickets,omitempty"`
 }
 
 // TaskStatus represents the lifecycle of a task.
@@ -110,10 +109,19 @@ func (d *Dispatcher) isReady(id string) bool {
 func (d *Dispatcher) createTask(id string, inputHandle string) Task {
 	inst := d.program.Instructions[id].(*ir.StepInstruction)
 	d.states[id] = &TaskState{Status: TaskStatusInFlight}
+	
+	tickets := make(map[string]*proto.FlightTicket)
+	if inputHandle != "" {
+		tickets["default"] = &proto.FlightTicket{
+			ResourceId: inputHandle,
+			RouteType:  proto.RouteType_LOCAL, // Default to local for standalone dispatcher
+		}
+	}
+
 	return Task{
-		ID:          id,
-		Step:        inst,
-		InputHandle: inputHandle,
+		ID:      id,
+		Step:    inst,
+		Tickets: tickets,
 	}
 }
 

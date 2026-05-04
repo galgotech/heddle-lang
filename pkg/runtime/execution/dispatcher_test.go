@@ -8,12 +8,11 @@ import (
 
 func TestDispatcher_BasicFlow(t *testing.T) {
 	code := `
-import "fhub/etl" etl
 schema df {
     id: int
 }
-step s1: void -> df = etl.extract
-step s2: df -> void = etl.transform
+step s1: void -> df = m.extract
+step s2: df -> void = m.transform
 
 workflow main {
   s1
@@ -70,12 +69,11 @@ workflow main {
 
 func TestDispatcher_WithHandlers(t *testing.T) {
 	code := `
-import "fhub/etl" etl
 schema df {
     id: int
 }
-step s1: void -> df = etl.extract
-step r1: df -> void = etl.retry
+step s1: void -> df = m.extract
+step r1: df -> void = m.retry
 
 handler recover {
     r1

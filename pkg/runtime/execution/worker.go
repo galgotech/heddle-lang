@@ -61,9 +61,10 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 
 func (w *Worker) Register(ctx context.Context) error {
 	reg := WorkerRegistration{
-		WorkerID: w.ID,
-		Address:  "localhost:0", // In a real scenario, this would be the worker's listen address
-		Runtime:  "go",
+		WorkerID:   w.ID,
+		Address:    "localhost:0", // In a real scenario, this would be the worker's listen address
+		UDSAddress: w.udsAddr,
+		Runtime:    "go",
 	}
 
 	body, _ := json.Marshal(reg)
@@ -258,13 +259,14 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 		return "", fmt.Errorf("step implementation mapping invalid: %v", task.Step)
 	}
 
-	// 1. Fetch remote data if necessary
-	if task.RemoteTicket != nil && task.RemoteTicket.RouteType == proto.RouteType_REMOTE {
-		localHandle, err := w.fetchRemoteData(ctx, task.RemoteTicket)
-		if err != nil {
-			return "", fmt.Errorf("failed to fetch remote data: %w", err)
+	// 1. Fetch remote data if necessary for all tickets
+	for _, ticket := range task.Tickets {
+		if ticket.RouteType == proto.RouteType_REMOTE {
+			_, err := w.fetchRemoteData(ctx, ticket)
+			if err != nil {
+				return "", fmt.Errorf("failed to fetch remote data for %s: %w", ticket.ResourceId, err)
+			}
 		}
-		task.InputHandle = localHandle
 	}
 
 	// 2. Delegate execution to polyglot plugin
@@ -317,21 +319,27 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 	defer conn.Close()
 	unixConn := conn.(*net.UnixConn)
 
-	// 3. Retrieve FD for input handle
-	file := w.dataMgr.GetRegistry().GetFile(task.InputHandle)
+	// 3. Identify input handle (for now, assume one input or pick 'default')
+	var inputHandle string
+	for _, ticket := range task.Tickets {
+		inputHandle = ticket.ResourceId // Just take the last one or 'default' for now
+	}
+
+	// 4. Retrieve FD for input handle
+	file := w.dataMgr.GetRegistry().GetFile(inputHandle)
 	if file == nil {
 		// If not in registry (e.g. from local storage), we might need to open it
 		// but for this refactor we assume it's already managed by DataManager.
-		return "", fmt.Errorf("input handle %s not found in DataManager registry", task.InputHandle)
+		return "", fmt.Errorf("input handle %s not found in DataManager registry", inputHandle)
 	}
 
-	// 4. Prepare output handle
+	// 5. Prepare output handle
 	outputHandle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
 
-	// 5. Prepare and transmit metadata + FD
+	// 6. Prepare and transmit metadata + FD
 	req := &proto.ExecuteStepRequest{
 		StepName:     name,
-		InputHandle:  task.InputHandle,
+		InputHandle:  inputHandle,
 		OutputHandle: outputHandle,
 	}
 
@@ -342,7 +350,7 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 
 	logger.L().Debug("Transmitting FD and metadata to plugin",
 		logger.String("lang", lang),
-		logger.String("handle", task.InputHandle))
+		logger.String("handle", inputHandle))
 
 	if err := data.SendFDWithMetadata(unixConn, int(file.Fd()), meta); err != nil {
 		return "", fmt.Errorf("failed to transmit FD and metadata: %w", err)

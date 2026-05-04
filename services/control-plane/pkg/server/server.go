@@ -16,6 +16,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/manager"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
@@ -36,6 +37,10 @@ type ControlPlaneServer struct {
 	workerStreams map[string]chan *execution.Task
 	// taskResults maps nodeID -> channel for execution results
 	taskResults map[string]chan error
+
+	// Data Locality
+	locality *manager.DataLocalityRegistry
+	outputs  map[string]string // nodeID -> outputHandle
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
@@ -45,6 +50,8 @@ func NewControlPlaneServer() *ControlPlaneServer {
 		sm:            state.NewStateMachine(),
 		workerStreams: make(map[string]chan *execution.Task),
 		taskResults:   make(map[string]chan error),
+		locality:      manager.NewDataLocalityRegistry(),
+		outputs:       make(map[string]string),
 	}
 	return s
 }
@@ -65,12 +72,13 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			id = reg.WorkerID
 		}
 
-		s.registry.Register(id, reg.Tags)
+		s.registry.Register(id, reg.Address, reg.UDSAddress, reg.Tags)
 
 		logger.L().Info("Worker registered",
 			zap.String("workerID", id),
 			zap.String("runtime", reg.Runtime),
-			zap.String("address", reg.Address))
+			zap.String("address", reg.Address),
+			zap.String("uds_address", reg.UDSAddress))
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case execution.ActionHeartbeat:
@@ -177,10 +185,54 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		s.mu.Unlock()
 	}()
 
+	// sending task with locality-aware tickets
+	tickets := make(map[string]*pb.FlightTicket)
+
+	// 1. Find predecessors to identify inputs
+	for pid, inst := range program.Instructions {
+		if stepInst, ok := inst.(*ir.StepInstruction); ok {
+			if stepInst.Next == nodeID {
+				// We found a predecessor
+				s.mu.RLock()
+				handle, exists := s.outputs[pid]
+				s.mu.RUnlock()
+
+				if exists {
+					// 2. Query locality registry for the producer
+					producerID, found := s.locality.GetProducer(handle)
+					if found {
+						// 3. Compare with target worker to determine ticket type
+						ticket := &pb.FlightTicket{
+							ResourceId: handle,
+						}
+
+						if producerID == workerID {
+							// Local access
+							ticket.RouteType = pb.RouteType_LOCAL
+							worker, err := s.registry.GetWorker(producerID)
+							if err == nil {
+								ticket.Address = worker.UDSAddress
+							}
+						} else {
+							// Remote access
+							ticket.RouteType = pb.RouteType_REMOTE
+							worker, err := s.registry.GetWorker(producerID)
+							if err == nil {
+								ticket.Address = worker.Address
+							}
+						}
+						tickets[pid] = ticket
+					}
+				}
+			}
+		}
+	}
+
 	// Send task
 	task := &execution.Task{
-		ID:   nodeID,
-		Step: step,
+		ID:      nodeID,
+		Step:    step,
+		Tickets: tickets,
 	}
 
 	select {
@@ -262,7 +314,13 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 
 				if ok {
 					var taskErr error
-					if update.Status == "failed" {
+					if update.Status == "completed" {
+						// Record output handle and locality
+						s.mu.Lock()
+						s.outputs[update.TaskID] = update.OutputHandle
+						s.mu.Unlock()
+						s.locality.RegisterOutput(update.OutputHandle, workerID)
+					} else if update.Status == "failed" {
 						taskErr = fmt.Errorf("%s", update.Error)
 					}
 					resCh <- taskErr

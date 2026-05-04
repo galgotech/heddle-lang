@@ -18,10 +18,11 @@ const (
 
 // WorkerRegistration contains metadata sent by a worker when it first joins the cluster.
 type WorkerRegistration struct {
-	WorkerID string            `json:"worker_id"`
-	Address  string            `json:"address"`
-	Tags     map[string]string `json:"tags"`
-	Runtime  string            `json:"runtime"` // e.g., "go", "python", "rust"
+	WorkerID   string            `json:"worker_id"`
+	Address    string            `json:"address"`
+	UDSAddress string            `json:"uds_address,omitempty"`
+	Tags       map[string]string `json:"tags"`
+	Runtime    string            `json:"runtime"` // e.g., "go", "python", "rust"
 }
 
 // Heartbeat is sent periodically by workers to the control plane.

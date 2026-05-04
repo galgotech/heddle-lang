@@ -100,7 +100,12 @@ func TestWorker_Delegation(t *testing.T) {
 		Step: &ir.StepInstruction{
 			Call: []string{"std:io", "echo"},
 		},
-		InputHandle: inputHandle,
+		Tickets: map[string]*pb.FlightTicket{
+			"default": {
+				ResourceId: inputHandle,
+				RouteType:  pb.RouteType_LOCAL,
+			},
+		},
 	}
 
 	// 4. Execute task

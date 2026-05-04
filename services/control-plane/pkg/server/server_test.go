@@ -62,7 +62,7 @@ func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
 	mockStream := &mockDoActionServer{}
 
 	// Register first
-	server.registry.Register("worker-1", nil)
+	server.registry.Register("worker-1", "localhost:50051", "", nil)
 
 	hb := execution.Heartbeat{
 		WorkerID:  "worker-1",

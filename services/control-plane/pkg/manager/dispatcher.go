@@ -21,6 +21,8 @@ const (
 // Worker represents a "Dumb Worker" (e.g., Node.js, Python, Rust) executing DataFusion logic.
 type Worker struct {
 	ID         string
+	Address    string
+	UDSAddress string
 	Labels     map[string]string
 	State      WorkerState
 	LastSeenAt time.Time
@@ -40,16 +42,29 @@ func NewRegistry() *Registry {
 }
 
 // Register adds or updates a worker's health status.
-func (r *Registry) Register(id string, labels map[string]string) {
+func (r *Registry) Register(id string, address string, udsAddress string, labels map[string]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	r.workers[id] = &Worker{
 		ID:         id,
+		Address:    address,
+		UDSAddress: udsAddress,
 		Labels:     labels,
 		State:      WorkerHealthy,
 		LastSeenAt: time.Now(),
 	}
+}
+
+// GetWorker retrieves a worker by its ID.
+func (r *Registry) GetWorker(id string) (*Worker, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	worker, exists := r.workers[id]
+	if !exists {
+		return nil, errors.New("worker not found")
+	}
+	return worker, nil
 }
 
 // Heartbeat updates the LastSeenAt timestamp for a worker.
