@@ -67,7 +67,7 @@ func (m *DataManager) Import(id string) error {
 		f.Close()
 		return fmt.Errorf("failed to mmap handle %s: %w", id, err)
 	}
-	// We don't munmap here if we want the record to stay valid, 
+	// We don't munmap here if we want the record to stay valid,
 	// but Arrow's ipc.Reader might need the buffer to stay alive.
 	// Actually, Arrow Record retains the underlying memory if managed correctly.
 	// For simplicity in this implementation, we read the record and keep it in memory.
@@ -92,7 +92,7 @@ func (m *DataManager) Import(id string) error {
 	// Register the frame
 	frame := NewSharedFrame(rec, f.Name())
 	m.registry.Register(id, frame, f)
-	
+
 	// Note: activeBytes tracking for imported frames
 	m.activeBytes += size
 
@@ -103,44 +103,56 @@ func (m *DataManager) Put(id string, record arrow.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. Create memfd or file
-	// Note: In a full implementation, we might estimate size or use a temp buffer
-	// but for Phase 2, we prioritize direct FD writing if possible.
-	// We'll use a conservative estimate or a growing file.
+	// 1. Calculate the required size for the Arrow IPC stream.
+	// We use a counter writer to determine the exact size without extra heap allocations.
+	var cw counterWriter
+	w := ipc.NewWriter(&cw, ipc.WithSchema(record.Schema()))
+	if err := w.Write(record); err != nil {
+		return fmt.Errorf("failed to calculate record size: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("failed to finalize size calculation: %w", err)
+	}
+	size := int64(cw.count)
 
-	// For now, we still need to know the size for memfd_create if we want it to be contiguous
-	// but memfd can be truncated later.
-	// Let's use a two-pass approach only if necessary, or just write to FD.
-
+	// 2. Allocate storage (memfd or file)
 	var f *os.File
 	var err error
-
-	// Create with an initial size or grow as needed
 	if supportsMemfd() {
-		f, err = createMemfd(id, 0)
+		f, err = createMemfd(id, size)
 	} else {
 		path := filepath.Join(m.basePath, id)
 		f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		if err == nil {
+			err = f.Truncate(size)
+		}
 	}
 
 	if err != nil {
 		return fmt.Errorf("failed to allocate storage: %w", err)
 	}
 
-	// 2. Write Arrow Record directly to FD
-	writer := ipc.NewWriter(f, ipc.WithSchema(record.Schema()))
+	// 3. Mmap the file for writing.
+	// This achieves zero-copy (single copy from heap to mmap) by mapping the file
+	// directly into the address space and avoiding write() syscalls.
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_WRITE, syscall.MAP_SHARED)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("failed to mmap for writing: %w", err)
+	}
+	defer syscall.Munmap(data)
+
+	// 4. Write Arrow Record directly into the mapped region.
+	mw := &mmapWriter{data: data}
+	writer := ipc.NewWriter(mw, ipc.WithSchema(record.Schema()))
 	if err := writer.Write(record); err != nil {
 		f.Close()
-		return fmt.Errorf("failed to write record: %w", err)
+		return fmt.Errorf("failed to write record to mmap: %w", err)
 	}
 	if err := writer.Close(); err != nil {
 		f.Close()
-		return fmt.Errorf("failed to close writer: %w", err)
+		return fmt.Errorf("failed to close mmap writer: %w", err)
 	}
-
-	// Get final size
-	fi, _ := f.Stat()
-	size := fi.Size()
 
 	var loc StorageLocation = LocationShared
 	if m.memoryLimit > 0 && m.activeBytes+size > m.memoryLimit {
@@ -233,4 +245,29 @@ func (m *DataManager) Cleanup() {
 
 	_ = os.RemoveAll(m.basePath)
 	m.activeBytes = 0
+}
+
+// counterWriter counts bytes written without storing them.
+type counterWriter struct {
+	count int
+}
+
+func (c *counterWriter) Write(p []byte) (n int, err error) {
+	c.count += len(p)
+	return len(p), nil
+}
+
+// mmapWriter writes directly into a mapped memory region.
+type mmapWriter struct {
+	data []byte
+	pos  int
+}
+
+func (w *mmapWriter) Write(p []byte) (n int, err error) {
+	if w.pos+len(p) > len(w.data) {
+		return 0, fmt.Errorf("mmapWriter: write out of bounds")
+	}
+	copy(w.data[w.pos:], p)
+	w.pos += len(p)
+	return len(p), nil
 }
