@@ -123,13 +123,13 @@ func (l *Lowerer) lowerResource(astResource ast.ResourceNode) (*ir.ResourceInstr
 	}
 	return res, nil
 }
- 
+
 func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction, error) {
 	flow := &ir.FlowInstruction{
 		BaseInstruction: l.newBase(ir.FlowInst),
 		Name:            l.ctx.GetString(astHandler.NameRef),
 	}
- 
+
 	for i := astHandler.StatementRefsStart; i < astHandler.StatementRefsEnd; i++ {
 		psRef := l.ctx.StatementRefs[i]
 		ps := l.ctx.PipelineStatementNodes[psRef]
@@ -139,7 +139,7 @@ func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction,
 		}
 		flow.Heads = append(flow.Heads, headID)
 	}
- 
+
 	return flow, nil
 }
 
@@ -206,14 +206,14 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 		BaseInstruction: l.newBase(ir.StepInst),
 	}
 	step.DefinitionName = l.ctx.GetString(call.NameRef)
- 
+
 	if call.TrapRef != (ast.StringRef{}) {
 		handlerName := l.ctx.GetString(call.TrapRef)
 		if id, ok := l.handlerIDs[handlerName]; ok {
 			step.Handler = id
 		}
 	}
- 
+
 	return step, nil
 }
 

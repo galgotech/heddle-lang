@@ -22,6 +22,9 @@ import (
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
 
+// ControlPlaneServer implements the "Smart Control Plane" (the Brain) in the Heddle architecture.
+// It manages the global DAG topology, orchestrates task dispatch via a locality-aware
+// scheduler, and maintains the authoritative state of all distributed workers.
 type ControlPlaneServer struct {
 	flight.BaseFlightServer
 
@@ -29,20 +32,25 @@ type ControlPlaneServer struct {
 	registry *manager.Registry
 	queue    *scheduler.WorkQueue
 	sm       *state.StateMachine
-	// Current dispatcher (if any)
+	// dispatcher coordinates the concurrent execution of the DAG.
 	dispatcher *manager.Dispatcher
 	program    *ir.ProgramIR
 
-	// workerStreams maps workerID -> channel for outgoing tasks
+	// workerStreams maps workerID to a dedicated channel for pushing outgoing tasks.
 	workerStreams map[string]chan *execution.Task
-	// taskResults maps nodeID -> channel for execution results
+	// taskResults facilitates synchronization between the asynchronous DoExchange
+	// stream and the synchronous executor calls.
 	taskResults map[string]chan error
 
-	// Data Locality
+	// locality tracks the physical placement of data across the cluster to optimize
+	// for zero-copy memory access via UDS where possible.
 	locality *manager.DataLocalityRegistry
-	outputs  map[string]string // nodeID -> outputHandle
+	// outputs maps node identifiers to their respective memory handles (e.g., Plasma/UDS paths).
+	outputs map[string]string // nodeID -> outputHandle
 }
 
+// NewControlPlaneServer initializes a new instance of the control plane with
+// default registries and state tracking mechanisms.
 func NewControlPlaneServer() *ControlPlaneServer {
 	s := &ControlPlaneServer{
 		registry:      manager.NewRegistry(),
@@ -56,6 +64,8 @@ func NewControlPlaneServer() *ControlPlaneServer {
 	return s
 }
 
+// DoAction handles unary control-plane operations including worker registration,
+// heartbeats, and workflow submission.
 func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
 	workerID := GetWorkerID(stream.Context())
 
@@ -66,7 +76,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			return fmt.Errorf("failed to unmarshal registration: %w", err)
 		}
 
-		// Use the ID from metadata if available, otherwise from body
+		// Resolve Worker ID from metadata or explicit body registration.
 		id := workerID
 		if id == "" {
 			id = reg.WorkerID
@@ -104,6 +114,8 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case execution.ActionSubmitWorkflow:
+		// workflow submission triggers Just-In-Time (JIT) compilation of Heddle source
+		// into an Intermediate Representation (IR) and initializes the execution DAG.
 		logger.L().Info("Received workflow submission", zap.Int("bytes", len(action.Body)))
 
 		source := string(action.Body)
@@ -119,12 +131,11 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		s.mu.Lock()
 		s.program = program
-		// Reset state machine and queue for new workflow
+		// Flush state machine and work queue for the new execution context.
 		s.sm = state.NewStateMachine()
 		s.queue = scheduler.NewWorkQueue(rate.Limit(100), 10, nil)
 
-		// Populate queue with initial nodes (those with no dependencies)
-		// This is a placeholder for actual DAG traversal
+		// DAG Traversal: Identify leaf nodes (no dependencies) and queue them for execution.
 		for id, inst := range program.Instructions {
 			if _, ok := inst.(*ir.StepInstruction); ok {
 				s.sm.AddNode(state.NewNode(id))
@@ -132,6 +143,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			}
 		}
 
+		// Initialize dispatcher if not already active.
 		if s.dispatcher == nil {
 			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.executor)
 			s.dispatcher.Start(5)
@@ -142,6 +154,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
 
 	case execution.ActionGetHistory:
+		// Retrieves a snapshot of the current state machine for visualization or debugging.
 		history := s.sm.GetHistory()
 		body, err := json.Marshal(history)
 		if err != nil {
@@ -154,6 +167,9 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 	}
 }
 
+// executor is the core dispatch logic that maps an IR node to a physical worker.
+// It performs locality-aware routing by analyzing predecessor outputs to determine
+// if the target worker can access data via LOCAL shared-memory (UDS) or REMOTE gRPC.
 func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, nodeID string) error {
 	s.mu.RLock()
 	ch, ok := s.workerStreams[workerID]
@@ -164,7 +180,7 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		return fmt.Errorf("worker stream not found: %s", workerID)
 	}
 
-	// Find the step in the program
+	// Resolve the IR instruction for the target node.
 	raw, ok := program.Instructions[nodeID]
 	if !ok {
 		return fmt.Errorf("node not found: %s", nodeID)
@@ -178,7 +194,7 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		return fmt.Errorf("step not found: %s", nodeID)
 	}
 
-	// Create result channel
+	// Initialize result channel to await task completion via DoExchange updates.
 	resCh := make(chan error, 1)
 	s.mu.Lock()
 	s.taskResults[nodeID] = resCh
@@ -189,36 +205,35 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		s.mu.Unlock()
 	}()
 
-	// sending task with locality-aware tickets
+	// Locality-aware ticket generation determines the optimal data transfer route.
 	tickets := make(map[string]*pb.FlightTicket)
 
-	// 1. Find predecessors to identify inputs
+	// Identify predecessors to resolve input dependencies and their physical locations.
 	for pid, inst := range program.Instructions {
 		if stepInst, ok := inst.(*ir.StepInstruction); ok {
 			if stepInst.Next == nodeID {
-				// We found a predecessor
+				// Predecessor found; check for a valid memory handle.
 				s.mu.RLock()
 				handle, exists := s.outputs[pid]
 				s.mu.RUnlock()
 
 				if exists {
-					// 2. Query locality registry for the producer
+					// Query DataLocalityRegistry to find the producing worker.
 					producerID, found := s.locality.GetProducer(handle)
 					if found {
-						// 3. Compare with target worker to determine ticket type
 						ticket := &pb.FlightTicket{
 							ResourceId: handle,
 						}
 
 						if producerID == workerID {
-							// Local access
+							// LOCAL: Co-located worker can access via Unix Domain Socket (Shared Memory).
 							ticket.RouteType = pb.RouteType_LOCAL
 							worker, err := s.registry.GetWorker(producerID)
 							if err == nil {
 								ticket.Address = worker.UDSAddress
 							}
 						} else {
-							// Remote access
+							// REMOTE: Data must be fetched via Arrow Flight RPC over TCP.
 							ticket.RouteType = pb.RouteType_REMOTE
 							worker, err := s.registry.GetWorker(producerID)
 							if err == nil {
@@ -232,7 +247,7 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		}
 	}
 
-	// Send task
+	// Dispatch task through the registered worker stream.
 	task := &execution.Task{
 		ID:      nodeID,
 		Step:    step,
@@ -245,7 +260,7 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		return ctx.Err()
 	}
 
-	// Wait for result
+	// Block until the worker reports success or failure via the TaskUpdate flow.
 	select {
 	case err := <-resCh:
 		return err
@@ -254,6 +269,8 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 	}
 }
 
+// DoExchange establishes a persistent, bidirectional Flight stream for task delegation
+// and execution telemetry. It manages the lifecycle of worker-specific task channels.
 func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
 	workerID := GetWorkerID(stream.Context())
 	if workerID == "" {
@@ -262,7 +279,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 
 	logger.L().Info("Worker established exchange stream", zap.String("workerID", workerID))
 
-	// Register the stream channel
+	// Initialize the outbound task channel and register it in the stream map.
 	ch := make(chan *execution.Task, 10)
 	s.mu.Lock()
 	s.workerStreams[workerID] = ch
@@ -275,10 +292,9 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		close(ch)
 	}()
 
-	// Error group/channel to manage bidirectional flow
 	errCh := make(chan error, 2)
 
-	// Goroutine to send tasks to worker
+	// Task Dispatch Loop: Serializes and pushes IR tasks to the connected worker.
 	go func() {
 		for {
 			select {
@@ -297,7 +313,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		}
 	}()
 
-	// Goroutine to receive updates from worker
+	// Telemetry Feedback Loop: Processes TaskUpdates (success/failure) from the worker.
 	go func() {
 		for {
 			data, err := stream.Recv()
@@ -319,7 +335,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 				if ok {
 					var taskErr error
 					if update.Status == "completed" {
-						// Record output handle and locality
+						// Update output tracking and locality registry for subsequent DAG steps.
 						s.mu.Lock()
 						s.outputs[update.TaskID] = update.OutputHandle
 						s.mu.Unlock()
@@ -327,18 +343,19 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 					} else if update.Status == "failed" {
 						taskErr = fmt.Errorf("%s", update.Error)
 					}
+					// Signal the blocking executor call that the task has finished.
 					resCh <- taskErr
 				}
 			}
 		}
 	}()
 
-	// Wait for one of the goroutines to fail or the stream to close
 	err := <-errCh
 	logger.L().Info("Exchange stream closed", zap.String("workerID", workerID), zap.Error(err))
 	return nil
 }
 
+// StartServer bootstraps the gRPC and Flight service listener for the Control Plane.
 func StartServer(port int) {
 	addr := fmt.Sprintf(":%d", port)
 	lis, err := net.Listen("tcp", addr)
@@ -346,6 +363,7 @@ func StartServer(port int) {
 		logger.L().Fatal("failed to listen", zap.Error(err))
 	}
 
+	// Configure gRPC server with interceptors for worker identification.
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(UnaryWorkerInterceptor),
 		grpc.StreamInterceptor(StreamWorkerInterceptor),

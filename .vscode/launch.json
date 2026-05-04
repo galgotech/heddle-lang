@@ -1,0 +1,48 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Control Plane",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/services/control-plane/cmd/control-plane/main.go",
+            "env": {
+                "HEDDLE_CP_PORT": "50051"
+            },
+            "args": []
+        },
+        {
+            "name": "Worker",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/services/worker/cmd/heddle-worker/main.go",
+            "env": {
+                "HEDDLE_WORKER_PORT": "50052",
+                "HEDDLE_WORKER_CONTROL_PLANE": "localhost:50051"
+            },
+            "args": []
+        },
+        {
+            "name": "LSP",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/services/lsp/cmd/heddle-lsp/main.go",
+            "env": {
+                "HEDDLE_LSP_PORT": "50053"
+            },
+            "args": []
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Full Stack",
+            "configurations": [
+                "Control Plane",
+                "Worker"
+            ]
+        }
+    ]
+}
