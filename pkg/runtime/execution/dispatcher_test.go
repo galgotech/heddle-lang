@@ -11,8 +11,8 @@ func TestDispatcher_BasicFlow(t *testing.T) {
 schema df {
     id: int
 }
-step s1: void -> df = m.extract
-step s2: df -> void = m.transform
+step s1: void -> void = m.extract
+step s2: void -> void = m.transform
 
 workflow main {
   s1

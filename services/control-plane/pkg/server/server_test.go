@@ -92,8 +92,9 @@ func TestControlPlaneServer_DoAction_SubmitWorkflow(t *testing.T) {
 	mockStream := &mockDoActionServer{}
 
 	source := `
+step s1: void -> void = m.s1
 workflow main {
-  step1
+  s1
 }
 `
 	action := &flight.Action{

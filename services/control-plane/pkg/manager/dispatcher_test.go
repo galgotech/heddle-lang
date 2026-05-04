@@ -16,7 +16,7 @@ import (
 func TestRegistry_RegisterAndHeartbeat(t *testing.T) {
 	r := NewRegistry()
 
-	r.Register("worker-1", map[string]string{"lang": "python"})
+	r.Register("worker-1", "localhost:0", "", map[string]string{"lang": "python"})
 
 	w, err := r.GetHealthyWorker()
 	assert.NoError(t, err)
@@ -43,7 +43,7 @@ func TestRegistry_StaleWorkerOffline(t *testing.T) {
 	r := NewRegistry()
 
 	// Register a worker but manually set its LastSeenAt to far in the past
-	r.Register("worker-1", map[string]string{"lang": "python"})
+	r.Register("worker-1", "localhost:0", "", map[string]string{"lang": "python"})
 	r.mu.Lock()
 	r.workers["worker-1"].LastSeenAt = time.Now().Add(-40 * time.Second)
 	r.mu.Unlock()
@@ -56,7 +56,7 @@ func TestRegistry_StaleWorkerOffline(t *testing.T) {
 func TestDispatcher_SuccessfulExecution(t *testing.T) {
 	q := scheduler.NewWorkQueue(rate.Inf, 1, nil)
 	r := NewRegistry()
-	r.Register("worker-1", nil)
+	r.Register("worker-1", "localhost:0", "", nil)
 
 	var mu sync.Mutex
 	executed := false
@@ -94,7 +94,7 @@ func TestDispatcher_SuccessfulExecution(t *testing.T) {
 func TestDispatcher_FailedExecutionTriggersRetry(t *testing.T) {
 	q := scheduler.NewWorkQueue(rate.Inf, 1, nil)
 	r := NewRegistry()
-	r.Register("worker-1", nil)
+	r.Register("worker-1", "localhost:0", "", nil)
 
 	var mu sync.Mutex
 	attempts := 0
@@ -159,7 +159,7 @@ func TestDispatcher_NoWorkersAvailableTriggersRetry(t *testing.T) {
 func TestDispatcher_ContextCancellationExitsLoop(t *testing.T) {
 	q := scheduler.NewWorkQueue(rate.Inf, 1, nil)
 	r := NewRegistry()
-	r.Register("worker-1", nil)
+	r.Register("worker-1", "localhost:0", "", nil)
 
 	executor := func(ctx context.Context, workerID string, nodeID string) error {
 		// Simulate long running
