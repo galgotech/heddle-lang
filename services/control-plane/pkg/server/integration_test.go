@@ -8,10 +8,14 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/manager"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
 
 func TestEndToEndDataFlow(t *testing.T) {
@@ -26,7 +30,12 @@ func TestEndToEndDataFlow(t *testing.T) {
 		grpc.UnaryInterceptor(UnaryWorkerInterceptor),
 		grpc.StreamInterceptor(StreamWorkerInterceptor),
 	)
-	cpServer := NewControlPlaneServer()
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Inf, 1, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+
+	cpServer := NewControlPlaneServer(registry, queue, sm, locality)
 	flight.RegisterFlightServiceServer(server, cpServer)
 
 	go func() {
@@ -82,7 +91,11 @@ workflow main {
 	if err != nil {
 		t.Fatalf("workflow submission failed: %v", err)
 	}
-	_, _ = resStream.Recv()
+	res, err := resStream.Recv()
+	if err != nil {
+		t.Fatalf("workflow submission failed at Recv: %v", err)
+	}
+	t.Logf("Workflow submission response: %s", string(res.Body))
 
 	// 4. Wait for execution and verify results
 	deadline := time.After(10 * time.Second)

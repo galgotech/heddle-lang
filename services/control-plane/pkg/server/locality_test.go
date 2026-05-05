@@ -10,12 +10,16 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/manager"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
 
 func TestControlPlane_LocalityAwareTickets(t *testing.T) {
@@ -28,7 +32,13 @@ func TestControlPlane_LocalityAwareTickets(t *testing.T) {
 		grpc.UnaryInterceptor(UnaryWorkerInterceptor),
 		grpc.StreamInterceptor(StreamWorkerInterceptor),
 	)
-	cpServer := NewControlPlaneServer()
+	
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Limit(100), 10, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+
+	cpServer := NewControlPlaneServer(registry, queue, sm, locality)
 	flight.RegisterFlightServiceServer(server, cpServer)
 
 	go func() {

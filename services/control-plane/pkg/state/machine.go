@@ -107,21 +107,29 @@ func NewNode(id string) *Node {
 	}
 }
 
-// StateMachine manages the state transitions for nodes in the DAG.
-type StateMachine struct {
+// StateMachine defines the interface for managing DAG node state transitions.
+type StateMachine interface {
+	AddNode(node *Node) error
+	GetNode(id string) (*Node, error)
+	Transition(id string, expected State, next State, err error) error
+	GetHistory() []NodeSnapshot
+}
+
+// DefaultStateMachine manages the state transitions for nodes in the DAG.
+type DefaultStateMachine struct {
 	nodes map[string]*Node
 	mu    sync.RWMutex
 }
 
 // NewStateMachine creates a new state machine.
-func NewStateMachine() *StateMachine {
-	return &StateMachine{
+func NewStateMachine() StateMachine {
+	return &DefaultStateMachine{
 		nodes: make(map[string]*Node),
 	}
 }
 
 // AddNode adds a new node to the state machine.
-func (sm *StateMachine) AddNode(node *Node) error {
+func (sm *DefaultStateMachine) AddNode(node *Node) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -133,7 +141,7 @@ func (sm *StateMachine) AddNode(node *Node) error {
 }
 
 // GetNode retrieves a node by its ID.
-func (sm *StateMachine) GetNode(id string) (*Node, error) {
+func (sm *DefaultStateMachine) GetNode(id string) (*Node, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
@@ -147,7 +155,7 @@ func (sm *StateMachine) GetNode(id string) (*Node, error) {
 var ErrInvalidTransition = errors.New("invalid state transition")
 
 // Transition atomically transitions a node from an expected state to a new state.
-func (sm *StateMachine) Transition(id string, expected State, next State, err error) error {
+func (sm *DefaultStateMachine) Transition(id string, expected State, next State, err error) error {
 	sm.mu.RLock()
 	node, exists := sm.nodes[id]
 	sm.mu.RUnlock()
@@ -173,7 +181,7 @@ func (sm *StateMachine) Transition(id string, expected State, next State, err er
 }
 
 // GetHistory returns a snapshot of all nodes in the state machine.
-func (sm *StateMachine) GetHistory() []NodeSnapshot {
+func (sm *DefaultStateMachine) GetHistory() []NodeSnapshot {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 

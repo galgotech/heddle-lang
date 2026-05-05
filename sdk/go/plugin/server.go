@@ -212,7 +212,7 @@ func (s *Server) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest) (r
 	}
 
 	// Create and append input table
-	var inputTable *core.Table
+	var inputTable core.Table
 	var errInput error
 	if req.GetInputHandle() != "" {
 		if req.GetWorkerUdsPath() != "" {
@@ -260,7 +260,7 @@ func (s *Server) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest) (r
 			ErrorMessage: "step function returned nil table",
 		}, nil
 	}
-	outTable := outTableVal.Interface().(*core.Table)
+	outTable := outTableVal.Interface().(core.Table)
 
 	// If an output handle is requested, write to it (zero-copy)
 	if req.OutputHandle != "" {
@@ -389,7 +389,7 @@ func (s *Server) DoExchange(stream flight.FlightService_DoExchangeServer) error 
 	}
 
 	ctx := stream.Context()
-	var inputTable *core.Table
+	var inputTable core.Table
 
 	// 2. Fetch input table (either via handle or streaming)
 	if req.InputHandle != "" {
@@ -422,7 +422,7 @@ func (s *Server) DoExchange(stream flight.FlightService_DoExchangeServer) error 
 		inputTable = core.NewTableFromRecord(rec)
 	} else {
 		// No input provided
-		inputTable = &core.Table{}
+		inputTable, _ = core.NewTableFromBytes(nil)
 	}
 	defer inputTable.Release()
 
@@ -446,9 +446,9 @@ func (s *Server) DoExchange(stream flight.FlightService_DoExchangeServer) error 
 		}
 		defer outTable.Release()
 
-		if outTable.Record != nil {
-			writer := flight.NewRecordWriter(stream, ipc.WithAllocator(memory.DefaultAllocator), ipc.WithSchema(outTable.Record.Schema()))
-			if err := writer.Write(outTable.Record); err != nil {
+		if outTable.Native() != nil {
+			writer := flight.NewRecordWriter(stream, ipc.WithAllocator(memory.DefaultAllocator), ipc.WithSchema(outTable.Native().Schema()))
+			if err := writer.Write(outTable.Native()); err != nil {
 				return fmt.Errorf("failed to write output record: %w", err)
 			}
 			return writer.Close()
@@ -459,7 +459,7 @@ func (s *Server) DoExchange(stream flight.FlightService_DoExchangeServer) error 
 }
 
 // executeStepWithTable is a helper that takes an already parsed Table.
-func (s *Server) executeStepWithTable(ctx context.Context, req *pb.ExecuteStepRequest, inputTable *core.Table) (*pb.ExecuteStepResponse, error) {
+func (s *Server) executeStepWithTable(ctx context.Context, req *pb.ExecuteStepRequest, inputTable core.Table) (*pb.ExecuteStepResponse, error) {
 	reg, ok := s.registry.GetStep(req.StepName)
 	if !ok {
 		return &pb.ExecuteStepResponse{
@@ -538,7 +538,7 @@ func (s *Server) executeStepWithTable(ctx context.Context, req *pb.ExecuteStepRe
 			ErrorMessage: "step function returned nil table",
 		}, nil
 	}
-	outTable := outTableVal.Interface().(*core.Table)
+	outTable := outTableVal.Interface().(core.Table)
 
 	// If an output handle is requested, write to it (zero-copy)
 	if req.OutputHandle != "" {

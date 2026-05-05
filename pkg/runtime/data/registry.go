@@ -5,47 +5,47 @@ import (
 	"sync"
 )
 
-// FrameRegistry manages the lifecycle and reference counting of HeddleFrames.
-type FrameRegistry struct {
+// TableRegistry manages the lifecycle and reference counting of Tables.
+type TableRegistry struct {
 	mu     sync.RWMutex
 	frames map[string]*registryEntry
 }
 
 type registryEntry struct {
-	frame    HeddleFrame
+	frame    Table
 	file     *os.File // Optional: kept open for memfd
 	refCount int
 }
 
-// NewFrameRegistry creates a new instance of the FrameRegistry.
-func NewFrameRegistry() *FrameRegistry {
-	return &FrameRegistry{
+// NewTableRegistry creates a new instance of the TableRegistry.
+func NewTableRegistry() *TableRegistry {
+	return &TableRegistry{
 		frames: make(map[string]*registryEntry),
 	}
 }
 
-// Register adds a new frame to the registry with an initial refCount of 1.
-func (r *FrameRegistry) Register(id string, frame HeddleFrame, file *os.File) {
+// Register adds a new table to the registry with an initial refCount of 1.
+func (r *TableRegistry) Register(id string, table Table, file *os.File) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.frames[id] = &registryEntry{
-		frame:    frame,
+		frame:    table,
 		file:     file,
 		refCount: 1,
 	}
 }
 
-// Exists checks if a frame with the given ID is in the registry.
-func (r *FrameRegistry) Exists(id string) bool {
+// Exists checks if a table with the given ID is in the registry.
+func (r *TableRegistry) Exists(id string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	_, ok := r.frames[id]
 	return ok
 }
 
-// Retain increments the reference count for a frame.
-func (r *FrameRegistry) Retain(id string) {
+// Retain increments the reference count for a table.
+func (r *TableRegistry) Retain(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -54,9 +54,9 @@ func (r *FrameRegistry) Retain(id string) {
 	}
 }
 
-// Release decrements the reference count for a frame.
-// If the count reaches 0, the frame is released and removed from the registry.
-func (r *FrameRegistry) Release(id string) {
+// Release decrements the reference count for a table.
+// If the count reaches 0, the table is released and removed from the registry.
+func (r *TableRegistry) Release(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -75,8 +75,8 @@ func (r *FrameRegistry) Release(id string) {
 	}
 }
 
-// RefCount returns the current reference count for a frame.
-func (r *FrameRegistry) RefCount(id string) int {
+// RefCount returns the current reference count for a table.
+func (r *TableRegistry) RefCount(id string) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -86,8 +86,8 @@ func (r *FrameRegistry) RefCount(id string) int {
 	return 0
 }
 
-// Get returns the frame associated with the given ID.
-func (r *FrameRegistry) Get(id string) HeddleFrame {
+// Get returns the table associated with the given ID.
+func (r *TableRegistry) Get(id string) Table {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -98,7 +98,7 @@ func (r *FrameRegistry) Get(id string) HeddleFrame {
 }
 
 // GetFile returns the file associated with the given ID.
-func (r *FrameRegistry) GetFile(id string) *os.File {
+func (r *TableRegistry) GetFile(id string) *os.File {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

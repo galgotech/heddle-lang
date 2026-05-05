@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFrameRegistry(t *testing.T) {
-	registry := NewFrameRegistry()
+func TestTableRegistry(t *testing.T) {
+	registry := NewTableRegistry()
 	mem := memory.NewGoAllocator()
 	schema := arrow.NewSchema([]arrow.Field{{Name: "test", Type: arrow.PrimitiveTypes.Int64}}, nil)
 	b := array.NewRecordBuilder(mem, schema)
@@ -18,11 +18,11 @@ func TestFrameRegistry(t *testing.T) {
 	rec := b.NewRecord()
 	defer rec.Release()
 
-	frame := NewArrowFrame(rec)
-	id := "frame-1"
+	table := &ArrowTable{record: rec}
+	id := "table-1"
 
 	// Test Registration
-	registry.Register(id, frame, nil)
+	registry.Register(id, table, nil)
 	assert.True(t, registry.Exists(id))
 
 	// Test Reference Counting

@@ -21,7 +21,7 @@ func GetSharedMemoryPath(handle string) string {
 
 // ReadTableFromHandle reads an Arrow Record from a file handle (e.g., in SHM)
 // and returns a Table wrapping it. This uses mmap for zero-copy reading.
-func ReadTableFromHandle(handle string) (*Table, error) {
+func ReadTableFromHandle(handle string) (Table, error) {
 	f, err := os.Open(handle)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open handle %s: %w", handle, err)
@@ -43,9 +43,6 @@ func ReadTableFromHandle(handle string) (*Table, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to mmap handle %s: %w", handle, err)
 	}
-	// Note: We don't munmap immediately because the Arrow Record might point into this memory.
-	// However, Arrow's ipc.Reader usually copies the data unless we use a specialized allocator.
-	// For now, we'll use a safer approach but keep in mind the zero-copy goal.
 	defer syscall.Munmap(data)
 
 	reader, err := ipc.NewReader(bytes.NewReader(data))
@@ -66,8 +63,8 @@ func ReadTableFromHandle(handle string) (*Table, error) {
 
 // WriteTableToHandle writes an Arrow Record to a file handle (e.g., in SHM)
 // using the Arrow IPC format.
-func WriteTableToHandle(handle string, table *Table) error {
-	if table == nil || table.Record == nil {
+func WriteTableToHandle(handle string, table Table) error {
+	if table == nil || table.Native() == nil {
 		return fmt.Errorf("cannot write nil table or record")
 	}
 
@@ -77,8 +74,8 @@ func WriteTableToHandle(handle string, table *Table) error {
 	}
 	defer f.Close()
 
-	writer := ipc.NewWriter(f, ipc.WithSchema(table.Record.Schema()))
-	if err := writer.Write(table.Record); err != nil {
+	writer := ipc.NewWriter(f, ipc.WithSchema(table.Native().Schema()))
+	if err := writer.Write(table.Native()); err != nil {
 		return fmt.Errorf("failed to write record to %s: %w", handle, err)
 	}
 	if err := writer.Close(); err != nil {
@@ -89,7 +86,7 @@ func WriteTableToHandle(handle string, table *Table) error {
 }
 
 // ReadTableFromFD reads an Arrow Record from a file descriptor using mmap.
-func ReadTableFromFD(fd int) (*Table, error) {
+func ReadTableFromFD(fd int) (Table, error) {
 	// 1. Get file size
 	size, err := syscall.Seek(fd, 0, 2) // io.SeekEnd
 	if err != nil {

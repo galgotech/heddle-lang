@@ -9,10 +9,10 @@ import (
 )
 
 // StepFunc is a strict signature for steps without resources.
-type StepFunc[C any] func(ctx context.Context, config C, input *core.Table) (*core.Table, error)
+type StepFunc[C any] func(ctx context.Context, config C, input core.Table) (core.Table, error)
 
 // ResourceStepFunc is a strict signature for steps with resources.
-type ResourceStepFunc[C any, R any] func(ctx context.Context, config C, resource R, input *core.Table) (*core.Table, error)
+type ResourceStepFunc[C any, R any] func(ctx context.Context, config C, resource R, input core.Table) (core.Table, error)
 
 // ResourceFunc is a strict signature for resource initializers.
 type ResourceFunc[C any, R any] func(ctx context.Context, config C) (R, error)
@@ -124,17 +124,17 @@ func (r *Registry) RegisterStep(name string, fn interface{}, opts ...StepOption)
 		panic(fmt.Sprintf("step %q first argument must implement context.Context", name))
 	}
 
-	tableType := reflect.TypeOf((*core.Table)(nil))
-	if typ.In(expectedArgs-1) != tableType {
-		panic(fmt.Sprintf("step %q last argument must be *core.Table", name))
+	tableType := reflect.TypeOf((*core.Table)(nil)).Elem()
+	if !typ.In(expectedArgs-1).Implements(tableType) {
+		panic(fmt.Sprintf("step %q last argument must implement core.Table", name))
 	}
 
 	if typ.NumOut() != 2 {
 		panic(fmt.Sprintf("step %q function must return exactly 2 values", name))
 	}
 
-	if typ.Out(0) != tableType {
-		panic(fmt.Sprintf("step %q first return value must be *core.Table", name))
+	if !typ.Out(0).Implements(tableType) {
+		panic(fmt.Sprintf("step %q first return value must implement core.Table", name))
 	}
 
 	errType := reflect.TypeOf((*error)(nil)).Elem()

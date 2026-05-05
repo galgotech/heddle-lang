@@ -31,7 +31,7 @@ type DataManager interface {
 	Import(id string) error
 
 	// GetRegistry returns the underlying frame registry for metadata access.
-	GetRegistry() *FrameRegistry
+	GetRegistry() *TableRegistry
 
 	// Cleanup releases all resources associated with the manager.
 	Cleanup()
@@ -43,7 +43,7 @@ type LocalMmapManager struct {
 	basePath    string
 	memoryLimit int64
 	activeBytes int64
-	registry    *FrameRegistry
+	registry    *TableRegistry
 	mu          sync.RWMutex
 }
 
@@ -55,7 +55,7 @@ func NewLocalMmapManager(basePath string, memoryLimit int64) (*LocalMmapManager,
 	return &LocalMmapManager{
 		basePath:    basePath,
 		memoryLimit: memoryLimit,
-		registry:    NewFrameRegistry(),
+		registry:    NewTableRegistry(),
 	}, nil
 }
 
@@ -64,9 +64,9 @@ func (m *LocalMmapManager) Get(id string) (arrow.Record, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	frame := m.registry.Get(id)
-	if frame == nil {
-		return nil, fmt.Errorf("frame not found: %s", id)
+	table, ok := m.registry.Get(id).(*ArrowTable)
+	if !ok || table == nil {
+		return nil, fmt.Errorf("table not found: %s", id)
 	}
 
 	var f *os.File
@@ -74,16 +74,16 @@ func (m *LocalMmapManager) Get(id string) (arrow.Record, error) {
 
 	f = m.registry.GetFile(id)
 	if f == nil {
-		f, err = os.Open(frame.Handle())
+		f, err = os.Open(table.Handle())
 		if err != nil {
-			return nil, fmt.Errorf("failed to open frame storage: %w", err)
+			return nil, fmt.Errorf("failed to open table storage: %w", err)
 		}
 		defer f.Close()
 	}
 
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat frame storage: %w", err)
+		return nil, fmt.Errorf("failed to stat table storage: %w", err)
 	}
 
 	size := fi.Size()
@@ -114,12 +114,6 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Optimized write path: 
-	// We still use ipc.NewWriter but we ensure it writes directly to mmap.
-	// We eliminate the redundant double-serialization by pre-calculating size 
-	// or using a more direct buffer write if Arrow supported it natively here.
-	// For now, we use the counterWriter pass to ensure we allocate exactly the right amount.
-	
 	var cw counterWriter
 	writer := ipc.NewWriter(&cw, ipc.WithSchema(record.Schema()))
 	_ = writer.Write(record)
@@ -149,7 +143,6 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 	}
 	defer syscall.Munmap(data)
 
-	// Direct copy into mmap'ed region
 	mw := &mmapWriter{data: data}
 	writer = ipc.NewWriter(mw, ipc.WithSchema(record.Schema()))
 	if err := writer.Write(record); err != nil {
@@ -164,20 +157,20 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 		loc = LocationDisk
 	}
 
-	var frame *ArrowFrame
+	var table Table
 	if loc == LocationDisk {
-		frame = &ArrowFrame{
+		table = &ArrowTable{
 			record:   record,
 			location: LocationDisk,
 			handle:   f.Name(),
 			metadata: make(map[string]string),
 		}
 	} else {
-		frame = NewSharedFrame(record, f.Name())
+		table = NewSharedTable(record, f.Name())
 		m.activeBytes += size
 	}
 
-	m.registry.Register(id, frame, f)
+	m.registry.Register(id, table, f)
 
 	return nil
 }
@@ -232,14 +225,14 @@ func (m *LocalMmapManager) Import(id string) error {
 	rec := reader.Record()
 	rec.Retain()
 
-	frame := NewSharedFrame(rec, f.Name())
-	m.registry.Register(id, frame, f)
+	table := NewSharedTable(rec, f.Name())
+	m.registry.Register(id, table, f)
 	m.activeBytes += size
 
 	return nil
 }
 
-func (m *LocalMmapManager) GetRegistry() *FrameRegistry {
+func (m *LocalMmapManager) GetRegistry() *TableRegistry {
 	return m.registry
 }
 
@@ -270,21 +263,15 @@ func NewFlightNetworkManager(client flight.Client, localMgr DataManager) *Flight
 }
 
 func (m *FlightNetworkManager) Get(id string) (arrow.Record, error) {
-	// If the data is already in local manager, return it.
 	if m.localMgr != nil {
 		if rec, err := m.localMgr.Get(id); err == nil {
 			return rec, nil
 		}
 	}
-
-	// Otherwise, pull from remote peer via Flight DoGet.
-	// In a real scenario, the ticket/address would be resolved here.
-	// For this abstraction, we assume 'id' contains enough info or we have a registry.
 	return nil, fmt.Errorf("FlightNetworkManager.Get not fully implemented for remote resolution")
 }
 
 func (m *FlightNetworkManager) Put(id string, record arrow.Record) error {
-	// Put locally first so it can be served via Flight.
 	if m.localMgr != nil {
 		return m.localMgr.Put(id, record)
 	}
@@ -298,7 +285,7 @@ func (m *FlightNetworkManager) Import(id string) error {
 	return fmt.Errorf("no local manager configured for FlightNetworkManager")
 }
 
-func (m *FlightNetworkManager) GetRegistry() *FrameRegistry {
+func (m *FlightNetworkManager) GetRegistry() *TableRegistry {
 	if m.localMgr != nil {
 		return m.localMgr.GetRegistry()
 	}
@@ -311,9 +298,6 @@ func (m *FlightNetworkManager) Cleanup() {
 	}
 }
 
-
-// counterWriter is a specialized writer used to pre-calculate the required size
-// of an Arrow IPC stream without performing heap allocations or data copying.
 type counterWriter struct {
 	count int
 }
@@ -323,8 +307,6 @@ func (c *counterWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// mmapWriter enables direct data persistence into a memory-mapped region,
-// facilitating zero-copy transfers from the Go heap to shared storage.
 type mmapWriter struct {
 	data []byte
 	pos  int

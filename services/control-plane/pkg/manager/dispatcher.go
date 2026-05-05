@@ -34,23 +34,31 @@ type Worker struct {
 	LastSeenAt time.Time         // Timestamp of the most recently received heartbeat or registration.
 }
 
-// Registry provides a thread-safe repository for tracking and managing the lifecycle
+// WorkerRegistry provides a thread-safe repository for tracking and managing the lifecycle
 // of all active workers within the cluster.
-type Registry struct {
+type WorkerRegistry interface {
+	Register(id string, address string, udsAddress string, labels map[string]string)
+	GetWorker(id string) (*Worker, error)
+	Heartbeat(id string) error
+	GetHealthyWorker() (*Worker, error)
+}
+
+// DefaultWorkerRegistry provides a thread-safe repository for tracking and managing the lifecycle
+// of all active workers within the cluster.
+type DefaultWorkerRegistry struct {
 	mu      sync.RWMutex
 	workers map[string]*Worker
 }
 
 // NewRegistry initializes an empty worker registry.
-func NewRegistry() *Registry {
-	return &Registry{
+func NewRegistry() WorkerRegistry {
+	return &DefaultWorkerRegistry{
 		workers: make(map[string]*Worker),
 	}
 }
 
 // Register adds or updates a worker's registration in the registry.
-// This is invoked during worker bootstrap or when updating static metadata like labels or addresses.
-func (r *Registry) Register(id string, address string, udsAddress string, labels map[string]string) {
+func (r *DefaultWorkerRegistry) Register(id string, address string, udsAddress string, labels map[string]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.workers[id] = &Worker{
@@ -64,7 +72,7 @@ func (r *Registry) Register(id string, address string, udsAddress string, labels
 }
 
 // GetWorker retrieves a specific worker by its unique identifier.
-func (r *Registry) GetWorker(id string) (*Worker, error) {
+func (r *DefaultWorkerRegistry) GetWorker(id string) (*Worker, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -76,8 +84,7 @@ func (r *Registry) GetWorker(id string) (*Worker, error) {
 }
 
 // Heartbeat refreshes the liveness timestamp and health status for a worker.
-// This maintains the worker's eligibility for task assignment in the dispatcher loop.
-func (r *Registry) Heartbeat(id string) error {
+func (r *DefaultWorkerRegistry) Heartbeat(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -92,8 +99,7 @@ func (r *Registry) Heartbeat(id string) error {
 }
 
 // GetHealthyWorker selects an available worker for task assignment.
-// Currently implements a basic selection strategy with a 30-second liveness TTL.
-func (r *Registry) GetHealthyWorker() (*Worker, error) {
+func (r *DefaultWorkerRegistry) GetHealthyWorker() (*Worker, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -111,7 +117,6 @@ func (r *Registry) GetHealthyWorker() (*Worker, error) {
 }
 
 // ExecutionFunc defines the functional contract for dispatching tasks to workers.
-// It abstracts the underlying transport (e.g., gRPC, Arrow Flight) from the orchestration logic.
 type ExecutionFunc func(ctx context.Context, workerID string, nodeID string) error
 
 // Dispatcher coordinates the concurrent execution of the DAG by bridging the
@@ -129,8 +134,8 @@ type Dispatcher interface {
 // It implements the consumer loop that pulls tasks and delegates them to available workers.
 type DefaultDispatcher struct {
 	queue    *scheduler.WorkQueue
-	registry *Registry
-	sm       *state.StateMachine
+	registry WorkerRegistry
+	sm       state.StateMachine
 	executor ExecutionFunc
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -138,7 +143,7 @@ type DefaultDispatcher struct {
 }
 
 // NewDispatcher initializes a dispatcher with its required orchestration dependencies.
-func NewDispatcher(queue *scheduler.WorkQueue, registry *Registry, sm *state.StateMachine, executor ExecutionFunc) Dispatcher {
+func NewDispatcher(queue *scheduler.WorkQueue, registry WorkerRegistry, sm state.StateMachine, executor ExecutionFunc) Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DefaultDispatcher{
 		queue:    queue,

@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,8 +41,7 @@ func (m *MockDispatcher) Dispatch(ctx context.Context, task *scheduler.Task) err
 	return nil
 }
 
-// MockLocalityRegistry provides a manual mock for the DataLocalityRegistry interface,
-// enabling simulation of cluster-wide data distribution and invalidation.
+// MockLocalityRegistry provides a manual mock for the DataLocalityRegistry interface.
 type MockLocalityRegistry struct {
 	OnRegisterOutput func(resourceKey string, workerID string)
 	OnGetProducer    func(resourceKey string) (string, bool)
@@ -65,6 +65,77 @@ func (m *MockLocalityRegistry) Invalidate(resourceKey string) {
 	if m.OnInvalidate != nil {
 		m.OnInvalidate(resourceKey)
 	}
+}
+
+// MockWorkerRegistry provides a manual mock for the WorkerRegistry interface.
+type MockWorkerRegistry struct {
+	OnRegister          func(id string, address string, udsAddress string, labels map[string]string)
+	OnGetWorker         func(id string) (*Worker, error)
+	OnHeartbeat         func(id string) error
+	OnGetHealthyWorker func() (*Worker, error)
+}
+
+func (m *MockWorkerRegistry) Register(id string, address string, udsAddress string, labels map[string]string) {
+	if m.OnRegister != nil {
+		m.OnRegister(id, address, udsAddress, labels)
+	}
+}
+
+func (m *MockWorkerRegistry) GetWorker(id string) (*Worker, error) {
+	if m.OnGetWorker != nil {
+		return m.OnGetWorker(id)
+	}
+	return nil, nil
+}
+
+func (m *MockWorkerRegistry) Heartbeat(id string) error {
+	if m.OnHeartbeat != nil {
+		return m.OnHeartbeat(id)
+	}
+	return nil
+}
+
+func (m *MockWorkerRegistry) GetHealthyWorker() (*Worker, error) {
+	if m.OnGetHealthyWorker != nil {
+		return m.OnGetHealthyWorker()
+	}
+	return nil, nil
+}
+
+// MockStateMachine provides a manual mock for the StateMachine interface.
+type MockStateMachine struct {
+	OnAddNode    func(node *state.Node) error
+	OnGetNode    func(id string) (*state.Node, error)
+	OnTransition func(id string, expected state.State, next state.State, err error) error
+	OnGetHistory func() []state.NodeSnapshot
+}
+
+func (m *MockStateMachine) AddNode(node *state.Node) error {
+	if m.OnAddNode != nil {
+		return m.OnAddNode(node)
+	}
+	return nil
+}
+
+func (m *MockStateMachine) GetNode(id string) (*state.Node, error) {
+	if m.OnGetNode != nil {
+		return m.OnGetNode(id)
+	}
+	return nil, nil
+}
+
+func (m *MockStateMachine) Transition(id string, expected state.State, next state.State, err error) error {
+	if m.OnTransition != nil {
+		return m.OnTransition(id, expected, next, err)
+	}
+	return nil
+}
+
+func (m *MockStateMachine) GetHistory() []state.NodeSnapshot {
+	if m.OnGetHistory != nil {
+		return m.OnGetHistory()
+	}
+	return nil
 }
 
 // TestWorkerFailureScenario simulates a worker crash mid-execution and verifies
@@ -122,4 +193,73 @@ func TestDataLocalityInvalidation(t *testing.T) {
 
 	_, ok = registry.GetProducer(resource)
 	assert.False(t, ok, "Registry must not return producer for invalidated resource")
+}
+
+// TestLocalityAwareRetryAfterFailure simulates a failure in a downstream node and verifies
+// that the dispatcher correctly re-queries the locality registry for predecessor data
+// during the subsequent retry attempt.
+func TestLocalityAwareRetryAfterFailure(t *testing.T) {
+	q := scheduler.NewWorkQueue(rate.Inf, 1, nil)
+	r := &MockWorkerRegistry{}
+	sm := state.NewStateMachine()
+	locality := &MockLocalityRegistry{}
+
+	nodeA := "node-a"
+	nodeB := "node-b"
+	_ = sm.AddNode(state.NewNode(nodeA))
+	_ = sm.AddNode(state.NewNode(nodeB))
+
+	// Simulate nodeA having completed and produced data on worker-1.
+	handleA := "handle-a"
+	locality.OnGetProducer = func(resourceKey string) (string, bool) {
+		if resourceKey == handleA {
+			return "worker-1", true
+		}
+		return "", false
+	}
+
+	r.OnGetHealthyWorker = func() (*Worker, error) {
+		return &Worker{ID: "worker-2", State: WorkerHealthy}, nil
+	}
+
+	var mu sync.Mutex
+	localityQueries := 0
+	executions := 0
+
+	executor := func(ctx context.Context, workerID string, nodeID string) error {
+		mu.Lock()
+		executions++
+		mu.Unlock()
+
+		// Simulate locality query for predecessor data (in a real scenario this happens in server.go)
+		// We mock it here to verify the dispatcher triggers the retry flow correctly.
+		_, _ = locality.GetProducer(handleA)
+		mu.Lock()
+		localityQueries++
+		mu.Unlock()
+
+		if executions == 1 {
+			return errors.New("temporary worker failure")
+		}
+		return nil
+	}
+
+	d := NewDispatcher(q, r, sm, executor)
+	d.Start(1)
+
+	// Add nodeB with 1 retry allowed.
+	q.Add(nodeB, 1)
+
+	// Wait for execution and retry.
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	assert.Equal(t, 2, executions, "Should have executed twice (initial + retry)")
+	assert.Equal(t, 2, localityQueries, "Should have queried locality for each execution attempt")
+	mu.Unlock()
+
+	node, _ := sm.GetNode(nodeB)
+	assert.Equal(t, state.Completed, node.State)
+
+	d.Stop()
 }

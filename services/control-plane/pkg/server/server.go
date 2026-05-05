@@ -29,9 +29,9 @@ type ControlPlaneServer struct {
 	flight.BaseFlightServer
 
 	mu       sync.RWMutex
-	registry *manager.Registry
+	registry manager.WorkerRegistry
 	queue    *scheduler.WorkQueue
-	sm       *state.StateMachine
+	sm       state.StateMachine
 	// dispatcher coordinates the concurrent execution of the DAG.
 	dispatcher manager.Dispatcher
 	program    *ir.ProgramIR
@@ -50,15 +50,20 @@ type ControlPlaneServer struct {
 }
 
 // NewControlPlaneServer initializes a new instance of the control plane with
-// default registries and state tracking mechanisms.
-func NewControlPlaneServer() *ControlPlaneServer {
+// injected registries and state tracking mechanisms.
+func NewControlPlaneServer(
+	registry manager.WorkerRegistry,
+	queue *scheduler.WorkQueue,
+	sm state.StateMachine,
+	locality manager.DataLocalityRegistry,
+) *ControlPlaneServer {
 	s := &ControlPlaneServer{
-		registry:      manager.NewRegistry(),
-		queue:         scheduler.NewWorkQueue(rate.Limit(100), 10, nil),
-		sm:            state.NewStateMachine(),
+		registry:      registry,
+		queue:         queue,
+		sm:            sm,
 		workerStreams: make(map[string]chan *execution.Task),
 		taskResults:   make(map[string]chan error),
-		locality:      manager.NewDataLocalityRegistry(),
+		locality:      locality,
 		outputs:       make(map[string]string),
 	}
 	return s
@@ -146,9 +151,12 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		// Initialize dispatcher if not already active.
 		if s.dispatcher == nil {
 			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.sm, s.executor)
-			s.dispatcher.Start(5)
+			d := s.dispatcher
+			s.mu.Unlock()
+			d.Start(5)
+		} else {
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 
 		logger.L().Info("Workflow initialized", zap.Int("workflows", len(program.Workflows)))
 		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
@@ -368,7 +376,13 @@ func StartServer(port int) {
 		grpc.UnaryInterceptor(UnaryWorkerInterceptor),
 		grpc.StreamInterceptor(StreamWorkerInterceptor),
 	)
-	cpServer := NewControlPlaneServer()
+
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Limit(100), 10, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+
+	cpServer := NewControlPlaneServer(registry, queue, sm, locality)
 	flight.RegisterFlightServiceServer(server, cpServer)
 
 	logger.L().Info("Control Plane Flight Server listening", zap.String("address", addr))

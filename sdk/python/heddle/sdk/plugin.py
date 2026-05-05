@@ -8,7 +8,7 @@ from concurrent import futures
 import grpc
 
 from heddle.proto import worker_pb2, worker_pb2_grpc
-from heddle.core.table import Table
+from heddle.core.table import Table, HeddleTable
 from heddle.core.locality import resolve_ticket
 
 class HeddleBusinessException(Exception):
@@ -31,12 +31,16 @@ class PluginRegistry:
         def decorator(func: Callable):
             # Semantic enforcement: Inputs and Outputs MUST be Table
             annotations = func.__annotations__
-            if 'input' in annotations and annotations['input'] != Table and annotations['input'] != type(None):
-                 raise TypeError(f"Step '{name}' input must be heddle.core.Table, got {annotations['input']}")
+            if 'input' in annotations:
+                 input_type = annotations['input']
+                 if input_type != type(None) and not (isinstance(input_type, type) and issubclass(input_type, HeddleTable)):
+                      raise TypeError(f"Step '{name}' input must be heddle.core.HeddleTable, got {input_type}")
             
             # Note: Python's return type annotation is 'return'
-            if 'return' in annotations and annotations['return'] != Table and annotations['return'] != type(None):
-                 raise TypeError(f"Step '{name}' return type must be heddle.core.Table, got {annotations['return']}")
+            if 'return' in annotations:
+                 return_type = annotations['return']
+                 if return_type != type(None) and not (isinstance(return_type, type) and issubclass(return_type, HeddleTable)):
+                      raise TypeError(f"Step '{name}' return type must be heddle.core.HeddleTable, got {return_type}")
 
             self.steps[name] = {
                 "func": func,

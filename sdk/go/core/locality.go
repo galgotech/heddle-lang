@@ -17,7 +17,7 @@ import (
 
 // ResolveTicket implements the Dual-Path logic to fetch data either via
 // local shared memory (LOCAL) or over the network (REMOTE).
-func ResolveTicket(ctx context.Context, ticket *proto.FlightTicket) (*Table, error) {
+func ResolveTicket(ctx context.Context, ticket *proto.FlightTicket) (Table, error) {
 	switch ticket.RouteType {
 	case proto.RouteType_LOCAL:
 		return resolveLocal(ticket)
@@ -28,7 +28,7 @@ func ResolveTicket(ctx context.Context, ticket *proto.FlightTicket) (*Table, err
 	}
 }
 
-func resolveLocal(ticket *proto.FlightTicket) (*Table, error) {
+func resolveLocal(ticket *proto.FlightTicket) (Table, error) {
 	addr := strings.TrimPrefix(ticket.Address, "unix://")
 
 	conn, err := net.Dial("unix", addr)
@@ -132,7 +132,7 @@ func (d dummyReader) Read(p []byte) (n int, err error) {
 	return copy(p, d), nil
 }
 
-func resolveRemote(ctx context.Context, ticket *proto.FlightTicket) (*Table, error) {
+func resolveRemote(ctx context.Context, ticket *proto.FlightTicket) (Table, error) {
 	addr := strings.TrimPrefix(ticket.Address, "grpc://")
 
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))

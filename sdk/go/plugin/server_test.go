@@ -54,7 +54,7 @@ type StepConfigRoute struct {
 }
 
 // Normal step with resource
-func mockRoute(ctx context.Context, config StepConfigRoute, res *HttpResource, input *core.Table) (*core.Table, error) {
+func mockRoute(ctx context.Context, config StepConfigRoute, res *HttpResource, input core.Table) (core.Table, error) {
 	if !res.Started {
 		return nil, core.NewBusinessError("resource not started")
 	}
@@ -66,7 +66,7 @@ func mockRoute(ctx context.Context, config StepConfigRoute, res *HttpResource, i
 }
 
 // Step without resource
-func mockStateless(ctx context.Context, config StepConfigRoute, input *core.Table) (*core.Table, error) {
+func mockStateless(ctx context.Context, config StepConfigRoute, input core.Table) (core.Table, error) {
 	schema := arrow.NewSchema([]arrow.Field{{Name: "res", Type: arrow.PrimitiveTypes.Int32}}, nil)
 	rb := array.NewRecordBuilder(memory.DefaultAllocator, schema)
 	defer rb.Release()
@@ -75,19 +75,19 @@ func mockStateless(ctx context.Context, config StepConfigRoute, input *core.Tabl
 }
 
 // Step that panics
-func mockPanicStep(ctx context.Context, config StepConfigRoute, input *core.Table) (*core.Table, error) {
+func mockPanicStep(ctx context.Context, config StepConfigRoute, input core.Table) (core.Table, error) {
 	panic("unexpected failure")
 }
 
 // Step that returns business error
-func mockBusinessErrStep(ctx context.Context, config StepConfigRoute, input *core.Table) (*core.Table, error) {
+func mockBusinessErrStep(ctx context.Context, config StepConfigRoute, input core.Table) (core.Table, error) {
 	return nil, core.NewBusinessError("validation failed")
 }
 
 // -- Test Helpers --
 
 func setupTestServer(t *testing.T) (flight.Client, func()) {
-	p := plugin.New()
+	p := plugin.New("test")
 
 	p.RegisterResource("http_server", mockServer)
 	p.RegisterStep("http_route", mockRoute, plugin.WithResource("http_server"))

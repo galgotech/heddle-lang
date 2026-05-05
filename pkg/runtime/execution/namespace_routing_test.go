@@ -31,7 +31,7 @@ func TestWorker_NamespaceRouting(t *testing.T) {
 
 	setupMock := func(addr string, ns string) {
 		p := plugin.New(ns)
-		p.RegisterStep("func", func(ctx context.Context, config struct{}, input *core.Table) (*core.Table, error) {
+		p.RegisterStep("func", func(ctx context.Context, config struct{}, input core.Table) (core.Table, error) {
 			return input, nil
 		})
 

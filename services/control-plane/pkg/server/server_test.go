@@ -7,7 +7,11 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"golang.org/x/time/rate"
+
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/manager"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
@@ -33,7 +37,11 @@ func (m *mockDoActionServer) SendHeader(metadata.MD) error { return nil }
 func (m *mockDoActionServer) SetTrailer(metadata.MD)       {}
 
 func TestControlPlaneServer_DoAction_RegisterWorker(t *testing.T) {
-	server := NewControlPlaneServer()
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Inf, 1, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+	server := NewControlPlaneServer(registry, queue, sm, locality)
 	mockStream := &mockDoActionServer{}
 
 	reg := execution.WorkerRegistration{
@@ -59,7 +67,11 @@ func TestControlPlaneServer_DoAction_RegisterWorker(t *testing.T) {
 }
 
 func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
-	server := NewControlPlaneServer()
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Inf, 1, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+	server := NewControlPlaneServer(registry, queue, sm, locality)
 	mockStream := &mockDoActionServer{}
 
 	// Register first
@@ -89,7 +101,11 @@ func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
 }
 
 func TestControlPlaneServer_DoAction_SubmitWorkflow(t *testing.T) {
-	server := NewControlPlaneServer()
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Inf, 1, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+	server := NewControlPlaneServer(registry, queue, sm, locality)
 	mockStream := &mockDoActionServer{}
 
 	source := `
@@ -114,7 +130,11 @@ workflow main {
 }
 
 func TestControlPlaneServer_DoAction_GetHistory(t *testing.T) {
-	server := NewControlPlaneServer()
+	registry := manager.NewRegistry()
+	queue := scheduler.NewWorkQueue(rate.Inf, 1, nil)
+	sm := state.NewStateMachine()
+	locality := manager.NewDataLocalityRegistry()
+	server := NewControlPlaneServer(registry, queue, sm, locality)
 	mockStream := &mockDoActionServer{}
 
 	// Add a node to state machine

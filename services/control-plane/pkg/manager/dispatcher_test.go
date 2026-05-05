@@ -45,9 +45,10 @@ func TestRegistry_StaleWorkerOffline(t *testing.T) {
 
 	// Register a worker but manually set its LastSeenAt to far in the past
 	r.Register("worker-1", "localhost:0", "", map[string]string{"lang": "python"})
-	r.mu.Lock()
-	r.workers["worker-1"].LastSeenAt = time.Now().Add(-40 * time.Second)
-	r.mu.Unlock()
+	dr := r.(*DefaultWorkerRegistry)
+	dr.mu.Lock()
+	dr.workers["worker-1"].LastSeenAt = time.Now().Add(-40 * time.Second)
+	dr.mu.Unlock()
 
 	_, err := r.GetHealthyWorker()
 	assert.Error(t, err)

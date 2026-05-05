@@ -170,7 +170,6 @@ func (v *Validator) validatePipelineTypes(ps ast.PipelineStatementNode) error {
 		callRef := v.ctx.CallRefs[i]
 		call := v.ctx.CallNodes[callRef]
 		name := v.ctx.GetString(call.NameRef)
-
 		stepRef, ok := v.mapStep[name]
 		if !ok {
 			return fmt.Errorf("undefined step: %s", name)
@@ -204,14 +203,65 @@ func (v *Validator) typesCompatible(expected, actual ast.NodeRef) bool {
 	sr1 := v.ctx.SchemaRefNodes[expected]
 	sr2 := v.ctx.SchemaRefNodes[actual]
 
-	if v.ctx.GetString(sr1.NameRef) != v.ctx.GetString(sr2.NameRef) {
-		return false
+	// Try name-based match first (fast path)
+	if v.ctx.GetString(sr1.NameRef) == v.ctx.GetString(sr2.NameRef) &&
+		v.ctx.GetString(sr1.ModuleRef) == v.ctx.GetString(sr2.ModuleRef) {
+		return true
 	}
-	if v.ctx.GetString(sr1.ModuleRef) != v.ctx.GetString(sr2.ModuleRef) {
+
+	// Fallback to structural matching
+	return v.checkStructuralMatch(expected, actual)
+}
+
+func (v *Validator) checkStructuralMatch(expected, actual ast.NodeRef) bool {
+	// 1. Resolve SchemaNodes
+	s1 := v.resolveSchema(expected)
+	s2 := v.resolveSchema(actual)
+
+	if s1 == nil || s2 == nil {
+		// If we can't find the definition, we can't do structural matching.
+		// For now, assume incompatible unless name matched.
 		return false
 	}
 
+	b1 := v.ctx.SchemaBlockNodes[s1.BlockRef]
+	b2 := v.ctx.SchemaBlockNodes[s2.BlockRef]
+
+	fields1 := v.ctx.FieldRefs[b1.FieldRefsStart:b1.FieldRefsEnd]
+	fields2 := v.ctx.FieldRefs[b2.FieldRefsStart:b2.FieldRefsEnd]
+
+	if len(fields1) != len(fields2) {
+		return false
+	}
+
+	for i := range fields1 {
+		f1 := v.ctx.SchemaFieldNodes[fields1[i]]
+		f2 := v.ctx.SchemaFieldNodes[fields2[i]]
+
+		if v.ctx.GetString(f1.NameRef) != v.ctx.GetString(f2.NameRef) {
+			return false
+		}
+		if v.ctx.GetString(f1.TypeRef) != v.ctx.GetString(f2.TypeRef) {
+			return false
+		}
+		// Recursive check for nested blocks could go here
+	}
+
 	return true
+}
+
+func (v *Validator) resolveSchema(ref ast.NodeRef) *ast.SchemaNode {
+	sr := v.ctx.SchemaRefNodes[ref]
+	name := v.ctx.GetString(sr.NameRef)
+	// Simplified: look in local schemas
+	for i := v.program.SchemaRefsStart; i < v.program.SchemaRefsEnd; i++ {
+		sRef := v.ctx.SchemaRefs[i]
+		sn := v.ctx.SchemaNodes[sRef]
+		if v.ctx.GetString(sn.NameRef) == name {
+			return &sn
+		}
+	}
+	return nil
 }
 
 func (v *Validator) TypeName(ref ast.NodeRef) string {
@@ -238,4 +288,25 @@ func (v *Validator) Lookup(name string) ast.NodeRef {
 		return handler
 	}
 	return 0
+}
+
+// GetTypeDetails returns the fields of a schema for LSP/introspection.
+func (v *Validator) GetTypeDetails(ref ast.NodeRef) map[string]string {
+	if ref == 0 {
+		return nil
+	}
+
+	sn := v.resolveSchema(ref)
+	if sn == nil {
+		return nil
+	}
+
+	details := make(map[string]string)
+	block := v.ctx.SchemaBlockNodes[sn.BlockRef]
+	for i := block.FieldRefsStart; i < block.FieldRefsEnd; i++ {
+		fieldRef := v.ctx.FieldRefs[i]
+		field := v.ctx.SchemaFieldNodes[fieldRef]
+		details[v.ctx.GetString(field.NameRef)] = v.ctx.GetString(field.TypeRef)
+	}
+	return details
 }

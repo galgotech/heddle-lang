@@ -16,7 +16,7 @@ schema S1 {
     f: int
 }
 schema S2 {
-    f: int
+    g: string
 }
 
 step stepA: S1 -> S2 = m.a
@@ -55,6 +55,36 @@ step stepC: S2 -> S2 = m.c
 
 workflow main {
     stepA | stepC
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx)
+	err := v.Validate()
+	
+	assert.NoError(t, err)
+}
+
+func TestValidator_StructuralMatch(t *testing.T) {
+	input := `
+schema S1 {
+    f: int
+}
+schema S2 {
+    f: int
+}
+
+step stepA: S1 -> S1 = m.a
+step stepB: S2 -> void = m.b
+
+workflow main {
+    stepA | stepB
 }
 `
 	ctx := ast.AcquireASTContext()
