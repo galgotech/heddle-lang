@@ -33,7 +33,7 @@ class PluginRegistry:
             annotations = func.__annotations__
             if 'input' in annotations:
                  input_type = annotations['input']
-                 if input_type != type(None) and not (isinstance(input_type, type) and issubclass(input_type, HeddleTable)):
+                 if input_type is not None and input_type is not type(None) and not (isinstance(input_type, type) and issubclass(input_type, HeddleTable)):
                       raise TypeError(f"Step '{name}' input must be heddle.core.HeddleTable, got {input_type}")
             
             # Note: Python's return type annotation is 'return'

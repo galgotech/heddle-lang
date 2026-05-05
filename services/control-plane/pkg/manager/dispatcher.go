@@ -193,8 +193,6 @@ func (d *DefaultDispatcher) Dispatch(ctx context.Context, task *scheduler.Task) 
 // workerLoop executes the primary task orchestration lifecycle: pull, locate worker, and execute.
 // It ensures fault tolerance by leveraging the workqueue's retry and backoff mechanisms.
 func (d *DefaultDispatcher) workerLoop() {
-	defer d.wg.Done()
-
 	for {
 		// Block until a task is available or the system is shutting down.
 		task, shuttingDown := d.queue.Get()

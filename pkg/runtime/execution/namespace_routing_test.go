@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,10 +27,9 @@ func TestWorker_NamespaceRouting(t *testing.T) {
 	defer cancel()
 
 	// 1. Start two Real Plugin Servers with different namespaces
-	ns1Addr := "/tmp/heddle-plugin-ns1.sock"
-	ns2Addr := "/tmp/heddle-plugin-ns2.sock"
-	_ = os.Remove(ns1Addr)
-	_ = os.Remove(ns2Addr)
+	tmpDir := t.TempDir()
+	ns1Addr := filepath.Join(tmpDir, "ns1.sock")
+	ns2Addr := filepath.Join(tmpDir, "ns2.sock")
 
 	setupMock := func(addr string, ns string) {
 		p := plugin.New(ns)
@@ -49,7 +49,7 @@ func TestWorker_NamespaceRouting(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// 2. Setup Worker
-	shmPath := "/dev/shm/heddle-ns-test"
+	shmPath := t.TempDir()
 	os.Setenv("HEDDLE_SHM_PATH", shmPath)
 	defer os.Unsetenv("HEDDLE_SHM_PATH")
 

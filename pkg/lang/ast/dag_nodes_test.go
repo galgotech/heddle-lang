@@ -55,3 +55,31 @@ func TestFFICallNode(t *testing.T) {
 		t.Errorf("expected wipe")
 	}
 }
+
+func BenchmarkASTNodePool(b *testing.B) {
+	// Pre-warm the pools to avoid initial allocation counting
+	n1 := AcquireASTNode(TypeLogicalStep)
+	n2 := AcquireASTNode(TypeJoin)
+	n3 := AcquireASTNode(TypeFFICall)
+	ReleaseASTNode(n1)
+	ReleaseASTNode(n2)
+	ReleaseASTNode(n3)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		// Acquire a node
+		node := AcquireASTNode(TypeLogicalStep)
+		
+		// Simulate setting some references
+		if ls, ok := node.(*LogicalStepNode); ok {
+			ls.NameRef = StringRef{Start: 0, End: 10}
+			ls.InputRef = 1
+			ls.NextRef = 2
+		}
+		
+		// Release the node back to the pool
+		ReleaseASTNode(node)
+	}
+}

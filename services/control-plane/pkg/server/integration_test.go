@@ -51,7 +51,7 @@ func TestEndToEndDataFlow(t *testing.T) {
 	// 2. Start Worker
 	workerConn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	workerTrans := transport.NewFlightTransport(workerConn)
-	workerAlloc := data.NewOSMemoryAllocator("/dev/shm/heddle-int-test")
+	workerAlloc := data.NewOSMemoryAllocator(t.TempDir())
 	workerDataMgr := data.NewLocalMmapManager(workerAlloc, 1<<30)
 	worker := execution.NewWorker("worker-1", workerTrans, workerDataMgr)
 

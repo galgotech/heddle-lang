@@ -55,7 +55,7 @@ func TestRelationalEngineIntegration(t *testing.T) {
 	// 2. Start Go Worker (for data generation)
 	goConn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	goTrans := transport.NewFlightTransport(goConn)
-	goAlloc := data.NewOSMemoryAllocator("/dev/shm/heddle-rel-test")
+	goAlloc := data.NewOSMemoryAllocator(t.TempDir())
 	goDataMgr := data.NewLocalMmapManager(goAlloc, 1<<30)
 	goWorker := execution.NewWorker("go-worker", goTrans, goDataMgr)
 

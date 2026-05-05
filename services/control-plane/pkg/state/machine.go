@@ -88,22 +88,34 @@ func NewHeddleContext(parent context.Context, creds Credentials, lineage Lineage
 
 // Node represents a node in the DAG.
 type Node struct {
-	ID        string
-	State     State
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Error     error
+	id        string
+	state     State
+	createdAt time.Time
+	updatedAt time.Time
+	err       error
 	mu        sync.RWMutex
+}
+
+func (n *Node) GetState() State {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.state
+}
+
+func (n *Node) GetError() error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.err
 }
 
 // NewNode creates a new DAG node.
 func NewNode(id string) *Node {
 	now := time.Now()
 	return &Node{
-		ID:        id,
-		State:     Pending,
-		CreatedAt: now,
-		UpdatedAt: now,
+		id:        id,
+		state:     Pending,
+		createdAt: now,
+		updatedAt: now,
 	}
 }
 
@@ -133,10 +145,10 @@ func (sm *DefaultStateMachine) AddNode(node *Node) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if _, exists := sm.nodes[node.ID]; exists {
+	if _, exists := sm.nodes[node.id]; exists {
 		return errors.New("node already exists")
 	}
-	sm.nodes[node.ID] = node
+	sm.nodes[node.id] = node
 	return nil
 }
 
@@ -167,14 +179,14 @@ func (sm *DefaultStateMachine) Transition(id string, expected State, next State,
 	node.mu.Lock()
 	defer node.mu.Unlock()
 
-	if node.State != expected {
+	if node.state != expected {
 		return ErrInvalidTransition
 	}
 
-	node.State = next
-	node.UpdatedAt = time.Now()
+	node.state = next
+	node.updatedAt = time.Now()
 	if err != nil && next == Failed {
-		node.Error = err
+		node.err = err
 	}
 
 	return nil
@@ -189,13 +201,13 @@ func (sm *DefaultStateMachine) GetHistory() []NodeSnapshot {
 	for _, node := range sm.nodes {
 		node.mu.RLock()
 		snapshot := NodeSnapshot{
-			ID:        node.ID,
-			State:     node.State.String(),
-			CreatedAt: node.CreatedAt,
-			UpdatedAt: node.UpdatedAt,
+			ID:        node.id,
+			State:     node.state.String(),
+			CreatedAt: node.createdAt,
+			UpdatedAt: node.updatedAt,
 		}
-		if node.Error != nil {
-			snapshot.Error = node.Error.Error()
+		if node.err != nil {
+			snapshot.Error = node.err.Error()
 		}
 		node.mu.RUnlock()
 		history = append(history, snapshot)

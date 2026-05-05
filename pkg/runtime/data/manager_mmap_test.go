@@ -1,7 +1,6 @@
 package data
 
 import (
-	"os"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -12,10 +11,7 @@ import (
 )
 
 func TestDataManager_PutMmap(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "heddle-mmap-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
+	tmpDir := t.TempDir()
 	alloc := NewOSMemoryAllocator(tmpDir)
 	mgr := NewLocalMmapManager(alloc, 0)
 	defer mgr.Cleanup()
@@ -39,7 +35,7 @@ func TestDataManager_PutMmap(t *testing.T) {
 
 	// 2. Put into manager
 	id := "mmap-test-1"
-	err = mgr.Put(id, rec)
+	err := mgr.Put(id, rec)
 	require.NoError(t, err)
 
 	// 3. Get file and verify size

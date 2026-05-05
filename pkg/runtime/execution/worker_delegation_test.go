@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -71,7 +72,7 @@ func TestWorker_Delegation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 2. Setup Worker
-	shmPath := "/dev/shm/heddle-test"
+	shmPath := t.TempDir()
 	os.Setenv("HEDDLE_SHM_PATH", shmPath)
 	defer os.Unsetenv("HEDDLE_SHM_PATH")
 

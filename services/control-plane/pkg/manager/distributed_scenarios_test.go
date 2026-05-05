@@ -156,7 +156,7 @@ func TestWorkerFailureScenario(t *testing.T) {
 		return failureErr
 	}
 
-	d := NewDispatcher(q, r, sm, executor)
+	d := NewDispatcher(q, r, sm, executor, NewGoroutinePool())
 	d.Start(1)
 
 	// Add task with 0 retries to trigger immediate terminal failure.
@@ -168,8 +168,8 @@ func TestWorkerFailureScenario(t *testing.T) {
 	// Assert: The DAG state machine must reflect the terminal failure.
 	node, err := sm.GetNode(nodeID)
 	assert.NoError(t, err)
-	assert.Equal(t, state.Failed, node.State)
-	assert.Equal(t, failureErr, node.Error)
+	assert.Equal(t, state.Failed, node.GetState())
+	assert.Equal(t, failureErr, node.GetError())
 
 	d.Stop()
 }
@@ -244,7 +244,7 @@ func TestLocalityAwareRetryAfterFailure(t *testing.T) {
 		return nil
 	}
 
-	d := NewDispatcher(q, r, sm, executor)
+	d := NewDispatcher(q, r, sm, executor, NewGoroutinePool())
 	d.Start(1)
 
 	// Add nodeB with 1 retry allowed.
@@ -259,7 +259,7 @@ func TestLocalityAwareRetryAfterFailure(t *testing.T) {
 	mu.Unlock()
 
 	node, _ := sm.GetNode(nodeB)
-	assert.Equal(t, state.Completed, node.State)
+	assert.Equal(t, state.Completed, node.GetState())
 
 	d.Stop()
 }
