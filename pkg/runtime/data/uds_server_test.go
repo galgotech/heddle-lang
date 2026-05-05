@@ -1,6 +1,7 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +27,6 @@ func TestUDSServer_FDPassing(t *testing.T) {
 	manager := NewLocalMmapManager(alloc, 0)
 	defer manager.Cleanup()
 
-
 	// 1. Prepare data in DataManager
 	mem := memory.NewGoAllocator()
 	schema := arrow.NewSchema([]arrow.Field{{Name: "f1", Type: arrow.PrimitiveTypes.Int32}}, nil)
@@ -35,7 +36,6 @@ func TestUDSServer_FDPassing(t *testing.T) {
 	id := "res-1"
 	err := manager.Put(id, rec)
 	require.NoError(t, err)
-
 
 	// 2. Start UDS Server
 	server := NewUDSServer(socketPath, manager)
@@ -88,23 +88,13 @@ func TestUDSServer_FDPassing(t *testing.T) {
 	require.NoError(t, err)
 	defer unix.Munmap(mmap)
 
-	// Since we now use raw zero-copy, we reconstruct the record manually from buffers
-	// In a real plugin, the SDK would handle this.
-	// For Int32, we have 2 buffers (validity, values).
-	// But our computeDataSize/writeBuffers logic might have written them.
-	// Let's use a simplified version for this test:
-	// We know the schema and we know the data is at the beginning of the mmap.
-	
-	// Reconstruct buffers
-	// Since we use 64-byte alignment, Buffer 0 (validity) is at 0, and Buffer 1 (values) is at 64.
-	// We need to check if Buffer 0 exists.
-	// In this test, it should be there because we appended values.
-	valBuf := memory.NewBufferBytes(mmap[64 : 64+12]) // 3 * 4 bytes for Int32
-	
-	dataNode := array.NewData(arrow.PrimitiveTypes.Int32, 3, []*memory.Buffer{nil, valBuf}, nil, 0, 0)
-	defer dataNode.Release()
-	gotRec := array.NewRecord(schema, []arrow.Array{array.MakeFromData(dataNode)}, 3)
-	defer gotRec.Release()
+	// 4. Create Arrow reader from mapped memory and verify data
+	reader, err := ipc.NewReader(bytes.NewReader(mmap))
+	require.NoError(t, err)
+	defer reader.Release()
+
+	require.True(t, reader.Next(), "Should have at least one record")
+	gotRec := reader.Record()
 
 	assert.Equal(t, int64(3), gotRec.NumRows())
 	assert.Equal(t, int32(1), gotRec.Column(0).(*array.Int32).Value(0))

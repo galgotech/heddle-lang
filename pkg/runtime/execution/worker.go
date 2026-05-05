@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -246,7 +247,11 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 	// 1. Resolve an active UDS connection to the target plugin namespace host.
 	plugin, ok := w.pm.GetPlugin(namespace)
 	if !ok {
-		addr := fmt.Sprintf("unix:///tmp/heddle-plugin-%s.sock", namespace)
+		baseDir := os.Getenv("HEDDLE_PLUGIN_SOCKET_DIR")
+		if baseDir == "" {
+			baseDir = "/tmp"
+		}
+		addr := fmt.Sprintf("unix://%s/heddle-plugin-%s.sock", baseDir, namespace)
 		var err error
 		plugin, err = w.pm.ConnectPlugin(ctx, namespace, addr)
 		if err != nil {

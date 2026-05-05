@@ -87,8 +87,8 @@ func (c *ControlPlaneClient) GetHistory(ctx context.Context) ([]execution.TaskUp
 	return history, nil
 }
 
-// GetTablePreview fetches a JSON representation of the first few rows of a Table.
-func (c *ControlPlaneClient) GetTablePreview(ctx context.Context, handle string) (string, error) {
+// GetHeddleFramePreview fetches a JSON representation of the first few rows of a Table (HeddleFrame).
+func (c *ControlPlaneClient) GetHeddleFramePreview(ctx context.Context, handle string) (string, error) {
 	// In a real implementation, this would connect to the DataManager
 	// where the handle is located. For now, we simulate or use a default DM.
 

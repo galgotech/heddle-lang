@@ -6,10 +6,8 @@ import (
 	"sync"
 
 	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/apache/arrow/go/v18/arrow/ipc"
-	"github.com/apache/arrow/go/v18/arrow/memory"
 )
 
 // DataManager defines the interface for high-performance memory management
@@ -83,25 +81,20 @@ func (m *LocalMmapManager) Get(id string) (arrow.Record, error) {
 		return nil, fmt.Errorf("table has no record")
 	}
 
-	// If the record is already backed by the correct mmap region (e.g. via Import with IPC),
-	// or if we want to bypass reconstruction for legacy reasons.
-	if table.Metadata()["format"] == "ipc" {
-		origRec.Retain()
-		return origRec, nil
+	// Reconstruct the record from the mmap region using IPC reader.
+	// This ensures that the returned record's buffers point directly to the mmap region.
+	reader, err := ipc.NewReader(bytes.NewReader(mmapData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ipc reader from mmap: %w", err)
+	}
+	defer reader.Release()
+
+	if !reader.Next() {
+		return nil, fmt.Errorf("no record found in mmap for %s", id)
 	}
 
-	cols := make([]arrow.Array, origRec.NumCols())
-	var offset int
-	visited := make(map[*array.Data]arrow.ArrayData)
-
-	for i := 0; i < int(origRec.NumCols()); i++ {
-		origCol := origRec.Column(i)
-		newData := cloneDataWithMmap(origCol.Data(), mmapData, &offset, visited, 0)
-		cols[i] = array.MakeFromData(newData)
-		newData.Release()
-	}
-
-	rec := array.NewRecord(origRec.Schema(), cols, origRec.NumRows())
+	rec := reader.Record()
+	rec.Retain()
 	return rec, nil
 }
 
@@ -120,11 +113,13 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 	}
 
 	mmapData := region.Data()
-	if int64(len(mmapData)) < size {
-		return fmt.Errorf("allocated region too small: %d < %d", len(mmapData), size)
+	writer := ipc.NewWriter(&mmapWriter{data: mmapData}, ipc.WithSchema(record.Schema()))
+	if err := writer.Write(record); err != nil {
+		return fmt.Errorf("failed to write record to mmap: %w", err)
 	}
-	var offset int
-	writeRecordBuffers(record, mmapData, &offset)
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to close mmap writer: %w", err)
+	}
 
 	// Determine storage location based on memory limits.
 	var loc StorageLocation = LocationShared
@@ -144,6 +139,7 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 		table = NewSharedTable(record, region.File().Name())
 		m.activeBytes += size
 	}
+	table.Metadata()["format"] = "ipc"
 
 	m.registry.Register(id, table, region.File())
 
@@ -206,136 +202,12 @@ func (m *LocalMmapManager) Cleanup() {
 }
 
 func computeRecordSize(record arrow.Record) int64 {
-	var size int64
-	visited := make(map[*array.Data]bool)
-	for i := 0; i < int(record.NumCols()); i++ {
-		size += computeDataSize(record.Column(i).Data(), visited, 0)
-	}
-	return size
+	var cw counterWriter
+	writer := ipc.NewWriter(&cw, ipc.WithSchema(record.Schema()))
+	_ = writer.Write(record)
+	_ = writer.Close()
+	return int64(cw.count)
 }
-
-func computeDataSize(data arrow.ArrayData, visited map[*array.Data]bool, depth int) int64 {
-	if data == nil {
-		return 0
-	}
-	d, ok := data.(*array.Data)
-	if !ok {
-		return 0
-	}
-	if visited[d] {
-		return 0
-	}
-	visited[d] = true
-	var size int64
-	for _, buf := range d.Buffers() {
-		if buf != nil {
-			length := buf.Len()
-			size += int64(length)
-			// Align to 64 bytes
-			if padding := length % 64; padding != 0 {
-				size += int64(64 - padding)
-			}
-		}
-	}
-	if d.DataType().ID() == arrow.DICTIONARY {
-		if dict := d.Dictionary(); dict != nil {
-			size += computeDataSize(dict, visited, depth+1)
-		}
-	} else {
-		for _, child := range d.Children() {
-			size += computeDataSize(child, visited, depth+1)
-		}
-	}
-	return size
-}
-
-func writeRecordBuffers(record arrow.Record, mmapData []byte, offset *int) {
-	visited := make(map[*array.Data]bool)
-	for i := 0; i < int(record.NumCols()); i++ {
-		writeBuffers(record.Column(i).Data(), mmapData, offset, visited, 0)
-	}
-}
-
-func writeBuffers(data arrow.ArrayData, mmapData []byte, offset *int, visited map[*array.Data]bool, depth int) {
-	if data == nil {
-		return
-	}
-	d, ok := data.(*array.Data)
-	if !ok {
-		return
-	}
-	if visited[d] {
-		return
-	}
-	visited[d] = true
-	for _, buf := range d.Buffers() {
-		if buf != nil {
-			length := buf.Len()
-			copy(mmapData[*offset:], buf.Bytes())
-			*offset += length
-			// Align to 64 bytes
-			if padding := length % 64; padding != 0 {
-				*offset += (64 - padding)
-			}
-		}
-	}
-	if d.DataType().ID() == arrow.DICTIONARY {
-		if dict := d.Dictionary(); dict != nil {
-			writeBuffers(dict, mmapData, offset, visited, depth+1)
-		}
-	} else {
-		for _, child := range d.Children() {
-			writeBuffers(child, mmapData, offset, visited, depth+1)
-		}
-	}
-}
-
-func cloneDataWithMmap(orig arrow.ArrayData, mmapData []byte, offset *int, visited map[*array.Data]arrow.ArrayData, depth int) arrow.ArrayData {
-	if orig == nil {
-		return nil
-	}
-	d, ok := orig.(*array.Data)
-	if !ok {
-		return nil
-	}
-	if res, ok := visited[d]; ok {
-		return res
-	}
-
-	origBufs := d.Buffers()
-	newBufs := make([]*memory.Buffer, len(origBufs))
-	for i, buf := range origBufs {
-		if buf != nil {
-			length := buf.Len()
-			newBufs[i] = memory.NewBufferBytes(mmapData[*offset : *offset+length])
-			*offset += length
-			// Align to 64 bytes
-			if padding := length % 64; padding != 0 {
-				*offset += (64 - padding)
-			}
-		}
-	}
-
-	var res arrow.ArrayData
-	if d.DataType().ID() == arrow.DICTIONARY {
-		dict := d.Dictionary()
-		clonedDict := cloneDataWithMmap(dict, mmapData, offset, visited, depth+1)
-		res = array.NewDataWithDictionary(
-			d.DataType(), d.Len(), newBufs, d.NullN(), d.Offset(), clonedDict.(*array.Data))
-	} else {
-		origChildren := d.Children()
-		newChildren := make([]arrow.ArrayData, len(origChildren))
-		for i, child := range origChildren {
-			newChildren[i] = cloneDataWithMmap(child, mmapData, offset, visited, depth+1)
-		}
-		res = array.NewData(
-			d.DataType(), d.Len(), newBufs, newChildren, d.NullN(), d.Offset())
-	}
-	visited[d] = res
-	return res
-}
-
-
 
 // FlightNetworkManager implements DataManager using Arrow Flight RPC.
 // it facilitates P2P data transfers between distributed workers transparently.
