@@ -11,6 +11,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
 
 func TestRegistry_RegisterAndHeartbeat(t *testing.T) {
@@ -71,7 +72,10 @@ func TestDispatcher_SuccessfulExecution(t *testing.T) {
 		return nil
 	}
 
-	d := NewDispatcher(q, r, executor)
+	sm := state.NewStateMachine()
+	_ = sm.AddNode(state.NewNode("node-a"))
+
+	d := NewDispatcher(q, r, sm, executor)
 	d.Start(1)
 
 	// Add a task
@@ -106,7 +110,10 @@ func TestDispatcher_FailedExecutionTriggersRetry(t *testing.T) {
 		return errors.New("simulated failure")
 	}
 
-	d := NewDispatcher(q, r, executor)
+	sm := state.NewStateMachine()
+	_ = sm.AddNode(state.NewNode("node-b"))
+
+	d := NewDispatcher(q, r, sm, executor)
 	d.Start(1)
 
 	// Max retries = 1
@@ -132,7 +139,10 @@ func TestDispatcher_NoWorkersAvailableTriggersRetry(t *testing.T) {
 		return nil
 	}
 
-	d := NewDispatcher(q, r, executor)
+	sm := state.NewStateMachine()
+	_ = sm.AddNode(state.NewNode("node-c"))
+
+	d := NewDispatcher(q, r, sm, executor)
 	d.Start(1)
 
 	q.Add("node-c", 1)
@@ -167,7 +177,10 @@ func TestDispatcher_ContextCancellationExitsLoop(t *testing.T) {
 		return nil
 	}
 
-	d := NewDispatcher(q, r, executor)
+	sm := state.NewStateMachine()
+	_ = sm.AddNode(state.NewNode("node-d"))
+
+	d := NewDispatcher(q, r, sm, executor)
 	d.Start(1)
 
 	q.Add("node-d", 1)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
+	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
 
 // WorkerState defines the operational health status of a remote execution node.
@@ -113,11 +114,23 @@ func (r *Registry) GetHealthyWorker() (*Worker, error) {
 // It abstracts the underlying transport (e.g., gRPC, Arrow Flight) from the orchestration logic.
 type ExecutionFunc func(ctx context.Context, workerID string, nodeID string) error
 
-// Dispatcher bridges the logical DAG scheduler (WorkQueue) and the physical execution fleet (Workers).
+// Dispatcher coordinates the concurrent execution of the DAG by bridging the
+// logical scheduler and the physical worker fleet.
+type Dispatcher interface {
+	// Start begins the task processing loops with the specified concurrency.
+	Start(concurrency int)
+	// Stop gracefully shuts down the dispatcher and its associated loops.
+	Stop()
+	// Dispatch manages the lifecycle of a single task execution, including worker selection and execution.
+	Dispatch(ctx context.Context, task *scheduler.Task) error
+}
+
+// DefaultDispatcher bridges the logical DAG scheduler (WorkQueue) and the physical execution fleet (Workers).
 // It implements the consumer loop that pulls tasks and delegates them to available workers.
-type Dispatcher struct {
+type DefaultDispatcher struct {
 	queue    *scheduler.WorkQueue
 	registry *Registry
+	sm       *state.StateMachine
 	executor ExecutionFunc
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -125,11 +138,12 @@ type Dispatcher struct {
 }
 
 // NewDispatcher initializes a dispatcher with its required orchestration dependencies.
-func NewDispatcher(queue *scheduler.WorkQueue, registry *Registry, executor ExecutionFunc) *Dispatcher {
+func NewDispatcher(queue *scheduler.WorkQueue, registry *Registry, sm *state.StateMachine, executor ExecutionFunc) Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Dispatcher{
+	return &DefaultDispatcher{
 		queue:    queue,
 		registry: registry,
+		sm:       sm,
 		executor: executor,
 		ctx:      ctx,
 		cancel:   cancel,
@@ -137,7 +151,7 @@ func NewDispatcher(queue *scheduler.WorkQueue, registry *Registry, executor Exec
 }
 
 // Start spawns the configured number of parallel worker loops to process tasks from the queue.
-func (d *Dispatcher) Start(concurrency int) {
+func (d *DefaultDispatcher) Start(concurrency int) {
 	for range concurrency {
 		d.wg.Add(1)
 		go d.workerLoop()
@@ -145,15 +159,34 @@ func (d *Dispatcher) Start(concurrency int) {
 }
 
 // Stop initiates a graceful shutdown of the dispatcher, draining active loops and closing the queue.
-func (d *Dispatcher) Stop() {
+func (d *DefaultDispatcher) Stop() {
 	d.cancel()
 	d.queue.ShutDown()
 	d.wg.Wait()
 }
 
+// Dispatch selects a healthy worker and executes the task.
+func (d *DefaultDispatcher) Dispatch(ctx context.Context, task *scheduler.Task) error {
+	// Verify context liveness before proceeding with worker selection.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Locate a healthy worker node for this task.
+	worker, err := d.registry.GetHealthyWorker()
+	if err != nil {
+		return err
+	}
+
+	// Execute the task on the remote worker node.
+	return d.executor(ctx, worker.ID, task.NodeID)
+}
+
 // workerLoop executes the primary task orchestration lifecycle: pull, locate worker, and execute.
 // It ensures fault tolerance by leveraging the workqueue's retry and backoff mechanisms.
-func (d *Dispatcher) workerLoop() {
+func (d *DefaultDispatcher) workerLoop() {
 	defer d.wg.Done()
 
 	for {
@@ -163,28 +196,22 @@ func (d *Dispatcher) workerLoop() {
 			return
 		}
 
-		// Verify context liveness before proceeding with worker selection.
-		select {
-		case <-d.ctx.Done():
-			d.queue.Done(task) // Ensure task is marked as finished if shutdown occurs mid-loop.
-			return
-		default:
-		}
+		// Atomically transition the node to Running state before dispatching.
+		_ = d.sm.Transition(task.NodeID, state.Pending, state.Running, nil)
 
-		// Locate a healthy worker node for this task.
-		worker, err := d.registry.GetHealthyWorker()
+		err := d.Dispatch(d.ctx, task)
 		if err != nil {
-			// Requeue the task for future dispatch if no workers are currently available.
-			d.queue.Retry(task)
-			continue
-		}
-
-		// Execute the task on the remote worker node.
-		err = d.executor(d.ctx, worker.ID, task.NodeID)
-		if err != nil {
+			// Handle failure state transitions: either Pending for retry or terminal Failed.
+			if task.Retries < task.MaxRetries {
+				_ = d.sm.Transition(task.NodeID, state.Running, state.Pending, err)
+			} else {
+				_ = d.sm.Transition(task.NodeID, state.Running, state.Failed, err)
+			}
 			// Trigger a retry on execution failure, adhering to the scheduler's backoff strategy.
 			d.queue.Retry(task)
 		} else {
+			// Mark successful execution in the state machine.
+			_ = d.sm.Transition(task.NodeID, state.Running, state.Completed, nil)
 			// Signal successful completion to the workqueue.
 			d.queue.Done(task)
 		}

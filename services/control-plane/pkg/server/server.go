@@ -33,7 +33,7 @@ type ControlPlaneServer struct {
 	queue    *scheduler.WorkQueue
 	sm       *state.StateMachine
 	// dispatcher coordinates the concurrent execution of the DAG.
-	dispatcher *manager.Dispatcher
+	dispatcher manager.Dispatcher
 	program    *ir.ProgramIR
 
 	// workerStreams maps workerID to a dedicated channel for pushing outgoing tasks.
@@ -44,7 +44,7 @@ type ControlPlaneServer struct {
 
 	// locality tracks the physical placement of data across the cluster to optimize
 	// for zero-copy memory access via UDS where possible.
-	locality *manager.DataLocalityRegistry
+	locality manager.DataLocalityRegistry
 	// outputs maps node identifiers to their respective memory handles (e.g., Plasma/UDS paths).
 	outputs map[string]string // nodeID -> outputHandle
 }
@@ -145,7 +145,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		// Initialize dispatcher if not already active.
 		if s.dispatcher == nil {
-			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.executor)
+			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.sm, s.executor)
 			s.dispatcher.Start(5)
 		}
 		s.mu.Unlock()
