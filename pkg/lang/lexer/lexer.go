@@ -180,9 +180,31 @@ func (l *Lexer) handleNewLine() Token {
 
 	// Check for indentation on the new line
 	indentation := ""
+	hasSpace := false
+	hasTab := false
 	for l.ch == ' ' || l.ch == '\t' {
+		if l.ch == ' ' {
+			hasSpace = true
+		} else if l.ch == '\t' {
+			hasTab = true
+		}
 		indentation += string(l.ch)
 		l.readChar()
+	}
+
+	// Mixed tabs and spaces in same indentation string is prohibited
+	if hasSpace && hasTab {
+		l.pending = append(l.pending, newToken(ILLEGAL, "mixed tabs and spaces in indentation", l.line, 1))
+	}
+
+	// Enforce consistent indentation style across the entire file
+	if len(indentation) > 0 {
+		currentStyle := rune(indentation[0])
+		if l.indentStyle == 0 {
+			l.indentStyle = currentStyle
+		} else if l.indentStyle != currentStyle {
+			l.pending = append(l.pending, newToken(ILLEGAL, "conflicting indentation style in file", l.line, 1))
+		}
 	}
 
 	// If the line is just whitespace or a comment, skip it and the indentation logic
