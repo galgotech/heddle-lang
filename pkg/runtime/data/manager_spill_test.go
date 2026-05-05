@@ -15,7 +15,7 @@ func TestDataManagerSpill(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Create manager with very low memory limit to force spill
-	manager, err := NewDataManager(tempDir, 1024) // 1KB limit
+	manager, err := NewLocalMmapManager(tempDir, 1024) // 1KB limit
 	if err != nil {
 		t.Fatalf("failed to create DataManager: %v", err)
 	}

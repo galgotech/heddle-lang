@@ -26,7 +26,7 @@ type Worker struct {
 	Client flight.Client
 	conn   *grpc.ClientConn
 
-	dataMgr   *data.DataManager
+	dataMgr   data.DataManager
 	udsServer *data.UDSServer
 	udsAddr   string
 
@@ -50,7 +50,7 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 	client := flight.NewClientFromConn(conn, nil)
 
 	// Configure the DataManager to use /dev/shm for zero-copy memory mapping.
-	dataMgr, err := data.NewDataManager("/dev/shm/heddle", 1<<30) // 1GB limit
+	dataMgr, err := data.NewLocalMmapManager("/dev/shm/heddle", 1<<30) // 1GB limit
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DataManager: %w", err)
 	}

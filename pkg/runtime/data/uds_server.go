@@ -14,11 +14,11 @@ import (
 // UDSServer handles Unix Domain Socket connections for zero-copy FD passing.
 type UDSServer struct {
 	socketPath string
-	manager    *DataManager
+	manager    DataManager
 }
 
 // NewUDSServer creates a new UDS server.
-func NewUDSServer(socketPath string, manager *DataManager) *UDSServer {
+func NewUDSServer(socketPath string, manager DataManager) *UDSServer {
 	return &UDSServer{
 		socketPath: socketPath,
 		manager:    manager,

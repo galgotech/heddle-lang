@@ -9,7 +9,7 @@ import (
 )
 
 func TestDataManager_PutGet(t *testing.T) {
-	manager, err := NewDataManager("/dev/shm/heddle-test", 0) // No limit for this test
+	manager, err := NewLocalMmapManager("/dev/shm/heddle-test", 0) // No limit for this test
 	if err != nil {
 		t.Fatalf("failed to create DataManager: %v", err)
 	}

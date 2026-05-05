@@ -43,7 +43,7 @@ func TestWorker_Delegation(t *testing.T) {
 
 				// Handle Handshake (gRPC) if needed, but here we just wait for the first byte
 				// The worker will try to Handshake if we use PM.ConnectPlugin or if it auto-connects.
-				
+
 				// Receive FD and Metadata
 				fd, meta, err := data.RecvFDWithMetadata(unixConn)
 				if err != nil {
@@ -93,11 +93,11 @@ func TestWorker_Delegation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Register the plugin address in the worker's plugin manager
-	// Note: We don't call ConnectPlugin here to let delegateTask auto-connect 
+	// Note: We don't call ConnectPlugin here to let delegateTask auto-connect
 	// using the convention, or we can connect it manually.
 	// If we connect manually, we must handle Handshake.
 	// In this mock, we'll let it auto-connect but we need to bypass Handshake
-	// or make the mock handle it. 
+	// or make the mock handle it.
 	// To keep it simple, we'll just let it fail the handshake if it tries,
 	// but delegateTask only connects if NOT ok.
 

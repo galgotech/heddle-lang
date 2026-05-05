@@ -11,14 +11,15 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"github.com/apache/arrow/go/v18/arrow/memory"
-	"github.com/galgotech/heddle-lang/sdk/go/core"
-	"github.com/galgotech/heddle-lang/sdk/go/plugin"
-	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/galgotech/heddle-lang/sdk/go/core"
+	"github.com/galgotech/heddle-lang/sdk/go/plugin"
+	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 // -- Dummy Resource & Steps --

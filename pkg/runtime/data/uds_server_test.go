@@ -21,7 +21,7 @@ func TestUDSServer_FDPassing(t *testing.T) {
 	socketPath := "/tmp/heddle-test.sock"
 	_ = os.Remove(socketPath)
 
-	manager, err := NewDataManager("/dev/shm/heddle-uds-test", 0)
+	manager, err := NewLocalMmapManager("/dev/shm/heddle-uds-test", 0)
 	require.NoError(t, err)
 	defer manager.Cleanup()
 

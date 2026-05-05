@@ -16,7 +16,7 @@ func TestDataManager_PutMmap(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	mgr, err := NewDataManager(tmpDir, 0)
+	mgr, err := NewLocalMmapManager(tmpDir, 0)
 	require.NoError(t, err)
 	defer mgr.Cleanup()
 
