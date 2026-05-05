@@ -15,10 +15,9 @@ func TestDataManagerSpill(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Create manager with very low memory limit to force spill
-	manager, err := NewLocalMmapManager(tempDir, 1024) // 1KB limit
-	if err != nil {
-		t.Fatalf("failed to create DataManager: %v", err)
-	}
+	alloc := NewOSMemoryAllocator(tempDir)
+	manager := NewLocalMmapManager(alloc, 1024) // 1KB limit
+
 
 	mem := memory.NewGoAllocator()
 	schema := arrow.NewSchema([]arrow.Field{{Name: "data", Type: arrow.BinaryTypes.String}}, nil)
@@ -35,8 +34,9 @@ func TestDataManagerSpill(t *testing.T) {
 	defer rec.Release()
 
 	id := "spill-frame"
-	err = manager.Put(id, rec)
+	err := manager.Put(id, rec)
 	assert.NoError(t, err)
+
 
 	// Check if frame exists in registry
 	frame := manager.GetRegistry().Get(id)

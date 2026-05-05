@@ -12,8 +12,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/transport"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/manager"
+
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
@@ -46,10 +49,12 @@ func TestEndToEndDataFlow(t *testing.T) {
 	defer server.Stop()
 
 	// 2. Start Worker
-	worker, err := execution.NewWorker("worker-1", cpAddr)
-	if err != nil {
-		t.Fatalf("failed to create worker: %v", err)
-	}
+	workerConn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	workerTrans := transport.NewFlightTransport(workerConn)
+	workerAlloc := data.NewOSMemoryAllocator("/dev/shm/heddle-int-test")
+	workerDataMgr := data.NewLocalMmapManager(workerAlloc, 1<<30)
+	worker := execution.NewWorker("worker-1", workerTrans, workerDataMgr)
+
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

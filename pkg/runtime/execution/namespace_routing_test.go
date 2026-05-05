@@ -17,7 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 )
+
 
 func TestWorker_NamespaceRouting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,9 +49,16 @@ func TestWorker_NamespaceRouting(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// 2. Setup Worker
-	w, err := NewWorker("worker-ns", "localhost:9999")
-	require.NoError(t, err)
+	shmPath := "/dev/shm/heddle-ns-test"
+	os.Setenv("HEDDLE_SHM_PATH", shmPath)
+	defer os.Unsetenv("HEDDLE_SHM_PATH")
+
+	alloc := data.NewOSMemoryAllocator(shmPath)
+	dataMgr := data.NewLocalMmapManager(alloc, 0)
+	w := NewWorker("worker-ns", nil, dataMgr)
 	defer w.dataMgr.Cleanup()
+
+
 
 	// 3. Prepare data
 	mem := memory.NewGoAllocator()

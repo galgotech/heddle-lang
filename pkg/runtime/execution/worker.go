@@ -14,18 +14,16 @@ import (
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
+	"github.com/galgotech/heddle-lang/pkg/runtime/transport"
 	"github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 // Worker represents a high-performance orchestration node responsible for task execution.
-// It coordinates with the Control Plane via Arrow Flight and delegates intensive
-// computation to polyglot plugins using zero-copy memory handles via UDS.
+// It coordinates with the Control Plane via a NetworkTransport abstraction and delegates
+// intensive computation to polyglot plugins using zero-copy memory handles.
 type Worker struct {
-	ID     string
-	CPAddr string
-	Client flight.Client
-	conn   *grpc.ClientConn
-
+	ID        string
+	Transport transport.NetworkTransport
 	dataMgr   data.DataManager
 	udsServer *data.UDSServer
 	udsAddr   string
@@ -37,64 +35,42 @@ type Worker struct {
 	flight.BaseFlightServer
 }
 
-// NewWorker initializes a new worker instance, establishing the Control Plane connection
-// and setting up the local shared memory DataManager and UDS server for locality-aware routing.
-func NewWorker(id, cpAddr string) (*Worker, error) {
-	// Establish a gRPC connection to the Control Plane (Smart Control Plane).
-	conn, err := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to CP: %w", err)
-	}
-
-	// Initialize the Arrow Flight client for control signaling and data coordination.
-	client := flight.NewClientFromConn(conn, nil)
-
-	// Configure the DataManager to use /dev/shm for zero-copy memory mapping.
-	dataMgr, err := data.NewLocalMmapManager("/dev/shm/heddle", 1<<30) // 1GB limit
-	if err != nil {
-		return nil, fmt.Errorf("failed to create DataManager: %w", err)
-	}
-
+// NewWorker initializes a new worker instance using the provided transport and data manager.
+func NewWorker(id string, trans transport.NetworkTransport, dataMgr data.DataManager) *Worker {
 	udsAddr := fmt.Sprintf("/tmp/heddle-%s.sock", id)
 
 	return &Worker{
 		ID:        id,
-		CPAddr:    cpAddr,
-		Client:    client,
-		conn:      conn,
+		Transport: trans,
 		dataMgr:   dataMgr,
 		udsServer: data.NewUDSServer(udsAddr, dataMgr),
 		udsAddr:   udsAddr,
 		pm:        NewPluginManager(),
-	}, nil
+	}
 }
 
-// Register notifies the Control Plane of the worker's availability. It transmits
-// the worker's unique identity and local communication addresses (UDS) to
-// facilitate locality-aware task scheduling.
+
+// Register notifies the Control Plane of the worker's availability.
 func (w *Worker) Register(ctx context.Context) error {
 	reg := WorkerRegistration{
 		WorkerID:   w.ID,
-		Address:    "localhost:0", // In a real scenario, this would be the worker's listen address
+		Address:    "localhost:0",
 		UDSAddress: w.udsAddr,
 		Runtime:    "go",
 	}
 
 	body, _ := json.Marshal(reg)
-	// Use Arrow Flight DoAction for the registration handshake.
 	action := &flight.Action{
 		Type: ActionRegisterWorker,
 		Body: body,
 	}
 
-	// Inject worker ID into gRPC metadata for server-side traceability.
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
-	stream, err := w.Client.DoAction(ctx, action)
+	stream, err := w.Transport.DoAction(ctx, action)
 	if err != nil {
 		return fmt.Errorf("failed to register: %w", err)
 	}
 
-	// Wait for acknowledgement from the Control Plane.
 	_, err = stream.Recv()
 	if err != nil {
 		return fmt.Errorf("failed to receive registration result: %w", err)
@@ -104,8 +80,7 @@ func (w *Worker) Register(ctx context.Context) error {
 	return nil
 }
 
-// StartHeartbeat maintains the worker's liveness state in the Control Plane.
-// It sends periodic updates every 5 seconds to prevent registration expiration.
+// StartHeartbeat maintains the worker's liveness state.
 func (w *Worker) StartHeartbeat(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -125,25 +100,22 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 			}
 
 			hbCtx := metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
-			// Send heartbeat via Flight DoAction to signal liveness and current idle status.
-			stream, err := w.Client.DoAction(hbCtx, action)
+			stream, err := w.Transport.DoAction(hbCtx, action)
 			if err != nil {
 				logger.L().Warn("Heartbeat failed", logger.Error(err))
 				continue
 			}
-			_, _ = stream.Recv() // Block until the Control Plane acknowledges the update.
+			_, _ = stream.Recv()
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-// StartExecutionLoop opens a long-lived bidirectional Flight stream (DoExchange)
-// with the Control Plane. It pulls tasks and pushes execution status updates.
+// StartExecutionLoop processes tasks from the Control Plane.
 func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	exCtx := metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
-	// Use DoExchange for a low-latency, persistent bidirectional control channel.
-	stream, err := w.Client.DoExchange(exCtx)
+	stream, err := w.Transport.DoExchange(exCtx)
 	if err != nil {
 		logger.L().Fatal("failed to open exchange stream", logger.Error(err))
 	}
@@ -155,7 +127,6 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			// Block until the Control Plane dispatches a new Task.
 			data, err := stream.Recv()
 			if err != nil {
 				logger.L().Info("Execution stream closed", logger.Error(err))
@@ -172,10 +143,8 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 				logger.String("taskID", task.ID),
 				logger.String("step", task.Step.DefinitionName))
 
-			// executeTask coordinates data resolution and plugin delegation.
 			outputHandle, err := w.executeTask(ctx, task)
 
-			// Prepare the task completion update with the resulting data handle.
 			update := TaskUpdate{
 				TaskID:       task.ID,
 				Status:       string(TaskStatusDone),
@@ -187,7 +156,6 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 				update.Error = err.Error()
 			}
 
-			// Report the execution result back to the Control Plane.
 			updateBody, _ := json.Marshal(update)
 			if err := stream.Send(&flight.FlightData{DataBody: updateBody}); err != nil {
 				logger.L().Error("Failed to send task update", logger.Error(err))
@@ -196,17 +164,12 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	}
 }
 
-// executeTask manages the full lifecycle of a task:
-// 1. Resolving remote data dependencies via Flight DoGet.
-// 2. Delegating to the polyglot plugin using zero-copy FD passing.
-// 3. Registering the output handle in the local DataManager.
+// executeTask manages the full lifecycle of a task.
 func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	if task.Step == nil || len(task.Step.Call) < 2 {
 		return "", fmt.Errorf("step implementation mapping invalid: %v", task.Step)
 	}
 
-	// 1. Resolve remote data dependencies. If a ticket is marked as REMOTE,
-	// pull it into local shared memory to facilitate zero-copy processing.
 	for _, ticket := range task.Tickets {
 		if ticket.RouteType == proto.RouteType_REMOTE {
 			_, err := w.fetchRemoteData(ctx, ticket)
@@ -216,14 +179,11 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 		}
 	}
 
-	// 2. Delegate execution to the target language runtime (Go, Python, etc.) via UDS.
 	outputHandle, err := w.delegateTask(ctx, task)
 	if err != nil {
 		return "", fmt.Errorf("delegation failed: %w", err)
 	}
 
-	// 3. Register the output handle in the DataManager to make it accessible
-	// for downstream consumers via locality-aware routing.
 	if outputHandle != "" {
 		if err := w.dataMgr.Import(outputHandle); err != nil {
 			return "", fmt.Errorf("failed to import output handle %s: %w", outputHandle, err)
@@ -233,28 +193,23 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	return outputHandle, nil
 }
 
-// fetchRemoteData pulls an Arrow RecordBatch from a remote peer using Arrow Flight DoGet.
-// The data is persisted in local shared memory (/dev/shm) to enable zero-copy
-// access for subsequent execution steps on this host.
+// fetchRemoteData pulls an Arrow RecordBatch from a remote peer.
 func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket) (string, error) {
-	// Strip gRPC prefix to normalize the target address.
 	addr := strings.TrimPrefix(ticket.Address, "grpc://")
 
-	// Connect to the remote worker holding the source data.
+	// Ideally, this should also be abstracted via a transport factory to avoid direct gRPC dependency.
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to peer %s: %w", addr, err)
 	}
 	defer conn.Close()
 
-	client := flight.NewClientFromConn(conn, nil)
-	// Request the data batch from the peer via its resource ID.
-	stream, err := client.DoGet(ctx, &flight.Ticket{Ticket: []byte(ticket.ResourceId)})
+	peerTransport := transport.NewFlightTransport(conn)
+	stream, err := peerTransport.DoGet(ctx, &flight.Ticket{Ticket: []byte(ticket.ResourceId)})
 	if err != nil {
 		return "", fmt.Errorf("DoGet failed for %s: %w", ticket.ResourceId, err)
 	}
 
-	// Initialize a RecordReader to deserialize the incoming Flight stream.
 	reader, err := flight.NewRecordReader(stream)
 	if err != nil {
 		return "", fmt.Errorf("failed to create record reader: %w", err)
@@ -266,7 +221,6 @@ func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket
 	}
 
 	rec := reader.Record()
-	// Store the record in shared memory under a temporary remote handle.
 	localHandle := fmt.Sprintf("remote-%s-%d", ticket.ResourceId, time.Now().UnixNano())
 	if err := w.dataMgr.Put(localHandle, rec); err != nil {
 		return "", fmt.Errorf("failed to store remote data locally: %w", err)
@@ -274,6 +228,7 @@ func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket
 
 	return localHandle, nil
 }
+
 
 // delegateTask identifies the target namespace and transmits execution instructions
 // to a polyglot plugin using SCM_RIGHTS for zero-copy file descriptor (FD) passing.

@@ -21,9 +21,10 @@ func TestUDSServer_FDPassing(t *testing.T) {
 	socketPath := "/tmp/heddle-test.sock"
 	_ = os.Remove(socketPath)
 
-	manager, err := NewLocalMmapManager("/dev/shm/heddle-uds-test", 0)
-	require.NoError(t, err)
+	alloc := NewOSMemoryAllocator("/dev/shm/heddle-uds-test")
+	manager := NewLocalMmapManager(alloc, 0)
 	defer manager.Cleanup()
+
 
 	// 1. Prepare data in DataManager
 	mem := memory.NewGoAllocator()
@@ -32,8 +33,9 @@ func TestUDSServer_FDPassing(t *testing.T) {
 	b.Field(0).(*array.Int32Builder).AppendValues([]int32{1, 2, 3}, nil)
 	rec := b.NewRecord()
 	id := "res-1"
-	err = manager.Put(id, rec)
+	err := manager.Put(id, rec)
 	require.NoError(t, err)
+
 
 	// 2. Start UDS Server
 	server := NewUDSServer(socketPath, manager)

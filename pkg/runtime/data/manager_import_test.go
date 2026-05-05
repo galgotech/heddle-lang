@@ -18,9 +18,10 @@ func TestDataManager_Import(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	mgr, err := NewLocalMmapManager(tmpDir, 1<<30)
-	require.NoError(t, err)
+	alloc := NewOSMemoryAllocator(tmpDir)
+	mgr := NewLocalMmapManager(alloc, 1<<30)
 	defer mgr.Cleanup()
+
 
 	// 1. Create a record and write it to a file manually (simulating a plugin)
 	mem := memory.NewGoAllocator()

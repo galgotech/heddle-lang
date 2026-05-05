@@ -150,11 +150,14 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		// Initialize dispatcher if not already active.
 		if s.dispatcher == nil {
-			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.sm, s.executor)
+			// Inject GoroutinePool as the default concurrency implementation.
+			pool := manager.NewGoroutinePool()
+			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.sm, s.executor, pool)
 			d := s.dispatcher
 			s.mu.Unlock()
 			d.Start(5)
 		} else {
+
 			s.mu.Unlock()
 		}
 

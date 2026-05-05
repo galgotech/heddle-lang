@@ -9,11 +9,10 @@ import (
 )
 
 func TestDataManager_PutGet(t *testing.T) {
-	manager, err := NewLocalMmapManager("/dev/shm/heddle-test", 0) // No limit for this test
-	if err != nil {
-		t.Fatalf("failed to create DataManager: %v", err)
-	}
+	alloc := NewOSMemoryAllocator("/dev/shm/heddle-test")
+	manager := NewLocalMmapManager(alloc, 0) // No limit for this test
 	defer manager.Cleanup()
+
 
 	// 1. Create a dummy record
 	mem := memory.NewGoAllocator()
@@ -31,7 +30,7 @@ func TestDataManager_PutGet(t *testing.T) {
 
 	// 2. Put into shared memory
 	id := "test-obj-1"
-	err = manager.Put(id, rec)
+	err := manager.Put(id, rec)
 	if err != nil {
 		t.Fatalf("failed to put record: %v", err)
 	}

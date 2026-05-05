@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	"github.com/apache/arrow/go/v18/arrow/ipc"
@@ -16,8 +17,13 @@ func IsAbsolutePath(path string) bool {
 
 // GetSharedMemoryPath returns the full path for a Heddle SHM handle.
 func GetSharedMemoryPath(handle string) string {
-	return "/dev/shm/heddle/" + handle
+	base := os.Getenv("HEDDLE_SHM_PATH")
+	if base == "" {
+		base = "/dev/shm/heddle"
+	}
+	return filepath.Join(base, handle)
 }
+
 
 // ReadTableFromHandle reads an Arrow Record from a file handle (e.g., in SHM)
 // and returns a Table wrapping it. This uses mmap for zero-copy reading.

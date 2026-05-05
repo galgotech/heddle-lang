@@ -10,11 +10,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/transport"
 )
+
 
 var (
 	// cfgFile holds the path to the configuration file provided via CLI flags.
@@ -42,12 +47,22 @@ var rootCmd = &cobra.Command{
 		workerID := viper.GetString("id")
 		cpAddr := viper.GetString("cp")
 
-		// Initialize the execution worker (the "Muscle").
-		// This component handles the actual task execution and data routing logic.
-		worker, err := execution.NewWorker(workerID, cpAddr)
+		// Establish a gRPC connection to the Control Plane.
+		conn, err := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			logger.L().Fatal("Failed to create worker", zap.Error(err))
+			logger.L().Fatal("failed to connect to CP", zap.Error(err))
 		}
+		
+		// Initialize the network transport abstraction.
+		trans := transport.NewFlightTransport(conn)
+
+		// Configure the OS memory allocator for zero-copy mapping.
+		alloc := data.NewOSMemoryAllocator("/dev/shm/heddle")
+		dataMgr := data.NewLocalMmapManager(alloc, 1<<30) // 1GB limit
+
+		// Initialize the execution worker (the "Muscle").
+		worker := execution.NewWorker(workerID, trans, dataMgr)
+
 
 		// Create a root context to manage the lifecycle of all background goroutines.
 		ctx, cancel := context.WithCancel(context.Background())

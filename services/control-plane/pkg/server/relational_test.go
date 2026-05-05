@@ -15,8 +15,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/pkg/runtime/transport"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/manager"
+
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/scheduler"
 	"github.com/galgotech/heddle-lang/services/control-plane/pkg/state"
 )
@@ -50,10 +53,12 @@ func TestRelationalEngineIntegration(t *testing.T) {
 	defer server.Stop()
 
 	// 2. Start Go Worker (for data generation)
-	goWorker, err := execution.NewWorker("go-worker", cpAddr)
-	if err != nil {
-		t.Fatalf("failed to create go worker: %v", err)
-	}
+	goConn, _ := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	goTrans := transport.NewFlightTransport(goConn)
+	goAlloc := data.NewOSMemoryAllocator("/dev/shm/heddle-rel-test")
+	goDataMgr := data.NewLocalMmapManager(goAlloc, 1<<30)
+	goWorker := execution.NewWorker("go-worker", goTrans, goDataMgr)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := goWorker.Register(ctx); err != nil {

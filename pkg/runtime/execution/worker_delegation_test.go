@@ -71,8 +71,13 @@ func TestWorker_Delegation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 2. Setup Worker
-	w, err := NewWorker("worker-1", "localhost:9999")
-	require.NoError(t, err)
+	shmPath := "/dev/shm/heddle-test"
+	os.Setenv("HEDDLE_SHM_PATH", shmPath)
+	defer os.Unsetenv("HEDDLE_SHM_PATH")
+
+	alloc := data.NewOSMemoryAllocator(shmPath)
+	dataMgr := data.NewLocalMmapManager(alloc, 0)
+	w := NewWorker("worker-1", nil, dataMgr)
 	defer w.dataMgr.Cleanup()
 
 	// Start Worker UDS server for FD passing

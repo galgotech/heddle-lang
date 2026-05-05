@@ -3,10 +3,7 @@ package data
 import (
 	"bytes"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
-	"syscall"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/flight"
@@ -37,29 +34,26 @@ type DataManager interface {
 	Cleanup()
 }
 
-// LocalMmapManager implements DataManager using POSIX shared memory (memfd or /dev/shm).
-// It ensures absolute zero-copy data traffic by mapping Arrow memory buffers directly.
+// LocalMmapManager implements DataManager using an abstracted MemoryAllocator.
+// It ensures absolute zero-copy data traffic by mapping Arrow memory buffers.
 type LocalMmapManager struct {
-	basePath    string
+	allocator   MemoryAllocator
 	memoryLimit int64
 	activeBytes int64
 	registry    *TableRegistry
 	mu          sync.RWMutex
 }
 
-// NewLocalMmapManager initializes a LocalMmapManager with a specific base path.
-func NewLocalMmapManager(basePath string, memoryLimit int64) (*LocalMmapManager, error) {
-	if err := os.MkdirAll(basePath, 0777); err != nil {
-		return nil, fmt.Errorf("failed to create base path %s: %w", basePath, err)
-	}
+// NewLocalMmapManager initializes a LocalMmapManager with a specific allocator.
+func NewLocalMmapManager(allocator MemoryAllocator, memoryLimit int64) *LocalMmapManager {
 	return &LocalMmapManager{
-		basePath:    basePath,
+		allocator:   allocator,
 		memoryLimit: memoryLimit,
 		registry:    NewTableRegistry(),
-	}, nil
+	}
 }
 
-// Get retrieves an Arrow Record from local shared memory.
+// Get retrieves an Arrow Record from the managed memory regions.
 func (m *LocalMmapManager) Get(id string) (arrow.Record, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -69,31 +63,17 @@ func (m *LocalMmapManager) Get(id string) (arrow.Record, error) {
 		return nil, fmt.Errorf("table not found: %s", id)
 	}
 
-	var f *os.File
-	var err error
-
-	f = m.registry.GetFile(id)
-	if f == nil {
-		f, err = os.Open(table.Handle())
-		if err != nil {
-			return nil, fmt.Errorf("failed to open table storage: %w", err)
-		}
-		defer f.Close()
-	}
-
-	fi, err := f.Stat()
+	// For Get, we might already have the file in registry, but we need to map it if not.
+	// However, LocalMmapManager usually maps on Put/Import.
+	// If it's in the registry, it should be accessible.
+	
+	region, err := m.allocator.Attach(id, table.Handle())
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat table storage: %w", err)
+		return nil, fmt.Errorf("failed to attach memory region: %w", err)
 	}
+	defer region.Unmap()
 
-	size := fi.Size()
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
-	if err != nil {
-		return nil, fmt.Errorf("failed to mmap: %w", err)
-	}
-	defer syscall.Munmap(data)
-
-	reader, err := ipc.NewReader(bytes.NewReader(data))
+	reader, err := ipc.NewReader(bytes.NewReader(region.Data()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reader: %w", err)
 	}
@@ -108,8 +88,7 @@ func (m *LocalMmapManager) Get(id string) (arrow.Record, error) {
 	return rec, nil
 }
 
-// Put persists an Arrow Record to local shared memory using optimized mmap writes.
-// It avoids multiple serialization passes by leveraging the Arrow IPC message directly.
+// Put persists an Arrow Record to shared memory using optimized mmap writes.
 func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -120,33 +99,15 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 	_ = writer.Close()
 	size := int64(cw.count)
 
-	var f *os.File
-	var err error
-	if supportsMemfd() {
-		f, err = createMemfd(id, size)
-	} else {
-		path := filepath.Join(m.basePath, id)
-		f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-		if err == nil {
-			err = f.Truncate(size)
-		}
-	}
-
+	region, err := m.allocator.Allocate(id, size)
 	if err != nil {
-		return fmt.Errorf("failed to allocate storage: %w", err)
+		return fmt.Errorf("failed to allocate memory region: %w", err)
 	}
+	defer region.Unmap()
 
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_WRITE, syscall.MAP_SHARED)
-	if err != nil {
-		f.Close()
-		return fmt.Errorf("failed to mmap for writing: %w", err)
-	}
-	defer syscall.Munmap(data)
-
-	mw := &mmapWriter{data: data}
+	mw := &mmapWriter{data: region.Data()}
 	writer = ipc.NewWriter(mw, ipc.WithSchema(record.Schema()))
 	if err := writer.Write(record); err != nil {
-		f.Close()
 		return fmt.Errorf("failed to write record to mmap: %w", err)
 	}
 	_ = writer.Close()
@@ -162,20 +123,20 @@ func (m *LocalMmapManager) Put(id string, record arrow.Record) error {
 		table = &ArrowTable{
 			record:   record,
 			location: LocationDisk,
-			handle:   f.Name(),
+			handle:   region.File().Name(),
 			metadata: make(map[string]string),
 		}
 	} else {
-		table = NewSharedTable(record, f.Name())
+		table = NewSharedTable(record, region.File().Name())
 		m.activeBytes += size
 	}
 
-	m.registry.Register(id, table, f)
+	m.registry.Register(id, table, region.File())
 
 	return nil
 }
 
-// Import attaches to an existing data handle (e.g., shared memory or disk file) and registers it.
+// Import attaches to an existing data handle and registers it.
 func (m *LocalMmapManager) Import(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -184,50 +145,28 @@ func (m *LocalMmapManager) Import(id string) error {
 		return nil
 	}
 
-	path := filepath.Join(m.basePath, id)
-	f, err := os.Open(path)
+	region, err := m.allocator.Attach(id, "")
 	if err != nil {
-		return fmt.Errorf("failed to open handle %s: %w", id, err)
+		return fmt.Errorf("failed to attach handle %s: %w", id, err)
 	}
+	defer region.Unmap()
 
-	fi, err := f.Stat()
+	reader, err := ipc.NewReader(bytes.NewReader(region.Data()))
 	if err != nil {
-		f.Close()
-		return fmt.Errorf("failed to stat handle %s: %w", id, err)
-	}
-
-	size := fi.Size()
-	if size == 0 {
-		f.Close()
-		return fmt.Errorf("handle %s is empty", id)
-	}
-
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
-	if err != nil {
-		f.Close()
-		return fmt.Errorf("failed to mmap handle %s: %w", id, err)
-	}
-
-	reader, err := ipc.NewReader(bytes.NewReader(data))
-	if err != nil {
-		syscall.Munmap(data)
-		f.Close()
 		return fmt.Errorf("failed to create reader for handle %s: %w", id, err)
 	}
 	defer reader.Release()
 
 	if !reader.Next() {
-		syscall.Munmap(data)
-		f.Close()
 		return fmt.Errorf("no record found in handle %s", id)
 	}
 
 	rec := reader.Record()
 	rec.Retain()
 
-	table := NewSharedTable(rec, f.Name())
-	m.registry.Register(id, table, f)
-	m.activeBytes += size
+	table := NewSharedTable(rec, region.File().Name())
+	m.registry.Register(id, table, region.File())
+	m.activeBytes += int64(len(region.Data()))
 
 	return nil
 }
@@ -244,9 +183,10 @@ func (m *LocalMmapManager) Cleanup() {
 		m.registry.Release(id)
 	}
 
-	_ = os.RemoveAll(m.basePath)
+	_ = m.allocator.Cleanup()
 	m.activeBytes = 0
 }
+
 
 // FlightNetworkManager implements DataManager using Arrow Flight RPC.
 // it facilitates P2P data transfers between distributed workers transparently.

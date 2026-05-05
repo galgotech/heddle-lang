@@ -137,19 +137,20 @@ type DefaultDispatcher struct {
 	registry WorkerRegistry
 	sm       state.StateMachine
 	executor ExecutionFunc
+	pool     ConcurrencyPool
 	ctx      context.Context
 	cancel   context.CancelFunc
-	wg       sync.WaitGroup
 }
 
 // NewDispatcher initializes a dispatcher with its required orchestration dependencies.
-func NewDispatcher(queue *scheduler.WorkQueue, registry WorkerRegistry, sm state.StateMachine, executor ExecutionFunc) Dispatcher {
+func NewDispatcher(queue *scheduler.WorkQueue, registry WorkerRegistry, sm state.StateMachine, executor ExecutionFunc, pool ConcurrencyPool) Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DefaultDispatcher{
 		queue:    queue,
 		registry: registry,
 		sm:       sm,
 		executor: executor,
+		pool:     pool,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -158,8 +159,7 @@ func NewDispatcher(queue *scheduler.WorkQueue, registry WorkerRegistry, sm state
 // Start spawns the configured number of parallel worker loops to process tasks from the queue.
 func (d *DefaultDispatcher) Start(concurrency int) {
 	for range concurrency {
-		d.wg.Add(1)
-		go d.workerLoop()
+		d.pool.Go(d.workerLoop)
 	}
 }
 
@@ -167,8 +167,9 @@ func (d *DefaultDispatcher) Start(concurrency int) {
 func (d *DefaultDispatcher) Stop() {
 	d.cancel()
 	d.queue.ShutDown()
-	d.wg.Wait()
+	d.pool.Wait()
 }
+
 
 // Dispatch selects a healthy worker and executes the task.
 func (d *DefaultDispatcher) Dispatch(ctx context.Context, task *scheduler.Task) error {

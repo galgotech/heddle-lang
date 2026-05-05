@@ -16,9 +16,10 @@ func TestDataManager_PutMmap(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	mgr, err := NewLocalMmapManager(tmpDir, 0)
-	require.NoError(t, err)
+	alloc := NewOSMemoryAllocator(tmpDir)
+	mgr := NewLocalMmapManager(alloc, 0)
 	defer mgr.Cleanup()
+
 
 	// 1. Create a large record to ensure alignment and multiple buffers
 	mem := memory.NewGoAllocator()
