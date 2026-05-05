@@ -20,6 +20,12 @@ workflow main {
 
   data
     | process
+    | (from users | select {name, age})
+    | (
+        from users 
+        | select {name, age}
+        | filter name == "test"
+    )
   > processed
 }
 `
@@ -47,7 +53,7 @@ workflow main {
 		{DEDENT, ""},
 		{NEWLINE, "\n"},
 		{RBRACE, "}"},
-		{NEWLINE, "\n"},
+		{NEWLINE, "\n\n"},
 		{RESOURCE, "resource"},
 		{IDENT, "db"},
 		{ASSIGN, "="},
@@ -65,7 +71,7 @@ workflow main {
 		{IDENT, "my_plugin"},
 		{DOT, "."},
 		{IDENT, "run"},
-		{NEWLINE, "\n"},
+		{NEWLINE, "\n\n"},
 		{WORKFLOW, "workflow"},
 		{IDENT, "main"},
 		{LBRACE, "{"},
@@ -81,12 +87,18 @@ workflow main {
 		{NEWLINE, "\n"},
 		{RANGLE, ">"},
 		{IDENT, "data"},
-		{NEWLINE, "\n"},
+		{NEWLINE, "\n\n"},
 		{IDENT, "data"},
 		{NEWLINE, "\n"},
 		{INDENT, "    "},
 		{PIPE, "|"},
 		{IDENT, "process"},
+		{NEWLINE, "\n"},
+		{PIPE, "|"},
+		{PRQL_BLOCK, "(from users | select {name, age})"},
+		{NEWLINE, "\n"},
+		{PIPE, "|"},
+		{PRQL_BLOCK, "(\n        from users \n        | select {name, age}\n        | filter name == \"test\"\n    )"},
 		{DEDENT, ""},
 		{NEWLINE, "\n"},
 		{RANGLE, ">"},
@@ -94,7 +106,6 @@ workflow main {
 		{DEDENT, ""},
 		{NEWLINE, "\n"},
 		{RBRACE, "}"},
-		{NEWLINE, "\n"},
 		{EOF, ""},
 	}
 
@@ -104,8 +115,8 @@ workflow main {
 		tok := l.NextToken()
 
 		if tok.Type != tt.expectedType {
-			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",
-				i, tt.expectedType, tok.Type)
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q (literal=%q)",
+				i, tt.expectedType, tok.Type, tok.Literal)
 		}
 
 		if tok.Literal != tt.expectedLiteral {
@@ -115,20 +126,14 @@ workflow main {
 	}
 }
 
-func TestPRQLAndComments(t *testing.T) {
-	input := `// This is a comment
-step q = (from users | select {name, age})
-`
+func TestParentheses(t *testing.T) {
+	input := `( )`
 	tests := []struct {
 		expectedType    TokenType
 		expectedLiteral string
 	}{
-		{NEWLINE, "\n"},
-		{STEP, "step"},
-		{IDENT, "q"},
-		{ASSIGN, "="},
-		{PRQL_BLOCK, "(from users | select {name, age})"},
-		{NEWLINE, "\n"},
+		{LPAREN, "("},
+		{RPAREN, ")"},
 		{EOF, ""},
 	}
 
@@ -138,8 +143,8 @@ step q = (from users | select {name, age})
 		tok := l.NextToken()
 
 		if tok.Type != tt.expectedType {
-			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",
-				i, tt.expectedType, tok.Type)
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q (literal=%q)",
+				i, tt.expectedType, tok.Type, tok.Literal)
 		}
 
 		if tok.Literal != tt.expectedLiteral {

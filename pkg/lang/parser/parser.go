@@ -5,47 +5,64 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 )
 
-// ParserError represents a syntax error found during parsing.
+// ParserError captures syntax violations with precise source location metadata.
 type ParserError struct {
 	Message string
 	Line    int
 	Column  int
 }
 
-// Parser represents the pointerless AST parser.
+// Parser implements a recursive descent parser for the Heddle DSL.
+// It leverages an ASTContext for pointerless node storage, ensuring GC-efficient
+// representation and memory locality. It supports arbitrary lookahead via an
+// internal token buffer.
 type Parser struct {
-	l         *lexer.Lexer
-	curToken  lexer.Token
-	peekToken lexer.Token
-	ctx       *ast.ASTContext
-	errors    []ParserError
+	l          *lexer.Lexer
+	curToken   lexer.Token   // Current token being evaluated
+	peekTokens []lexer.Token // Lookahead buffer for predictive parsing
+	ctx        *ast.ASTContext
+	errors     []ParserError
 }
 
-// New creates a new parser. It requires an ASTContext.
+// New initializes a parser with the provided lexer and AST context.
 func New(l *lexer.Lexer, ctx *ast.ASTContext) *Parser {
 	p := &Parser{
 		l:   l,
 		ctx: ctx,
 	}
-	// Read two tokens, so curToken and peekToken are both set
-	p.nextToken()
+	// Initial state: curToken is empty, buffer is empty.
+	// Prime the buffer and current token.
 	p.nextToken()
 	return p
 }
 
-func (p *Parser) nextToken() {
-	p.curToken = p.peekToken
-	p.peekToken = p.l.NextToken()
+// peek returns the token at the specified lookahead distance (0 for next, 1 for after, etc).
+func (p *Parser) peek(n int) lexer.Token {
+	for len(p.peekTokens) <= n {
+		p.peekTokens = append(p.peekTokens, p.l.NextToken())
+	}
+	return p.peekTokens[n]
 }
 
+// nextToken advances the parser state by one token.
+func (p *Parser) nextToken() {
+	p.curToken = p.peek(0)
+	if len(p.peekTokens) > 0 {
+		p.peekTokens = p.peekTokens[1:]
+	}
+}
+
+// curTokenIs checks if the current token matches the specified type.
 func (p *Parser) curTokenIs(t lexer.TokenType) bool {
 	return p.curToken.Type == t
 }
 
+// peekTokenIs checks if the next token matches the specified type.
 func (p *Parser) peekTokenIs(t lexer.TokenType) bool {
-	return p.peekToken.Type == t
+	return p.peek(0).Type == t
 }
 
+// expectPeek verifies the next token's type and advances if it matches.
 func (p *Parser) expectPeek(t lexer.TokenType) bool {
 	if p.peekTokenIs(t) {
 		p.nextToken()
@@ -55,18 +72,22 @@ func (p *Parser) expectPeek(t lexer.TokenType) bool {
 	return false
 }
 
+// Errors returns the collection of syntax errors encountered during parsing.
 func (p *Parser) Errors() []ParserError {
 	return p.errors
 }
 
+// peekError records a type mismatch error at the lookahead position.
 func (p *Parser) peekError(t lexer.TokenType) {
+	pk := p.peek(0)
 	p.errors = append(p.errors, ParserError{
-		Message: string(t) + " vs " + string(p.peekToken.Type), // Simplified message
-		Line:    p.peekToken.Line,
-		Column:  p.peekToken.Column,
+		Message: string(t) + " vs " + string(pk.Type),
+		Line:    pk.Line,
+		Column:  pk.Column,
 	})
 }
 
+// getPos retrieves the source position of the current token.
 func (p *Parser) getPos() ast.Position {
 	return ast.Position{
 		Line: uint32(p.curToken.Line),
@@ -74,6 +95,7 @@ func (p *Parser) getPos() ast.Position {
 	}
 }
 
+// getRange computes an AST range from a starting position to the current token.
 func (p *Parser) getRange(start ast.Position) ast.Range {
 	return ast.Range{
 		Start: start,
@@ -81,7 +103,7 @@ func (p *Parser) getRange(start ast.Position) ast.Range {
 	}
 }
 
-// Parse parses the source code and constructs an AST inside the ASTContext.
+// Parse orchestrates the top-level parsing loop.
 func (p *Parser) Parse() ast.ProgramNode {
 	program := ast.ProgramNode{
 		ImportRefsStart:   uint32(len(p.ctx.ImportRefs)),
@@ -93,7 +115,6 @@ func (p *Parser) Parse() ast.ProgramNode {
 	}
 
 	for !p.curTokenIs(lexer.EOF) {
-		// Skip leading newlines
 		if p.curTokenIs(lexer.NEWLINE) {
 			p.nextToken()
 			continue
@@ -129,36 +150,30 @@ func (p *Parser) Parse() ast.ProgramNode {
 
 func (p *Parser) parseImport() ast.NodeRef {
 	node := ast.ImportNode{}
-
 	if p.expectPeek(lexer.STRING_LIT) {
 		node.PathRef = p.ctx.AddString(p.curToken.Literal)
 	}
-
 	if p.expectPeek(lexer.IDENT) {
 		node.AliasRef = p.ctx.AddString(p.curToken.Literal)
 	}
-
 	return p.ctx.AddImportNode(node)
 }
 
 func (p *Parser) parseSchema() ast.NodeRef {
 	start := p.getPos()
 	node := ast.SchemaNode{}
-
 	if !p.expectPeek(lexer.IDENT) {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
-
 	if p.peekTokenIs(lexer.LBRACE) {
 		p.nextToken()
 		node.BlockRef = p.parseSchemaBlock()
 	} else if p.peekTokenIs(lexer.ASSIGN) {
-		p.nextToken() // consume =
-		p.nextToken() // move to start of schema ref
+		p.nextToken()
+		p.nextToken()
 		node.RefRef = p.parseSchemaRef()
 	}
-
 	ref := p.ctx.AddSchemaNode(node)
 	p.ctx.SetSchemaRange(ref, p.getRange(start))
 	return ref
@@ -168,22 +183,17 @@ func (p *Parser) parseSchemaBlock() ast.NodeRef {
 	node := ast.SchemaBlockNode{
 		FieldRefsStart: uint32(len(p.ctx.FieldRefs)),
 	}
-
-	// Skip potential NEWLINE before INDENT
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
-
 	if !p.expectPeek(lexer.INDENT) {
 		return 0
 	}
-
 	for !p.peekTokenIs(lexer.DEDENT) && !p.peekTokenIs(lexer.EOF) {
 		p.nextToken()
 		if p.curTokenIs(lexer.NEWLINE) {
 			continue
 		}
-
 		if p.curTokenIs(lexer.IDENT) {
 			field := ast.SchemaFieldNode{
 				NameRef: p.ctx.AddString(p.curToken.Literal),
@@ -192,7 +202,7 @@ func (p *Parser) parseSchemaBlock() ast.NodeRef {
 				if p.peekTokenIs(lexer.LBRACE) {
 					p.nextToken()
 					field.BlockRef = p.parseSchemaBlock()
-				} else if p.peekTokenIs(lexer.IDENT) || p.peekTokenIs(lexer.STRING) || p.peekTokenIs(lexer.INT) || p.peekTokenIs(lexer.BOOL) || p.peekTokenIs(lexer.FLOAT) || p.peekTokenIs(lexer.TIMESTAMP) {
+				} else if p.isTypeToken(p.peek(0).Type) {
 					p.nextToken()
 					field.TypeRef = p.ctx.AddString(p.curToken.Literal)
 				}
@@ -200,86 +210,74 @@ func (p *Parser) parseSchemaBlock() ast.NodeRef {
 			p.ctx.AddFieldRef(p.ctx.AddSchemaFieldNode(field))
 		}
 	}
-
 	if p.expectPeek(lexer.DEDENT) {
-		// consume dedent
 	}
-
-	// Skip potential NEWLINE after DEDENT
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
-
 	if p.expectPeek(lexer.RBRACE) {
-		// consume rbrace
 	}
-
 	node.FieldRefsEnd = uint32(len(p.ctx.FieldRefs))
 	return p.ctx.AddSchemaBlockNode(node)
 }
 
+func (p *Parser) isTypeToken(t lexer.TokenType) bool {
+	switch t {
+	case lexer.IDENT, lexer.STRING, lexer.INT, lexer.BOOL, lexer.FLOAT, lexer.TIMESTAMP:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Parser) parseSchemaRef() ast.NodeRef {
 	ref := ast.SchemaRefNode{}
-
 	if !p.curTokenIs(lexer.IDENT) {
 		return 0
 	}
-
 	ident1 := p.curToken.Literal
-
 	if p.peekTokenIs(lexer.DOT) {
-		p.nextToken() // consume .
-		p.nextToken() // consume next IDENT
+		p.nextToken()
+		p.nextToken()
 		ref.ModuleRef = p.ctx.AddString(ident1)
 		ref.NameRef = p.ctx.AddString(p.curToken.Literal)
 	} else {
 		ref.NameRef = p.ctx.AddString(ident1)
 	}
-
 	return p.ctx.AddSchemaRefNode(ref)
 }
 
 func (p *Parser) parseResource() ast.NodeRef {
 	node := ast.ResourceNode{}
-
 	if !p.expectPeek(lexer.IDENT) {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
-
 	if !p.expectPeek(lexer.ASSIGN) {
 		return 0
 	}
-
 	p.nextToken()
 	node.RefRef = p.parseFunctionRef()
-
 	return p.ctx.AddResourceNode(node)
 }
 
 func (p *Parser) parseStepBinding() ast.NodeRef {
 	start := p.getPos()
 	node := ast.StepBindingNode{}
-
 	if !p.expectPeek(lexer.IDENT) {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
-
 	if !p.expectPeek(lexer.COLON) {
 		return 0
 	}
-
 	p.nextToken()
 	node.SignatureRef = p.parseStepSignature()
-
 	if !p.expectPeek(lexer.ASSIGN) {
 		return 0
 	}
-
 	p.nextToken()
 	node.RefRef = p.parseFunctionRef()
-
 	ref := p.ctx.AddStepBindingNode(node)
 	p.ctx.SetStepRange(ref, p.getRange(start))
 	return ref
@@ -287,46 +285,34 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 
 func (p *Parser) parseStepSignature() ast.NodeRef {
 	sig := ast.StepSignatureNode{}
-
 	if p.curTokenIs(lexer.VOID) {
-		// Special value for void
 	} else {
 		sig.InputRef = p.parseSchemaRef()
 	}
-
 	if !p.expectPeek(lexer.ARROW) {
 		return 0
 	}
-
 	p.nextToken()
 	if p.curTokenIs(lexer.VOID) {
-		// Special value
 	} else {
 		sig.OutputRef = p.parseSchemaRef()
 	}
-
 	return p.ctx.AddStepSignatureNode(sig)
 }
 
 func (p *Parser) parseFunctionRef() ast.NodeRef {
 	fr := ast.FunctionRefNode{}
-
 	if !p.curTokenIs(lexer.IDENT) {
 		return 0
 	}
 	fr.ModuleRef = p.ctx.AddString(p.curToken.Literal)
-
 	if !p.expectPeek(lexer.DOT) {
 		return 0
 	}
-
 	if !p.expectPeek(lexer.IDENT) {
 		return 0
 	}
 	fr.NameRef = p.ctx.AddString(p.curToken.Literal)
-
-	// Resource/config skipped for now to keep it simple
-
 	return p.ctx.AddFunctionRefNode(fr)
 }
 
@@ -334,44 +320,33 @@ func (p *Parser) parseHandler() ast.NodeRef {
 	node := ast.HandlerNode{
 		StatementRefsStart: uint32(len(p.ctx.StatementRefs)),
 	}
-
 	if !p.expectPeek(lexer.IDENT) {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
-
 	if !p.expectPeek(lexer.LBRACE) {
 		return 0
 	}
-
-	// Skip NEWLINEs and INDENT
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
-
 	if !p.expectPeek(lexer.INDENT) {
 		return 0
 	}
-
 	for !p.peekTokenIs(lexer.DEDENT) && !p.peekTokenIs(lexer.EOF) {
 		p.nextToken()
 		if p.curTokenIs(lexer.NEWLINE) {
 			continue
 		}
-
 		p.ctx.AddStatementRef(p.parsePipelineStatement())
 	}
-
 	if p.expectPeek(lexer.DEDENT) {
 	}
-
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
-
 	if p.expectPeek(lexer.RBRACE) {
 	}
-
 	node.StatementRefsEnd = uint32(len(p.ctx.StatementRefs))
 	return p.ctx.AddHandlerNode(node)
 }
@@ -380,65 +355,58 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 	node := ast.WorkflowNode{
 		StatementRefsStart: uint32(len(p.ctx.StatementRefs)),
 	}
-
 	if !p.expectPeek(lexer.IDENT) {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
-
 	if p.peekTokenIs(lexer.QUESTION) {
-		p.nextToken() // consume ?
+		p.nextToken()
 		if p.expectPeek(lexer.IDENT) {
 			node.TrapRef = p.ctx.AddString(p.curToken.Literal)
 		}
 	}
-
 	if !p.expectPeek(lexer.LBRACE) {
 		return 0
 	}
-
-	// Skip NEWLINEs and INDENT
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
-
 	if !p.expectPeek(lexer.INDENT) {
 		return 0
 	}
-
 	for !p.peekTokenIs(lexer.DEDENT) && !p.peekTokenIs(lexer.EOF) {
 		p.nextToken()
 		if p.curTokenIs(lexer.NEWLINE) {
 			continue
 		}
-
 		p.ctx.AddStatementRef(p.parsePipelineStatement())
 	}
-
-	// Consume all DEDENTs
 	for p.peekTokenIs(lexer.DEDENT) {
 		p.nextToken()
 	}
-
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
-
 	if p.expectPeek(lexer.RBRACE) {
 	}
-
 	node.StatementRefsEnd = uint32(len(p.ctx.StatementRefs))
 	return p.ctx.AddWorkflowNode(node)
 }
 
 func (p *Parser) parsePipelineStatement() ast.NodeRef {
 	ps := ast.PipelineStatementNode{}
-
-	// Simplified: only pipe chains for now
 	ps.ExprRef = p.parsePipeChain()
 
-	if p.peekTokenIs(lexer.RANGLE) {
-		p.nextToken() // move to >
+	// Multi-token lookahead to handle assignment after varied whitespace
+	i := 0
+	for p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.INDENT || p.peek(i).Type == lexer.DEDENT {
+		i++
+	}
+	if p.peek(i).Type == lexer.RANGLE {
+		for j := 0; j < i; j++ {
+			p.nextToken()
+		}
+		p.nextToken() // consume '>'
 		if p.expectPeek(lexer.IDENT) {
 			ps.AssignmentRef = p.ctx.AddString(p.curToken.Literal)
 		}
@@ -451,53 +419,55 @@ func (p *Parser) parsePipeChain() ast.NodeRef {
 	node := ast.PipeChainNode{
 		CallRefsStart: uint32(len(p.ctx.CallRefs)),
 	}
-
 	p.ctx.AddCallRef(p.parseCall())
-
 	for {
 		if p.peekTokenIs(lexer.PIPE) {
-			p.nextToken() // |
-			p.nextToken() // start of call
+			p.nextToken()
+			p.nextToken()
 			p.ctx.AddCallRef(p.parseCall())
 		} else if p.peekTokenIs(lexer.NEWLINE) && p.isPipeOnNextLine() {
-			for p.peekTokenIs(lexer.NEWLINE) || p.peekTokenIs(lexer.INDENT) {
+			i := 0
+			for p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.INDENT {
+				i++
+			}
+			if p.peek(i).Type == lexer.PIPE {
+				for j := 0; j < i; j++ {
+					p.nextToken()
+				}
 				p.nextToken()
-			}
-			if p.peekTokenIs(lexer.PIPE) {
-				p.nextToken() // |
-				p.nextToken() // start of call
+				p.nextToken()
 				p.ctx.AddCallRef(p.parseCall())
-			} else {
-				break
+				continue
 			}
+			break
 		} else {
 			break
 		}
 	}
-
 	node.CallRefsEnd = uint32(len(p.ctx.CallRefs))
 	return p.ctx.AddPipeChainNode(node)
 }
 
 func (p *Parser) isPipeOnNextLine() bool {
-	return p.peekTokenIs(lexer.PIPE) || p.peekTokenIs(lexer.NEWLINE) || p.peekTokenIs(lexer.INDENT)
+	i := 0
+	for p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.INDENT {
+		i++
+	}
+	return p.peek(i).Type == lexer.PIPE
 }
 
 func (p *Parser) parseCall() ast.NodeRef {
 	start := p.getPos()
 	node := ast.CallNode{}
-
 	if p.curTokenIs(lexer.IDENT) {
 		node.NameRef = p.ctx.AddString(p.curToken.Literal)
 	}
-
 	if p.peekTokenIs(lexer.QUESTION) {
-		p.nextToken() // consume ?
+		p.nextToken()
 		if p.expectPeek(lexer.IDENT) {
 			node.TrapRef = p.ctx.AddString(p.curToken.Literal)
 		}
 	}
-
 	ref := p.ctx.AddCallNode(node)
 	p.ctx.SetCallRange(ref, p.getRange(start))
 	return ref

@@ -18,10 +18,10 @@ func TestASTContext_ConcurrentRead(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numReaders)
 
-	for i := 0; i < numReaders; i++ {
+	for range numReaders {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numReads; j++ {
+			for range numReads {
 				got := ctx.GetString(ref)
 				if got != str {
 					t.Errorf("expected %q, got %q", str, got)
@@ -54,7 +54,7 @@ func TestASTContext_ConcurrentReadWrite(t *testing.T) {
 	// Reader
 	go func() {
 		defer wg.Done()
-		for i := 0; i < numOps; i++ {
+		for range numOps {
 			// Just verify we can call GetString without crashing/racing
 			ctx.GetString(StringRef{Start: 0, End: 0})
 		}

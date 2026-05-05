@@ -81,22 +81,22 @@ type FunctionRefNode struct {
 
 // HandlerNode represents an error/event handler.
 type HandlerNode struct {
-	NameRef           StringRef
+	NameRef            StringRef
 	StatementRefsStart uint32
 	StatementRefsEnd   uint32
 }
 
 // WorkflowNode represents a workflow definition.
 type WorkflowNode struct {
-	NameRef           StringRef
-	TrapRef           StringRef // Optional trap handler name
+	NameRef            StringRef
+	TrapRef            StringRef // Optional trap handler name
 	StatementRefsStart uint32
 	StatementRefsEnd   uint32
 }
 
 // PipelineStatementNode represents a single line in a workflow/handler.
 type PipelineStatementNode struct {
-	ExprRef      NodeRef // Index in PipeChainNodes or DataframeNodes
+	ExprRef       NodeRef   // Index in PipeChainNodes or DataframeNodes
 	AssignmentRef StringRef // Optional > variable
 }
 

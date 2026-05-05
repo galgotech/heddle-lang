@@ -18,7 +18,9 @@ func TestParser(t *testing.T) {
 			name: "Simple Workflow",
 			input: `
 workflow main {
-    getData | process > result
+  getData
+    | process
+  > result
 }
 `,
 			expectedErrs: 0,
@@ -49,8 +51,8 @@ workflow main {
 import "std/http" http
 
 schema User {
-    name: string
-    age: int
+  name: string
+  age: int
 }
 `,
 			expectedErrs: 0,
@@ -69,7 +71,7 @@ schema User {
 			name: "Handler block",
 			input: `
 handler on_error {
-    * error -> void = console.log
+  * error -> void = console.log
 }
 `,
 			expectedErrs: 0,
@@ -130,10 +132,9 @@ workflow main {
 	ctx1 := ast.AcquireASTContext()
 	ast.ReleaseASTContext(ctx1)
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		l := lexer.New(input)
 		ctx := ast.AcquireASTContext()
 		p := New(l, ctx)

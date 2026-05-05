@@ -1,5 +1,7 @@
 package lexer
 
+
+
 type Lexer struct {
 	input        string
 	position     int  // current position in input (points to current char)
@@ -12,6 +14,7 @@ type Lexer struct {
 	pending     []Token
 	tabSize     int
 	indentStyle rune // ' ' for spaces, '\t' for tabs, 0 for not yet determined
+	lastTokType TokenType
 }
 
 func New(input string) *Lexer {
@@ -49,6 +52,7 @@ func (l *Lexer) NextToken() Token {
 	if len(l.pending) > 0 {
 		tok := l.pending[0]
 		l.pending = l.pending[1:]
+		l.lastTokType = tok.Type
 		return tok
 	}
 
@@ -58,7 +62,9 @@ func (l *Lexer) NextToken() Token {
 
 	switch l.ch {
 	case '\n', '\r':
-		return l.handleNewLine()
+		tok = l.handleNewLine()
+		l.lastTokType = tok.Type
+		return tok
 	case '=':
 		tok = newToken(ASSIGN, string(l.ch), l.line, l.column)
 	case ':':
@@ -67,6 +73,18 @@ func (l *Lexer) NextToken() Token {
 		tok = newToken(LBRACE, string(l.ch), l.line, l.column)
 	case '}':
 		tok = newToken(RBRACE, string(l.ch), l.line, l.column)
+	case '(':
+		if l.lastTokType == PIPE || l.lastTokType == ASSIGN {
+			tok.Type = PRQL_BLOCK
+			tok.Literal = l.readPRQLBlock()
+			tok.Line = l.line
+			tok.Column = l.column
+			l.lastTokType = tok.Type
+			return tok
+		}
+		tok = newToken(LPAREN, string(l.ch), l.line, l.column)
+	case ')':
+		tok = newToken(RPAREN, string(l.ch), l.line, l.column)
 	case '[':
 		tok = newToken(LBRACKET, string(l.ch), l.line, l.column)
 	case ']':
@@ -92,6 +110,7 @@ func (l *Lexer) NextToken() Token {
 			tok = newToken(ARROW, string(ch)+string(l.ch), l.line, l.column-1)
 		} else {
 			tok = l.readNumber()
+			l.lastTokType = tok.Type
 			return tok
 		}
 	case '"':
@@ -99,12 +118,7 @@ func (l *Lexer) NextToken() Token {
 		tok.Literal = l.readEscapedString()
 		tok.Line = l.line
 		tok.Column = l.column
-		return tok
-	case '(':
-		tok.Type = PRQL_BLOCK
-		tok.Literal = l.readPRQLBlock()
-		tok.Line = l.line
-		tok.Column = l.column
+		l.lastTokType = tok.Type
 		return tok
 	case '/':
 		if l.peekChar() == '/' {
@@ -115,7 +129,9 @@ func (l *Lexer) NextToken() Token {
 	case 0:
 		if len(l.indentStack) > 1 {
 			l.indentStack = l.indentStack[:len(l.indentStack)-1]
-			return newToken(DEDENT, "", l.line, l.column)
+			tok = newToken(DEDENT, "", l.line, l.column)
+			l.lastTokType = tok.Type
+			return tok
 		}
 		tok.Type = EOF
 		tok.Literal = ""
@@ -127,9 +143,11 @@ func (l *Lexer) NextToken() Token {
 			tok.Type = LookupIdent(tok.Literal)
 			tok.Line = l.line
 			tok.Column = l.column
+			l.lastTokType = tok.Type
 			return tok
 		} else if isDigit(l.ch) {
 			tok = l.readNumber()
+			l.lastTokType = tok.Type
 			return tok
 		} else {
 			tok = newToken(ILLEGAL, string(l.ch), l.line, l.column)
@@ -137,6 +155,7 @@ func (l *Lexer) NextToken() Token {
 	}
 
 	l.readChar()
+	l.lastTokType = tok.Type
 	return tok
 }
 
@@ -149,101 +168,60 @@ func (l *Lexer) skipInlineWhitespace() {
 func (l *Lexer) handleNewLine() Token {
 	line := l.line
 	col := l.column
-	literal := "\n"
-	if l.ch == '\r' && l.peekChar() == '\n' {
+	literal := ""
+
+	// Consume all consecutive newline characters
+	for l.ch == '\n' || l.ch == '\r' {
+		literal += string(l.ch)
 		l.readChar()
-		literal = "\r\n"
+		l.line++
+		l.column = 0
 	}
-	l.readChar()
-	l.line++
-	l.column = 0
 
-	// Peek ahead for indentation of next non-empty line
+	// Check for indentation on the new line
 	indentation := ""
+	for l.ch == ' ' || l.ch == '\t' {
+		indentation += string(l.ch)
+		l.readChar()
+	}
 
-	for {
-		if l.ch == ' ' || l.ch == '\t' {
-			indentation += string(l.ch)
-			l.readChar()
-		} else if l.ch == '\n' || l.ch == '\r' {
-			// Empty line, ignore its indentation
-			if l.ch == '\r' && l.peekChar() == '\n' {
-				l.readChar()
-			}
-			l.readChar()
-			l.line++
-			l.column = 0
-			indentation = ""
-		} else if l.ch == '/' && l.peekChar() == '/' {
-			// Comment line, ignore its indentation
-			for l.ch != '\n' && l.ch != '\r' && l.ch != 0 {
-				l.readChar()
-			}
-			// Continue to next line
-		} else {
-			break
+	// If the line is just whitespace or a comment, skip it and the indentation logic
+	if l.ch == '\n' || l.ch == '\r' || l.ch == 0 || (l.ch == '/' && l.peekChar() == '/') {
+		return l.NextToken()
+	}
+
+	// Calculate indentation level
+	currentIndent := 0
+	for _, char := range indentation {
+		if char == ' ' {
+			currentIndent++
+		} else if char == '\t' {
+			currentIndent += l.tabSize
 		}
 	}
 
-	if l.ch != 0 {
-		// Check for mixed indentation
-		hasSpaces := false
-		hasTabs := false
-		for _, char := range indentation {
-			if char == ' ' {
-				hasSpaces = true
-			} else if char == '\t' {
-				hasTabs = true
+	lastIndent := l.indentStack[len(l.indentStack)-1]
+
+	if currentIndent > lastIndent {
+		l.indentStack = append(l.indentStack, currentIndent)
+		l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1))
+	} else if currentIndent < lastIndent {
+		for currentIndent < lastIndent {
+			l.indentStack = l.indentStack[:len(l.indentStack)-1]
+			l.pending = append(l.pending, newToken(DEDENT, "", l.line, 1))
+			if len(l.indentStack) == 0 {
+				break
 			}
+			lastIndent = l.indentStack[len(l.indentStack)-1]
 		}
-
-		if hasSpaces && hasTabs {
-			l.pending = append(l.pending, newToken(ILLEGAL, "mixed tabs and spaces in indentation", l.line, 1))
-		} else {
-			var currentStyle rune
-			if hasSpaces {
-				currentStyle = ' '
-			} else if hasTabs {
-				currentStyle = '\t'
-			}
-
-			if currentStyle != 0 {
-				if l.indentStyle == 0 {
-					l.indentStyle = currentStyle
-				} else if l.indentStyle != currentStyle {
-					l.pending = append(l.pending, newToken(ILLEGAL, "inconsistent indentation style (tabs vs spaces)", l.line, 1))
-				}
-			}
-
-			currentIndent := l.calculateIndent(indentation)
-			lastIndent := l.indentStack[len(l.indentStack)-1]
-
-			if currentIndent > lastIndent {
-				l.indentStack = append(l.indentStack, currentIndent)
-				l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1))
-			} else if currentIndent < lastIndent {
-				for currentIndent < lastIndent {
-					l.indentStack = l.indentStack[:len(l.indentStack)-1]
-					l.pending = append(l.pending, newToken(DEDENT, "", l.line, 1))
-					if len(l.indentStack) == 0 {
-						break
-					}
-					lastIndent = l.indentStack[len(l.indentStack)-1]
-				}
-				if currentIndent != lastIndent {
-					l.pending = append(l.pending, newToken(ILLEGAL, "unindent does not match any outer indentation level", l.line, 1))
-				}
-			}
+		if currentIndent != lastIndent {
+			l.pending = append(l.pending, newToken(ILLEGAL, "unindent does not match any outer indentation level", l.line, 1))
 		}
 	}
 
-	// Remove restoration to allow the lexer to continue from the first non-whitespace character
-
-	// If we have pending DEDENTs, they should come BEFORE the NEWLINE
-	// that triggered them, to match the grammar pattern _DEDENT _NL "}"
 	hasDedent := false
-	for _, tok := range l.pending {
-		if tok.Type == DEDENT {
+	for _, t := range l.pending {
+		if t.Type == DEDENT {
 			hasDedent = true
 			break
 		}
@@ -251,14 +229,14 @@ func (l *Lexer) handleNewLine() Token {
 
 	nlTok := newToken(NEWLINE, literal, line, col)
 	if hasDedent {
-		// Put the NEWLINE after the DEDENTs in the pending queue
 		l.pending = append(l.pending, nlTok)
-		// Return the first DEDENT
 		tok := l.pending[0]
 		l.pending = l.pending[1:]
+		l.lastTokType = tok.Type
 		return tok
 	}
 
+	l.lastTokType = nlTok.Type
 	return nlTok
 }
 
@@ -328,9 +306,13 @@ func (l *Lexer) readPRQLBlock() string {
 				l.readChar()
 			}
 		}
-		l.readChar()
+		if depth > 0 {
+			l.readChar()
+		}
 	}
-	return l.input[start:l.position]
+	literal := l.input[start : l.position+1]
+	l.readChar() // consume )
+	return literal
 }
 
 func isLetter(ch byte) bool {
@@ -339,16 +321,4 @@ func isLetter(ch byte) bool {
 
 func isDigit(ch byte) bool {
 	return '0' <= ch && ch <= '9'
-}
-
-func (l *Lexer) calculateIndent(indentation string) int {
-	width := 0
-	for _, char := range indentation {
-		if char == '\t' {
-			width += l.tabSize - (width % l.tabSize)
-		} else {
-			width++
-		}
-	}
-	return width
 }
