@@ -50,7 +50,11 @@ func NewWorker(id, cpAddr string) (*Worker, error) {
 	client := flight.NewClientFromConn(conn, nil)
 
 	// Configure the DataManager to use /dev/shm for zero-copy memory mapping.
-	dataMgr := data.NewDataManager("/dev/shm/heddle", 1<<30) // 1GB limit
+	dataMgr, err := data.NewDataManager("/dev/shm/heddle", 1<<30) // 1GB limit
+	if err != nil {
+		return nil, fmt.Errorf("failed to create DataManager: %w", err)
+	}
+
 	udsAddr := fmt.Sprintf("/tmp/heddle-%s.sock", id)
 
 	return &Worker{

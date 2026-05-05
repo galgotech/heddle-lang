@@ -22,13 +22,15 @@ type DataManager struct {
 }
 
 // NewDataManager creates a new DataManager with a memory limit and spill path.
-func NewDataManager(basePath string, memoryLimit int64) *DataManager {
-	_ = os.MkdirAll(basePath, 0777)
+func NewDataManager(basePath string, memoryLimit int64) (*DataManager, error) {
+	if err := os.MkdirAll(basePath, 0777); err != nil {
+		return nil, fmt.Errorf("failed to create base path %s: %w", basePath, err)
+	}
 	return &DataManager{
 		basePath:    basePath,
 		memoryLimit: memoryLimit,
 		registry:    NewFrameRegistry(),
-	}
+	}, nil
 }
 
 // Put writes an Arrow Record to the managed storage.

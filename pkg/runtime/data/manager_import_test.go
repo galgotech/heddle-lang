@@ -18,7 +18,8 @@ func TestDataManager_Import(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	mgr := NewDataManager(tmpDir, 1<<30)
+	mgr, err := NewDataManager(tmpDir, 1<<30)
+	require.NoError(t, err)
 	defer mgr.Cleanup()
 
 	// 1. Create a record and write it to a file manually (simulating a plugin)
