@@ -50,17 +50,28 @@ func TestControlPlaneClient_SubmitWorkflow(t *testing.T) {
 	assert.NoError(t, err)
 	defer client.Close()
 
-	// Test submission
-	workflow := []byte("wokflowflow hello {\n \n}")
+	// Test submission with valid syntax
+	workflow := []byte("workflow main {\n    step1\n}")
 	result, err := client.SubmitWorkflow(context.Background(), workflow)
 	assert.NoError(t, err)
 	assert.Equal(t, "Workflow received successfully", result)
 }
 
+func TestControlPlaneClient_SubmitWorkflow_InvalidSyntax(t *testing.T) {
+	// Create client (no server needed for local syntax check)
+	client := &ControlPlaneClient{}
+
+	// Test submission with invalid syntax
+	workflow := []byte("invalid_keyword hello {\n \n}")
+	result, err := client.SubmitWorkflow(context.Background(), workflow)
+	
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "workflow submission aborted due to")
+	assert.Empty(t, result)
+}
+
 func TestControlPlaneClient_ConnectError(t *testing.T) {
 	// Try to connect to a non-existent server
 	_, err := NewControlPlaneClient("localhost:12345")
-	// Note: NewControlPlaneClient uses grpc.NewClient which doesn't block by default,
-	// so it might not error immediately. But let's check if it handles invalid config.
 	assert.NoError(t, err)
 }

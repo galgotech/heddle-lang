@@ -79,12 +79,21 @@ func LookupIdent(ident string) TokenType {
 }
 
 type Token struct {
-	Type    TokenType
-	Literal string
-	Line    int
-	Column  int
+	Type      TokenType
+	Literal   string
+	Line      int
+	Column    int
+	EndLine   int
+	EndColumn int
 }
 
-func newToken(tokenType TokenType, literal string, line int, column int) Token {
-	return Token{Type: tokenType, Literal: literal, Line: line, Column: column}
+func newToken(tokenType TokenType, literal string, line, col, endLine, endCol int) Token {
+	return Token{
+		Type:      tokenType,
+		Literal:   literal,
+		Line:      line,
+		Column:    col,
+		EndLine:   endLine,
+		EndColumn: endCol,
+	}
 }

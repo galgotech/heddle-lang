@@ -10,6 +10,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/dx/analyzer"
+	"github.com/galgotech/heddle-lang/pkg/dx/terminal"
 )
 
 // ControlPlaneClient represents a client that interacts with the Heddle control plane.
@@ -44,7 +49,36 @@ func (c *ControlPlaneClient) Close() error {
 }
 
 // SubmitWorkflow sends a Heddle workflow file to the control plane for processing.
+// It performs a local syntax check before submission.
 func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, workflow []byte) (string, error) {
+	// Perform initial syntax analysis
+	source := string(workflow)
+	l := lexer.New(source)
+	astCtx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(astCtx)
+
+	p := parser.New(l, astCtx)
+	p.Parse()
+
+	if len(p.Errors()) > 0 {
+		var diagnostics []analyzer.Diagnostic
+		for _, e := range p.Errors() {
+			diagnostics = append(diagnostics, analyzer.Diagnostic{
+				Message:  "Syntax Error: " + e.Message,
+				Range:    ast.Range{
+					Start: ast.Position{Line: uint32(e.Line), Col: uint32(e.Column)},
+					End:   ast.Position{Line: uint32(e.Line), Col: uint32(e.Column + 1)}, // Approximation
+				},
+				Severity: analyzer.Error,
+			})
+		}
+
+		reporter := terminal.NewReporter(source)
+		fmt.Println("--- Local Syntax Analysis Failed ---")
+		reporter.Report(diagnostics)
+		return "", fmt.Errorf("workflow submission aborted due to %d syntax errors", len(diagnostics))
+	}
+
 	action := &flight.Action{
 		Type: execution.ActionSubmitWorkflow,
 		Body: workflow,

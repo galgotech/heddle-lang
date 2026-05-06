@@ -9,7 +9,7 @@ type Lexer struct {
 	readPosition int  // current reading position in input (after current char)
 	ch           byte // current char under examination
 	line         int  // current line number (1-based)
-	column       int  // current column number (0-based)
+	column       int  // current column number (1-based)
 
 	indentStack []int     // stack of indentation levels for scope tracking
 	pending     []Token   // queue for tokens generated during lookahead (e.g., DEDENTs)
@@ -23,7 +23,7 @@ func New(input string) *Lexer {
 	l := &Lexer{
 		input:       input,
 		line:        1,
-		column:      0,
+		column:      0, // Will be incremented to 1 on first readChar
 		indentStack: []int{0},
 		tabSize:     4, // default tab size if not specified
 		indentStyle: 0,
@@ -66,6 +66,8 @@ func (l *Lexer) NextToken() Token {
 	l.skipInlineWhitespace()
 
 	var tok Token
+	startLine := l.line
+	startCol := l.column
 
 	switch l.ch {
 	case '\n', '\r':
@@ -73,49 +75,51 @@ func (l *Lexer) NextToken() Token {
 		l.lastTokType = tok.Type
 		return tok
 	case '=':
-		tok = newToken(ASSIGN, string(l.ch), l.line, l.column)
+		tok = newToken(ASSIGN, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case ':':
-		tok = newToken(COLON, string(l.ch), l.line, l.column)
+		tok = newToken(COLON, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '{':
-		tok = newToken(LBRACE, string(l.ch), l.line, l.column)
+		tok = newToken(LBRACE, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '}':
-		tok = newToken(RBRACE, string(l.ch), l.line, l.column)
+		tok = newToken(RBRACE, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '(':
 		// Check for PRQL block: triggered by '(' following a PIPE or ASSIGN
 		if l.lastTokType == PIPE || l.lastTokType == ASSIGN {
 			tok.Type = PRQL_BLOCK
 			tok.Literal = l.readPRQLBlock()
-			tok.Line = l.line
-			tok.Column = l.column
+			tok.Line = startLine
+			tok.Column = startCol
+			tok.EndLine = l.line
+			tok.EndColumn = l.column
 			l.lastTokType = tok.Type
 			return tok
 		}
-		tok = newToken(LPAREN, string(l.ch), l.line, l.column)
+		tok = newToken(LPAREN, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case ')':
-		tok = newToken(RPAREN, string(l.ch), l.line, l.column)
+		tok = newToken(RPAREN, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '[':
-		tok = newToken(LBRACKET, string(l.ch), l.line, l.column)
+		tok = newToken(LBRACKET, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case ']':
-		tok = newToken(RBRACKET, string(l.ch), l.line, l.column)
+		tok = newToken(RBRACKET, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '*':
-		tok = newToken(ASTERISK, string(l.ch), l.line, l.column)
+		tok = newToken(ASTERISK, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '>':
-		tok = newToken(RANGLE, string(l.ch), l.line, l.column)
+		tok = newToken(RANGLE, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '<':
-		tok = newToken(LANGLE, string(l.ch), l.line, l.column)
+		tok = newToken(LANGLE, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '|':
-		tok = newToken(PIPE, string(l.ch), l.line, l.column)
+		tok = newToken(PIPE, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '?':
-		tok = newToken(QUESTION, string(l.ch), l.line, l.column)
+		tok = newToken(QUESTION, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case ',':
-		tok = newToken(COMMA, string(l.ch), l.line, l.column)
+		tok = newToken(COMMA, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '.':
-		tok = newToken(DOT, string(l.ch), l.line, l.column)
+		tok = newToken(DOT, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case '-':
 		if l.peekChar() == '>' {
 			ch := l.ch
 			l.readChar()
-			tok = newToken(ARROW, string(ch)+string(l.ch), l.line, l.column-1)
+			tok = newToken(ARROW, string(ch)+string(l.ch), startLine, startCol, l.line, l.column+1)
 		} else {
 			tok = l.readNumber()
 			l.lastTokType = tok.Type
@@ -124,8 +128,10 @@ func (l *Lexer) NextToken() Token {
 	case '"':
 		tok.Type = STRING_LIT
 		tok.Literal = l.readEscapedString()
-		tok.Line = l.line
-		tok.Column = l.column
+		tok.Line = startLine
+		tok.Column = startCol
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
 		l.lastTokType = tok.Type
 		return tok
 	case '/':
@@ -133,12 +139,12 @@ func (l *Lexer) NextToken() Token {
 			l.skipComment()
 			return l.NextToken()
 		}
-		tok = newToken(ILLEGAL, string(l.ch), l.line, l.column)
+		tok = newToken(ILLEGAL, string(l.ch), startLine, startCol, l.line, l.column+1)
 	case 0:
 		// Emit DEDENT tokens for remaining indentation levels at EOF
 		if len(l.indentStack) > 1 {
 			l.indentStack = l.indentStack[:len(l.indentStack)-1]
-			tok = newToken(DEDENT, "", l.line, l.column)
+			tok = newToken(DEDENT, "", l.line, l.column, l.line, l.column)
 			l.lastTokType = tok.Type
 			return tok
 		}
@@ -146,12 +152,16 @@ func (l *Lexer) NextToken() Token {
 		tok.Literal = ""
 		tok.Line = l.line
 		tok.Column = l.column
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
 	default:
 		if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
 			tok.Type = LookupIdent(tok.Literal)
-			tok.Line = l.line
-			tok.Column = l.column
+			tok.Line = startLine
+			tok.Column = startCol
+			tok.EndLine = l.line
+			tok.EndColumn = l.column
 			l.lastTokType = tok.Type
 			return tok
 		} else if isDigit(l.ch) {
@@ -159,7 +169,7 @@ func (l *Lexer) NextToken() Token {
 			l.lastTokType = tok.Type
 			return tok
 		} else {
-			tok = newToken(ILLEGAL, string(l.ch), l.line, l.column)
+			tok = newToken(ILLEGAL, string(l.ch), startLine, startCol, l.line, l.column+1)
 		}
 	}
 
@@ -206,7 +216,7 @@ func (l *Lexer) handleNewLine() Token {
 
 	// validate indentation consistency: mixing tabs and spaces is disallowed
 	if hasSpace && hasTab {
-		l.pending = append(l.pending, newToken(ILLEGAL, "mixed tabs and spaces in indentation", l.line, 1))
+		l.pending = append(l.pending, newToken(ILLEGAL, "mixed tabs and spaces in indentation", l.line, 1, l.line, 1))
 	}
 
 	// enforce a uniform indentation style throughout the file
@@ -215,7 +225,7 @@ func (l *Lexer) handleNewLine() Token {
 		if l.indentStyle == 0 {
 			l.indentStyle = currentStyle
 		} else if l.indentStyle != currentStyle {
-			l.pending = append(l.pending, newToken(ILLEGAL, "conflicting indentation style in file", l.line, 1))
+			l.pending = append(l.pending, newToken(ILLEGAL, "conflicting indentation style in file", l.line, 1, l.line, 1))
 		}
 	}
 
@@ -239,12 +249,12 @@ func (l *Lexer) handleNewLine() Token {
 	// compare current indentation against the stack to detect scope changes
 	if currentIndent > lastIndent {
 		l.indentStack = append(l.indentStack, currentIndent)
-		l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1))
+		l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1, l.line, len(indentation)+1))
 	} else if currentIndent < lastIndent {
 		// pop indentation levels until matching an existing outer level
 		for currentIndent < lastIndent {
 			l.indentStack = l.indentStack[:len(l.indentStack)-1]
-			l.pending = append(l.pending, newToken(DEDENT, "", l.line, 1))
+			l.pending = append(l.pending, newToken(DEDENT, "", l.line, 1, l.line, 1))
 			if len(l.indentStack) == 0 {
 				break
 			}
@@ -252,7 +262,7 @@ func (l *Lexer) handleNewLine() Token {
 		}
 		// mismatch error if the de-indentation doesn't align with a previous level
 		if currentIndent != lastIndent {
-			l.pending = append(l.pending, newToken(ILLEGAL, "unindent does not match any outer indentation level", l.line, 1))
+			l.pending = append(l.pending, newToken(ILLEGAL, "unindent does not match any outer indentation level", l.line, 1, l.line, 1))
 		}
 	}
 
@@ -265,7 +275,7 @@ func (l *Lexer) handleNewLine() Token {
 		}
 	}
 
-	nlTok := newToken(NEWLINE, literal, line, col)
+	nlTok := newToken(NEWLINE, literal, line, col, l.line, 1)
 	// if dedents exist, they must be emitted BEFORE the newline to maintain block integrity
 	if hasDedent {
 		l.pending = append(l.pending, nlTok)
@@ -312,7 +322,14 @@ func (l *Lexer) readNumber() Token {
 			l.readChar()
 		}
 	}
-	return Token{Type: NUMBER_LIT, Literal: l.input[position:l.position], Line: line, Column: col}
+	return Token{
+		Type:      NUMBER_LIT,
+		Literal:   l.input[position:l.position],
+		Line:      line,
+		Column:    col,
+		EndLine:   l.line,
+		EndColumn: l.column,
+	}
 }
 
 // readEscapedString extracts a double-quoted string literal, handling backslash escapes.

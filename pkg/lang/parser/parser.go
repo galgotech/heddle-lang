@@ -71,6 +71,7 @@ func (p *Parser) expectPeek(t lexer.TokenType) bool {
 		return true
 	}
 	p.peekError(t)
+	// Do not advance on error here, allow the caller to decide on recovery.
 	return false
 }
 
@@ -98,7 +99,7 @@ func (p *Parser) curError(msg string) {
 	})
 }
 
-// getPos retrieves the source position of the current token for AST metadata.
+// getPos retrieves the source starting position of the current token.
 func (p *Parser) getPos() ast.Position {
 	return ast.Position{
 		Line: uint32(p.curToken.Line),
@@ -106,12 +107,19 @@ func (p *Parser) getPos() ast.Position {
 	}
 }
 
-// getRange computes an AST range from a starting position to the current token.
-// Used for tracking node boundaries for LSP features like hover and go-to-definition.
+// getEndPos retrieves the source ending position of the current token.
+func (p *Parser) getEndPos() ast.Position {
+	return ast.Position{
+		Line: uint32(p.curToken.EndLine),
+		Col:  uint32(p.curToken.EndColumn),
+	}
+}
+
+// getRange computes an AST range from a starting position to the end of the current token.
 func (p *Parser) getRange(start ast.Position) ast.Range {
 	return ast.Range{
 		Start: start,
-		End:   p.getPos(),
+		End:   p.getEndPos(),
 	}
 }
 
