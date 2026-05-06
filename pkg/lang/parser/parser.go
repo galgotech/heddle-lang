@@ -15,28 +15,30 @@ type ParserError struct {
 // Parser implements a recursive descent parser for the Heddle DSL.
 // It leverages an ASTContext for pointerless node storage, ensuring GC-efficient
 // representation and memory locality. It supports arbitrary lookahead via an
-// internal token buffer.
+// internal token buffer to handle complex pipeline and assignment syntax.
 type Parser struct {
 	l          *lexer.Lexer
-	curToken   lexer.Token   // Current token being evaluated
-	peekTokens []lexer.Token // Lookahead buffer for predictive parsing
+	curToken   lexer.Token   // Current token being evaluated in the grammar
+	peekTokens []lexer.Token // Lookahead buffer for predictive parsing decisions
 	ctx        *ast.ASTContext
-	errors     []ParserError
+	errors     []ParserError // Collection of syntax violations encountered during the pass
 }
 
 // New initializes a parser with the provided lexer and AST context.
+// It primes the internal token buffer to prepare for the first parse operation.
 func New(l *lexer.Lexer, ctx *ast.ASTContext) *Parser {
 	p := &Parser{
 		l:   l,
 		ctx: ctx,
 	}
-	// Initial state: curToken is empty, buffer is empty.
-	// Prime the buffer and current token.
+	// Prime the parser state by populating curToken and the peek buffer.
 	p.nextToken()
 	return p
 }
 
-// peek returns the token at the specified lookahead distance (0 for next, 1 for after, etc).
+// peek returns the token at the specified lookahead distance.
+// n=0 corresponds to the immediate next token. It lazily populates the buffer
+// from the lexer as needed.
 func (p *Parser) peek(n int) lexer.Token {
 	for len(p.peekTokens) <= n {
 		p.peekTokens = append(p.peekTokens, p.l.NextToken())
@@ -96,7 +98,7 @@ func (p *Parser) curError(msg string) {
 	})
 }
 
-// getPos retrieves the source position of the current token.
+// getPos retrieves the source position of the current token for AST metadata.
 func (p *Parser) getPos() ast.Position {
 	return ast.Position{
 		Line: uint32(p.curToken.Line),
@@ -105,6 +107,7 @@ func (p *Parser) getPos() ast.Position {
 }
 
 // getRange computes an AST range from a starting position to the current token.
+// Used for tracking node boundaries for LSP features like hover and go-to-definition.
 func (p *Parser) getRange(start ast.Position) ast.Range {
 	return ast.Range{
 		Start: start,
@@ -112,7 +115,9 @@ func (p *Parser) getRange(start ast.Position) ast.Range {
 	}
 }
 
-// Parse orchestrates the top-level parsing loop.
+// Parse orchestrates the top-level parsing loop, consuming tokens until EOF.
+// It populates the ASTContext with definitions and returns a ProgramNode
+// containing reference offsets into the context's flat storage.
 func (p *Parser) Parse() ast.ProgramNode {
 	program := ast.ProgramNode{
 		ImportRefsStart:   uint32(len(p.ctx.ImportRefs)),
@@ -144,10 +149,12 @@ func (p *Parser) Parse() ast.ProgramNode {
 			p.ctx.AddWorkflowRef(p.parseWorkflow())
 		default:
 			p.curError("unexpected token " + string(p.curToken.Type) + " at top level")
+			// Attempt to recover by skipping to the next valid top-level construct.
 			p.synchronizeTopLevel()
 		}
 	}
 
+	// Finalize program boundaries in the ASTContext.
 	program.ImportRefsEnd = uint32(len(p.ctx.ImportRefs))
 	program.SchemaRefsEnd = uint32(len(p.ctx.SchemaRefs))
 	program.ResourceRefsEnd = uint32(len(p.ctx.ResourceRefs))
@@ -167,6 +174,8 @@ func (p *Parser) isTopLevelKeyword(t lexer.TokenType) bool {
 	}
 }
 
+// synchronizeTopLevel skips tokens until a known top-level keyword or EOF is found.
+// Used for error recovery to prevent cascading failures from a single syntax error.
 func (p *Parser) synchronizeTopLevel() {
 	p.nextToken()
 	for !p.curTokenIs(lexer.EOF) {
@@ -177,6 +186,8 @@ func (p *Parser) synchronizeTopLevel() {
 	}
 }
 
+// synchronizeToNextStatement attempts to recover from errors within a block
+// by skipping to the next statement boundary, accounting for nested indents and braces.
 func (p *Parser) synchronizeToNextStatement() {
 	indents := 0
 	braces := 0
@@ -201,6 +212,7 @@ func (p *Parser) synchronizeToNextStatement() {
 			}
 		} else if p.peekTokenIs(lexer.NEWLINE) {
 			p.nextToken()
+			// A newline at the base indentation level marks a statement boundary.
 			if indents == 0 && braces == 0 {
 				return
 			}
@@ -210,6 +222,7 @@ func (p *Parser) synchronizeToNextStatement() {
 	}
 }
 
+// parseImport handles 'import "path" as alias' statements.
 func (p *Parser) parseImport() ast.NodeRef {
 	node := ast.ImportNode{}
 	if p.expectPeek(lexer.STRING_LIT) {
@@ -222,6 +235,7 @@ func (p *Parser) parseImport() ast.NodeRef {
 	return p.ctx.AddImportNode(node)
 }
 
+// parseSchema handles both inline schema blocks and schema aliases (Schema = OtherSchema).
 func (p *Parser) parseSchema() ast.NodeRef {
 	start := p.getPos()
 	node := ast.SchemaNode{}
@@ -243,10 +257,12 @@ func (p *Parser) parseSchema() ast.NodeRef {
 	return ref
 }
 
+// parseSchemaBlock parses a block of schema fields, handling indentation-based nesting.
 func (p *Parser) parseSchemaBlock() ast.NodeRef {
 	node := ast.SchemaBlockNode{
 		FieldRefsStart: uint32(len(p.ctx.FieldRefs)),
 	}
+	// Consume leading newlines before the block content.
 	for p.peekTokenIs(lexer.NEWLINE) {
 		p.nextToken()
 	}
@@ -265,6 +281,7 @@ func (p *Parser) parseSchemaBlock() ast.NodeRef {
 			if p.expectPeek(lexer.COLON) {
 				if p.peekTokenIs(lexer.LBRACE) {
 					p.nextToken()
+					// Support nested schema blocks.
 					field.BlockRef = p.parseSchemaBlock()
 				} else if p.isTypeToken(p.peek(0).Type) {
 					p.nextToken()
@@ -285,6 +302,7 @@ func (p *Parser) parseSchemaBlock() ast.NodeRef {
 	return p.ctx.AddSchemaBlockNode(node)
 }
 
+// isTypeToken checks if the given token can represent a primitive or custom type name.
 func (p *Parser) isTypeToken(t lexer.TokenType) bool {
 	switch t {
 	case lexer.IDENT, lexer.STRING, lexer.INT, lexer.BOOL, lexer.FLOAT, lexer.TIMESTAMP:
@@ -294,6 +312,7 @@ func (p *Parser) isTypeToken(t lexer.TokenType) bool {
 	}
 }
 
+// parseSchemaRef parses a reference to a schema, potentially qualified by a module name.
 func (p *Parser) parseSchemaRef() ast.NodeRef {
 	ref := ast.SchemaRefNode{}
 	if !p.curTokenIs(lexer.IDENT) {
@@ -311,6 +330,7 @@ func (p *Parser) parseSchemaRef() ast.NodeRef {
 	return p.ctx.AddSchemaRefNode(ref)
 }
 
+// parseResource handles global resource declarations (e.g., db = postgres.Conn).
 func (p *Parser) parseResource() ast.NodeRef {
 	node := ast.ResourceNode{}
 	if !p.expectPeek(lexer.IDENT) {
@@ -326,6 +346,7 @@ func (p *Parser) parseResource() ast.NodeRef {
 	return p.ctx.AddResourceNode(node)
 }
 
+// parseStepBinding handles the mapping of a typed step signature to an external implementation.
 func (p *Parser) parseStepBinding() ast.NodeRef {
 	start := p.getPos()
 	node := ast.StepBindingNode{}
@@ -349,6 +370,7 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 	return ref
 }
 
+// parseStepSignature parses the 'InputSchema -> OutputSchema' type contract for a step.
 func (p *Parser) parseStepSignature() ast.NodeRef {
 	sig := ast.StepSignatureNode{}
 	if p.curTokenIs(lexer.VOID) {
@@ -366,6 +388,7 @@ func (p *Parser) parseStepSignature() ast.NodeRef {
 	return p.ctx.AddStepSignatureNode(sig)
 }
 
+// parseFunctionRef parses a qualified reference to an external function (e.g., python_mod.func).
 func (p *Parser) parseFunctionRef() ast.NodeRef {
 	fr := ast.FunctionRefNode{}
 	if !p.curTokenIs(lexer.IDENT) {
@@ -382,6 +405,7 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 	return p.ctx.AddFunctionRefNode(fr)
 }
 
+// parseHandler parses a 'handler' block, which contains a sequence of pipeline statements.
 func (p *Parser) parseHandler() ast.NodeRef {
 	node := ast.HandlerNode{
 		StatementRefsStart: uint32(len(p.ctx.StatementRefs)),
@@ -418,6 +442,7 @@ func (p *Parser) parseHandler() ast.NodeRef {
 	return p.ctx.AddHandlerNode(node)
 }
 
+// parseWorkflow parses a 'workflow' block, supporting optional error traps and pipeline steps.
 func (p *Parser) parseWorkflow() ast.NodeRef {
 	node := ast.WorkflowNode{
 		StatementRefsStart: uint32(len(p.ctx.StatementRefs)),
@@ -461,9 +486,12 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 	return p.ctx.AddWorkflowNode(node)
 }
 
+// parsePipelineStatement handles the 'expr | expr > variable' syntax.
+// It uses multi-token lookahead to detect optional assignments on subsequent lines.
 func (p *Parser) parsePipelineStatement() ast.NodeRef {
 	ps := ast.PipelineStatementNode{}
 
+	// Skip commented-out statements or markers.
 	if p.curTokenIs(lexer.ASTERISK) {
 		p.synchronizeToNextStatement()
 		return 0
@@ -477,7 +505,9 @@ func (p *Parser) parsePipelineStatement() ast.NodeRef {
 
 	ps.ExprRef = p.parsePipeChain()
 
-	// Multi-token lookahead to handle assignment after varied whitespace
+	// Look ahead for the assignment operator ('>').
+	// We must skip arbitrary combinations of NEWLINE and INDENT/DEDENT to support
+	// multi-line pipelines where the assignment is detached.
 	i := 0
 	hasSeparator := false
 	for p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.INDENT || p.peek(i).Type == lexer.DEDENT {
@@ -487,10 +517,12 @@ func (p *Parser) parsePipelineStatement() ast.NodeRef {
 		i++
 	}
 
+	// If we find '>' after the expression, it's an assignment.
 	if p.peek(i).Type == lexer.RANGLE {
 		if !hasSeparator {
 			p.curError("pipeline assignment must be on a new line")
 		}
+		// Consume the bridge tokens and the assignment operator.
 		for j := 0; j < i; j++ {
 			p.nextToken()
 		}
@@ -503,6 +535,8 @@ func (p *Parser) parsePipelineStatement() ast.NodeRef {
 	return p.ctx.AddPipelineStatementNode(ps)
 }
 
+// parsePipeChain parses a series of calls linked by the pipe operator ('|').
+// It supports both same-line and multi-line pipe connections.
 func (p *Parser) parsePipeChain() ast.NodeRef {
 	node := ast.PipeChainNode{
 		CallRefsStart: uint32(len(p.ctx.CallRefs)),
@@ -510,10 +544,12 @@ func (p *Parser) parsePipeChain() ast.NodeRef {
 	p.ctx.AddCallRef(p.parseCall())
 	for {
 		if p.peekTokenIs(lexer.PIPE) {
+			p.curError("pipe operator '|' must be on a new line")
 			p.nextToken()
 			p.nextToken()
 			p.ctx.AddCallRef(p.parseCall())
 		} else if p.peekTokenIs(lexer.NEWLINE) && p.isPipeOnNextLine() {
+			// Multi-line pipe detection.
 			i := 0
 			for p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.INDENT {
 				i++
@@ -544,12 +580,14 @@ func (p *Parser) isPipeOnNextLine() bool {
 	return p.peek(i).Type == lexer.PIPE
 }
 
+// parseCall parses an individual step or function call, including its optional error trap.
 func (p *Parser) parseCall() ast.NodeRef {
 	start := p.getPos()
 	node := ast.CallNode{}
 	if p.curTokenIs(lexer.IDENT) {
 		node.NameRef = p.ctx.AddString(p.curToken.Literal)
 	}
+	// Check for error handling 'trap' (e.g., step?errorHandler).
 	if p.peekTokenIs(lexer.QUESTION) {
 		p.nextToken()
 		if p.expectPeek(lexer.IDENT) {

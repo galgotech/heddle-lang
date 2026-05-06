@@ -94,7 +94,7 @@ workflow main {
   getData | process > result
 }
 `,
-			expectedErrs: 1,
+			expectedErrs: 2,
 		},
 		{
 			name: "Invalid standalone expression",
@@ -140,6 +140,35 @@ workflow main {
 }
 `,
 			expectedErrs: 1,
+		},
+		{
+			name: "Same-line pipe forbidden",
+			input: `
+workflow main {
+  stepA | stepB
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "User provided correct syntax",
+			input: `
+schema S1 {
+  f: int
+}
+schema S2 {
+  g: string
+}
+
+step stepA: S1 -> S2 = m.a
+step stepB: S1 -> void = m.b
+
+workflow main {
+  stepA
+    | stepB
+}
+`,
+			expectedErrs: 0,
 		},
 	}
 

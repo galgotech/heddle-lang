@@ -3,11 +3,12 @@ package compiler
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestValidator_TypeMismatch(t *testing.T) {
@@ -23,7 +24,8 @@ step stepA: S1 -> S2 = m.a
 step stepB: S1 -> void = m.b
 
 workflow main {
-    stepA | stepB
+    stepA
+        | stepB
 }
 `
 	ctx := ast.AcquireASTContext()
@@ -54,7 +56,8 @@ step stepA: S1 -> S2 = m.a
 step stepC: S2 -> S2 = m.c
 
 workflow main {
-    stepA | stepC
+    stepA
+        | stepC
 }
 `
 	ctx := ast.AcquireASTContext()
@@ -84,7 +87,8 @@ step stepA: S1 -> S1 = m.a
 step stepB: S2 -> void = m.b
 
 workflow main {
-    stepA | stepB
+    stepA
+        | stepB
 }
 `
 	ctx := ast.AcquireASTContext()
