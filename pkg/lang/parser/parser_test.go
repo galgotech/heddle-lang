@@ -87,6 +87,15 @@ handler on_error {
 				}
 			},
 		},
+		{
+			name: "Illegal inline assignment",
+			input: `
+workflow main {
+  getData | process > result
+}
+`,
+			expectedErrs: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -112,10 +121,15 @@ handler on_error {
 
 func BenchmarkParser(b *testing.B) {
 	input := `
-import "std/http" http
+import "std/io" io
+
 schema User {
   name: string
   age: int
+}
+
+step get_data: void -> data = io.file {
+  path: "./file.txt"
 }
 
 handdle on_error  {
@@ -124,6 +138,7 @@ handdle on_error  {
 
 workflow main {
   getData
+    | (select name from getData)
     | process ? on_error
   > result
 }

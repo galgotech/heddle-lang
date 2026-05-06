@@ -87,6 +87,15 @@ func (p *Parser) peekError(t lexer.TokenType) {
 	})
 }
 
+// curError records a custom error message at the current token position.
+func (p *Parser) curError(msg string) {
+	p.errors = append(p.errors, ParserError{
+		Message: msg,
+		Line:    p.curToken.Line,
+		Column:  p.curToken.Column,
+	})
+}
+
 // getPos retrieves the source position of the current token.
 func (p *Parser) getPos() ast.Position {
 	return ast.Position{
@@ -134,6 +143,7 @@ func (p *Parser) Parse() ast.ProgramNode {
 		case lexer.WORKFLOW:
 			p.ctx.AddWorkflowRef(p.parseWorkflow())
 		default:
+			p.curError("unexpected token " + string(p.curToken.Type) + " at top level")
 			p.nextToken()
 		}
 	}
@@ -156,6 +166,7 @@ func (p *Parser) parseImport() ast.NodeRef {
 	if p.expectPeek(lexer.IDENT) {
 		node.AliasRef = p.ctx.AddString(p.curToken.Literal)
 	}
+	p.nextToken()
 	return p.ctx.AddImportNode(node)
 }
 
@@ -176,6 +187,7 @@ func (p *Parser) parseSchema() ast.NodeRef {
 	}
 	ref := p.ctx.AddSchemaNode(node)
 	p.ctx.SetSchemaRange(ref, p.getRange(start))
+	p.nextToken()
 	return ref
 }
 
@@ -258,6 +270,7 @@ func (p *Parser) parseResource() ast.NodeRef {
 	}
 	p.nextToken()
 	node.RefRef = p.parseFunctionRef()
+	p.nextToken()
 	return p.ctx.AddResourceNode(node)
 }
 
@@ -280,6 +293,7 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 	node.RefRef = p.parseFunctionRef()
 	ref := p.ctx.AddStepBindingNode(node)
 	p.ctx.SetStepRange(ref, p.getRange(start))
+	p.nextToken()
 	return ref
 }
 
@@ -348,6 +362,7 @@ func (p *Parser) parseHandler() ast.NodeRef {
 	if p.expectPeek(lexer.RBRACE) {
 	}
 	node.StatementRefsEnd = uint32(len(p.ctx.StatementRefs))
+	p.nextToken()
 	return p.ctx.AddHandlerNode(node)
 }
 
@@ -390,6 +405,7 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 	if p.expectPeek(lexer.RBRACE) {
 	}
 	node.StatementRefsEnd = uint32(len(p.ctx.StatementRefs))
+	p.nextToken()
 	return p.ctx.AddWorkflowNode(node)
 }
 
@@ -399,10 +415,18 @@ func (p *Parser) parsePipelineStatement() ast.NodeRef {
 
 	// Multi-token lookahead to handle assignment after varied whitespace
 	i := 0
+	hasSeparator := false
 	for p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.INDENT || p.peek(i).Type == lexer.DEDENT {
+		if p.peek(i).Type == lexer.NEWLINE || p.peek(i).Type == lexer.DEDENT {
+			hasSeparator = true
+		}
 		i++
 	}
+
 	if p.peek(i).Type == lexer.RANGLE {
+		if !hasSeparator {
+			p.curError("pipeline assignment must be on a new line")
+		}
 		for j := 0; j < i; j++ {
 			p.nextToken()
 		}

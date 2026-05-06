@@ -36,7 +36,7 @@ workflow main {
 
 	v := NewValidator(prog, ctx)
 	err := v.Validate()
-	
+
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "type mismatch")
 }
@@ -67,7 +67,7 @@ workflow main {
 
 	v := NewValidator(prog, ctx)
 	err := v.Validate()
-	
+
 	assert.NoError(t, err)
 }
 
@@ -97,6 +97,6 @@ workflow main {
 
 	v := NewValidator(prog, ctx)
 	err := v.Validate()
-	
+
 	assert.NoError(t, err)
 }
