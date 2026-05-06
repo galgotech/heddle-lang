@@ -1,16 +1,16 @@
 # **Heddle: The Language for Orchestration Logic**
 
-_Simplicity, Order, and Radical Reuse._
+_Simplicity, High Performance, and Radical Reuse._
 
-Heddle is a strictly-typed, domain-specific programming language (DSL) and orchestration engine designed for orchestrating logic, whether it be data pipelines, microservices, or other tasks. It bridges the gap between the rigorous safety of functional data pipelines and the pragmatic utility of imperative code (Go/Python/NodeJS/Rust).
+Heddle is a strictly-typed, domain-specific programming language (DSL) and orchestration engine designed for orchestrating logic, whether it be data pipelines, distributed backend systems, or other complex tasks. It bridges the gap between the rigorous safety of functional data pipelines and the pragmatic utility of imperative code (Go/Python/NodeJS/Rust).
 
-**Join our community of adopters, contributors, and visionaries building a massive ecosystem of reusable Steps and modules!**
+**Join the weave. Collaborate on the core and help us architect an ecosystem of radical reusability through `fhub`.**
 
 ---
 
 ## **What Does Heddle Look Like?**
 
-Heddle favors explicit contracts and readable pipelines. Below is a comprehensive example demonstrating schemas, resources, complex error handlers, native PRQL integration, and multiple workflows in a single file.
+Heddle uses explicit contracts and readable pipelines. Below is a comprehensive example demonstrating schemas, resources, complex error handlers, native PRQL integration, and multiple workflows in a single file.
 
 ```heddle
 // auth_service.he
@@ -19,7 +19,6 @@ import "fhub/http" http
 import "fhub/database" db
 import "fhub/security" security
 import "fhub/input" input
-import "fhub/console" console
 import "fhub/window" window
 import "std/io" io
 
@@ -51,11 +50,13 @@ step user_exists: User -> User = db.query {
   query: "SELECT id, username FROM users WHERE username = $username AND password = $password"
 }
 
-step send_welcome_email: User -> void = io.print { message: "Sending email..." }
+step send_welcome_email: User -> void = io.print {
+  message: "Sending email..."
+}
 
 // 3. Advanced Error Handling
 handler global_error_handler {
-  * error -> void = console.log
+  * error -> void = io.stderr
 }
 
 handler detailed_error_handler {
@@ -64,8 +65,10 @@ handler detailed_error_handler {
     | error -> error = error.add_debug_info
   > enriched_error
 
-  enriched_error | error -> void = console.log
-  enriched_error | error -> void = kafka.retry_queue
+  enriched_error
+    | error -> void = io.stderr
+  enriched_error
+    | error -> void = kafka.retry_queue
 }
 
 // 4. Orchestrate Complex Workflows
@@ -79,8 +82,10 @@ workflow Login ? global_error_handler {
   > authenticated_user
 
   // Fan-out execution
-  authenticated_user | http.response { status: 200 }
-  authenticated_user | send_welcome_email
+  authenticated_user
+    | http.response { status: 200 }
+  authenticated_user
+    | send_welcome_email
 }
 
 workflow Register ? global_error_handler {
@@ -121,19 +126,19 @@ def hash_password(config: HashConfig, input_table: Table) -> Table:
 
 ### **The Language: Declarative Orchestration**
 
-Heddle's DSL (`.he`) is a strictly-typed, functional language designed to eliminate the maintainability nightmare of traditional data orchestration and microservices. By enforcing a mathematical boundary between **orchestration logic** (the *what*) and **imperative computation** (the *how*), Heddle replaces brittle scripts with verifiable, high-performance pipelines.
+Heddle's DSL (`.he`) is a strictly-typed, functional language designed to eliminate the maintainability nightmare of traditional data orchestration and complex backend architectures. By enforcing a mathematical boundary between **orchestration logic** (the *what*) and **imperative computation** (the *how*), Heddle replaces tangled, unmaintainable scripts with verifiable, high-performance pipelines.
 
-*   **Static Safety:** Catch logic errors at compile-time with a robust, strictly-typed system.
-*   **Relational Native:** Embedded PRQL support allows for side-effect-free data enrichment directly within the orchestration layer.
-*   **Radical Reuse:** Designed for the `fhub` ecosystem, enabling LEGO-like modularity of data connectors and execution steps.
+* **Static Safety:** Catch logic errors at compile-time with a robust, strictly-typed system.
+* **Relational Native:** Embedded PRQL support allows for side-effect-free data enrichment directly within the orchestration layer.
+* **Radical Reuse:** Designed for the `fhub` ecosystem, enabling LEGO-like modularity of data connectors and execution steps.
 
 ### **The Transparent Serverless Supercomputer**
 
-The Heddle engine is a high-performance distributed fabric that abstracts away the friction of modern cloud infrastructure. It acts as a **Smart Control Plane**, providing the illusion of a single, infinitely scalable machine where execution is local by default and distributed by necessity.
+The Heddle engine is a high-performance distributed that abstracts away the friction of infrastructure. It acts as a **Smart Control Plane**, providing the illusion of a single, infinitely scalable machine where execution is local by default and distributed by necessity.
 
-*   **Zero-Copy Memory Interconnect:** Powered by Apache Arrow, Heddle eliminates serialization overhead, allowing data to flow between polyglot workers (Python, Rust, Node.js) at the speed of local RAM.
-*   **The Invisible Bridge:** Erases the boundary between local development and production clusters. Your laptop becomes the head node of a global supercomputer with zero configuration changes.
-*   **Deep Observability:** A "transparent" execution model with native DAG visualization and time-travel debugging, allowing you to trace the exact lineage of every data packet.
+* **Zero-Copy Memory Interconnect:** Powered by Apache Arrow, Heddle eliminates serialization overhead, allowing data to flow between polyglot workers (Python, GO, Rust, Node.js) at the speed of local RAM.
+* **The Invisible Bridge:** Erases the boundary between local development and production clusters. Your laptop becomes the head node of a global supercomputer with zero configuration changes.
+* **Deep Observability:** A "transparent" execution model with native DAG visualization and time-travel debugging, allowing you to trace the exact lineage of every data packet.
 
 ---
 
@@ -191,9 +196,9 @@ Heddle is fundamentally designed to act as an **"Invisible Local-to-Cloud Bridge
 
 Developer Experience is the single most important metric for Heddle's success.
 
-*   **Trivial Step Creation:** Polyglot SDKs hide the complexity of gRPC and Arrow memory management, allowing developers to focus purely on writing their imperative business logic.
-*   **Instant Diagnostics:** A custom Language Server Protocol (LSP) integrated with VS Code provides real-time syntax highlighting, type-checking, and diagnostics backed directly by the Go compiler.
-*   **Time-Travel Debugging:** Because data flows immutably, Heddle maintains an append-only history log. If a step fails, developers can trace the exact lineage and state of the data at any preceding step.
+* **Trivial Step Creation:** Polyglot SDKs hide the complexity of gRPC and Arrow memory management, allowing developers to focus purely on writing their imperative business logic.
+* **Instant Diagnostics:** A custom Language Server Protocol (LSP) integrated with VS Code provides real-time syntax highlighting, type-checking, and diagnostics backed directly by the Go compiler.
+* **Time-Travel Debugging:** Because data flows immutably, Heddle maintains an append-only history log. If a step fails, developers can trace the exact lineage and state of the data at any preceding step.
 
 ## **Project Structure (Monorepo)**
 
@@ -204,12 +209,14 @@ Heddle is organized as a polyglot monorepo to ensure tight integration between t
 ├── services/
 │   ├── control-plane/    # Go-based orchestration engine
 │   ├── data-manager/     # Go-based data management & catalog
-│   └── cli/              # Heddle Command Line Interface
-├── workers/
-│   ├── go/               # Go Worker implementation/SDK
-│   ├── python/           # Python Worker implementation/SDK
-│   ├── rust/             # Rust Worker implementation/SDK
-│   └── nodejs/           # Node.js Worker implementation/SDK
+│   ├── cli/              # Heddle Command Line Interface
+│   ├── worker/           # Go-based Worker implementation to connect to SDKs plugins
+│   └── lsp/              # Go-based Language Server Protocol implementation
+├── sdk/
+│   ├── go/               # Go SDK Worker plugin to implement functions
+│   ├── python/           # Python SDK Worker plugin to implement functions
+│   ├── rust/             # Rust SDK Worker plugin to implement functions
+│   └── nodejs/           # Node.js SDK Worker plugin to implement functions
 ├── editors/
 │   └── vscode/           # VS Code extension for Heddle DSL
 ├── pkg/                  # Shared Go libraries (Parser, Lexer, IR, etc.)
