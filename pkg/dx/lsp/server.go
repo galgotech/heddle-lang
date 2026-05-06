@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/galgotech/heddle-lang/pkg/dx/analyzer"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 )
@@ -33,7 +34,7 @@ func PublishDiagnostics(uri string, diagnostics []analyzer.Diagnostic) string {
 		if d.Severity == analyzer.Warning {
 			severity = 2
 		}
-		
+
 		lspDiagnostics[i] = LSPDiagnostic{
 			Range: LSPRange{
 				Start: LSPPosition{Line: int(d.Range.Start.Line) - 1, Character: int(d.Range.Start.Col)},
@@ -78,13 +79,13 @@ type HoverContents struct {
 func HandleHover(ctx *ast.ASTContext, pos ast.Position) *HoverResponse {
 	// Find the node at the position.
 	// For simplicity, we'll check StepBindings and CallNodes.
-	
+
 	// Check CallNodes
 	for i, r := range ctx.CallRanges {
 		if isInside(r, pos) {
 			call := ctx.CallNodes[i]
 			name := ctx.GetString(call.NameRef)
-			
+
 			return &HoverResponse{
 				Contents: HoverContents{
 					Kind:  "markdown",
@@ -97,7 +98,7 @@ func HandleHover(ctx *ast.ASTContext, pos ast.Position) *HoverResponse {
 			}
 		}
 	}
-	
+
 	return nil
 }
 

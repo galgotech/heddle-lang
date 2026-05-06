@@ -22,7 +22,7 @@ const (
 	WorkerOffline WorkerState = "Offline"
 )
 
-// Worker encapsulates the metadata and state of a stateless execution unit ("Dumb Worker").
+// Worker encapsulates the metadata and state of a stateless execution unit.
 // In the Heddle architecture, these workers receive dynamic JIT code injections from the
 // Control Plane to execute declarative flow controls over Arrow-native data.
 type Worker struct {
@@ -169,7 +169,6 @@ func (d *DefaultDispatcher) Stop() {
 	d.queue.ShutDown()
 	d.pool.Wait()
 }
-
 
 // Dispatch selects a healthy worker and executes the task.
 func (d *DefaultDispatcher) Dispatch(ctx context.Context, task *scheduler.Task) error {

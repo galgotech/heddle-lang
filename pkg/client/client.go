@@ -9,12 +9,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
-	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
-	"github.com/galgotech/heddle-lang/pkg/lang/parser"
-	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/dx/analyzer"
 	"github.com/galgotech/heddle-lang/pkg/dx/terminal"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
 // ControlPlaneClient represents a client that interacts with the Heddle control plane.
@@ -64,8 +64,8 @@ func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, workflow []byte
 		var diagnostics []analyzer.Diagnostic
 		for _, e := range p.Errors() {
 			diagnostics = append(diagnostics, analyzer.Diagnostic{
-				Message:  "Syntax Error: " + e.Message,
-				Range:    ast.Range{
+				Message: "Syntax Error: " + e.Message,
+				Range: ast.Range{
 					Start: ast.Position{Line: uint32(e.Line), Col: uint32(e.Column)},
 					End:   ast.Position{Line: uint32(e.Line), Col: uint32(e.Column + 1)}, // Approximation
 				},

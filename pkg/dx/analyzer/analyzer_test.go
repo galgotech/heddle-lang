@@ -3,12 +3,13 @@ package analyzer_test
 import (
 	"fmt"
 	"testing"
+
+	"github.com/galgotech/heddle-lang/pkg/dx/analyzer"
+	"github.com/galgotech/heddle-lang/pkg/dx/lsp"
+	"github.com/galgotech/heddle-lang/pkg/dx/terminal"
+	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
-	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/dx/analyzer"
-	"github.com/galgotech/heddle-lang/pkg/dx/terminal"
-	"github.com/galgotech/heddle-lang/pkg/dx/lsp"
 )
 
 func TestEndToEndDiagnostics(t *testing.T) {
@@ -32,39 +33,39 @@ workflow main {
 	l := lexer.New(input)
 	ctx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(ctx)
-	
+
 	p := parser.New(l, ctx)
 	program := p.Parse()
-	
+
 	// Collect parser errors first.
 	var diagnostics []analyzer.Diagnostic
 	for _, e := range p.Errors() {
 		diagnostics = append(diagnostics, analyzer.Diagnostic{
-			Message:  "Syntax Error: " + e.Message,
-			Range:    ast.Range{
+			Message: "Syntax Error: " + e.Message,
+			Range: ast.Range{
 				Start: ast.Position{Line: uint32(e.Line), Col: uint32(e.Column)},
 				End:   ast.Position{Line: uint32(e.Line), Col: uint32(e.Column + 1)}, // Approximation
 			},
 			Severity: analyzer.Error,
 		})
 	}
-	
+
 	// Run semantic analysis.
 	// We'll pass nil for the registry to trigger "Step not defined" for everything not in StepBindings.
 	ana := analyzer.New(ctx, nil)
 	semanticErrors := ana.Analyze(program)
 	diagnostics = append(diagnostics, semanticErrors...)
-	
+
 	// Demonstrate Terminal Reporter
 	fmt.Println("--- Terminal Diagnostic Output ---")
 	reporter := terminal.NewReporter(input)
 	reporter.Report(diagnostics)
-	
+
 	// Demonstrate LSP Payload
 	fmt.Println("--- LSP publishDiagnostics Payload ---")
 	lspPayload := lsp.PublishDiagnostics("file:///test.he", diagnostics)
 	fmt.Println(lspPayload)
-	
+
 	// Demonstrate Hover
 	fmt.Println("\n--- LSP Hover Example (on 'process' in workflow) ---")
 	// In the workflow block, 'process' is on line 14 (1-based), but I should check the exact column.

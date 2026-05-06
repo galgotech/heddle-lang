@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
@@ -54,7 +55,7 @@ func (a *Analyzer) validateDAG(program ast.ProgramNode) {
 	for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
 		wfRef := a.ctx.WorkflowRefs[i]
 		wf := a.ctx.WorkflowNodes[wfRef]
-		
+
 		visited := make(map[string]bool)
 		a.checkWorkflowCycles(wf, visited)
 	}
@@ -73,7 +74,7 @@ func (a *Analyzer) validateLocality(program ast.ProgramNode) {
 		wf := a.ctx.WorkflowNodes[wfRef]
 		a.validateStatements(wf.StatementRefsStart, wf.StatementRefsEnd)
 	}
-	
+
 	for i := program.HandlerRefsStart; i < program.HandlerRefsEnd; i++ {
 		hRef := a.ctx.HandlerRefs[i]
 		h := a.ctx.HandlerNodes[hRef]
@@ -95,10 +96,10 @@ func (a *Analyzer) validatePipeChain(ref ast.NodeRef) {
 		callRef := a.ctx.CallRefs[i]
 		call := a.ctx.CallNodes[callRef]
 		name := a.ctx.GetString(call.NameRef)
-		
+
 		// Check if the step is defined in StepBindings or available in the registry.
 		if !a.isStepDefined(name) {
-			a.reportError(a.ctx.CallRanges[callRef], 
+			a.reportError(a.ctx.CallRanges[callRef],
 				fmt.Sprintf("Step '%s' is not defined in the current context.", name),
 				fmt.Sprintf("Did you forget to import it or define it with 'step %s: ...'?", name))
 		}
@@ -112,13 +113,13 @@ func (a *Analyzer) isStepDefined(name string) bool {
 			return true
 		}
 	}
-	
+
 	// Then check the DataLocalityRegistry.
 	if a.registry != nil {
 		_, ok := a.registry.Get(name)
 		return ok
 	}
-	
+
 	return false
 }
 

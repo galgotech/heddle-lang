@@ -64,7 +64,7 @@ func TestControlPlaneClient_SubmitWorkflow_InvalidSyntax(t *testing.T) {
 	// Test submission with invalid syntax
 	workflow := []byte("invalid_keyword hello {\n \n}")
 	result, err := client.SubmitWorkflow(context.Background(), workflow)
-	
+
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "workflow submission aborted due to")
 	assert.Empty(t, result)

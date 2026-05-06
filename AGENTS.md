@@ -13,10 +13,10 @@ Heddle is a strictly-typed, domain-specific programming language (DSL) built to 
 ## 1. Primary Orchestration Use Case
 Heddle is precision-engineered for high-performance data pipelines and microservice orchestration. While general-purpose by design, its architectural priority is a highly concurrent, purely native Go core—delivering deterministic execution and zero-copy efficiency for complex DAG topologies without the overhead of interpreted runtimes.
 
-## 2. Architectural Blueprint: The "Smart Control Plane & Dumb Workers"
+## 2. Architectural Blueprint: The "Smart Control Plane & Stateless Workers"
 Heddle operates on a decoupled architecture ensuring robust fault tolerance and zero-copy data routing:
 - **The "Brain" (Go Control Plane):** A 100% self-contained, autonomous binary acting as the Smart Control Plane. It reads the logical topology (DAG), injects code dynamically into workers (Just-In-Time), and routes metadata via a `DataLocalityRegistry`. It handles zero payload traffic, managing only execution state and routing via Temporal-inspired state machines and workqueues.
-- **The "Muscle" (Polyglot Workers):** Dumb, stateless workers running on the same host or across the cluster, executing declarative flow controls. 
+- **The "Muscle" (Polyglot Workers):** Stateless workers running on the same host or across the cluster, executing declarative flow controls. 
 - **Arrow-Native Consistent Hashing & Operator Fusion:** The engine evaluates DAG topologies to compile aggressive execution plans, merging continuous nodes into atomic "Super Steps" to avoid unnecessary I/O bounds.
 - **Data Locality Registry:** A centralized memory mapping system utilizing `sync.Map` or `sync.Pool`. It maps DAG outputs to their physical locations (Worker ID, Host IP/Port, Memory Handle).
 
