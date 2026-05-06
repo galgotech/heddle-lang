@@ -96,6 +96,51 @@ workflow main {
 `,
 			expectedErrs: 1,
 		},
+		{
+			name: "Invalid standalone expression",
+			input: `
+import "std/io" io
+
+test | test2 > teste
+
+schema User {
+  name: string
+  age: int
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "Invalid standalone expression 2",
+			input: `
+import "std/io" io
+
+test
+  | test2
+> teste
+
+schema User {
+  name: string
+  age: int
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "Invalid nested declaration in workflow",
+			input: `
+workflow main {
+  step get_data: void -> data = io.file {
+    path: "./file.txt"
+  }
+  
+  getData
+    | process
+  > result
+}
+`,
+			expectedErrs: 1,
+		},
 	}
 
 	for _, tt := range tests {

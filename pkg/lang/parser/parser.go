@@ -144,7 +144,7 @@ func (p *Parser) Parse() ast.ProgramNode {
 			p.ctx.AddWorkflowRef(p.parseWorkflow())
 		default:
 			p.curError("unexpected token " + string(p.curToken.Type) + " at top level")
-			p.nextToken()
+			p.synchronizeTopLevel()
 		}
 	}
 
@@ -156,6 +156,58 @@ func (p *Parser) Parse() ast.ProgramNode {
 	program.WorkflowRefsEnd = uint32(len(p.ctx.WorkflowRefs))
 
 	return program
+}
+
+func (p *Parser) isTopLevelKeyword(t lexer.TokenType) bool {
+	switch t {
+	case lexer.IMPORT, lexer.SCHEMA, lexer.RESOURCE, lexer.STEP, lexer.HANDLER, lexer.WORKFLOW:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Parser) synchronizeTopLevel() {
+	p.nextToken()
+	for !p.curTokenIs(lexer.EOF) {
+		if p.isTopLevelKeyword(p.curToken.Type) {
+			return
+		}
+		p.nextToken()
+	}
+}
+
+func (p *Parser) synchronizeToNextStatement() {
+	indents := 0
+	braces := 0
+	for !p.peekTokenIs(lexer.EOF) {
+		if p.peekTokenIs(lexer.LBRACE) {
+			braces++
+			p.nextToken()
+		} else if p.peekTokenIs(lexer.RBRACE) {
+			if braces > 0 {
+				braces--
+			}
+			p.nextToken()
+		} else if p.peekTokenIs(lexer.INDENT) {
+			indents++
+			p.nextToken()
+		} else if p.peekTokenIs(lexer.DEDENT) {
+			if indents > 0 {
+				indents--
+				p.nextToken()
+			} else {
+				return
+			}
+		} else if p.peekTokenIs(lexer.NEWLINE) {
+			p.nextToken()
+			if indents == 0 && braces == 0 {
+				return
+			}
+		} else {
+			p.nextToken()
+		}
+	}
 }
 
 func (p *Parser) parseImport() ast.NodeRef {
@@ -411,6 +463,18 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 
 func (p *Parser) parsePipelineStatement() ast.NodeRef {
 	ps := ast.PipelineStatementNode{}
+
+	if p.curTokenIs(lexer.ASTERISK) {
+		p.synchronizeToNextStatement()
+		return 0
+	}
+
+	if !p.curTokenIs(lexer.IDENT) && !p.curTokenIs(lexer.LPAREN) {
+		p.curError("expected identifier or expression to start pipeline statement, got " + string(p.curToken.Type))
+		p.synchronizeToNextStatement()
+		return 0
+	}
+
 	ps.ExprRef = p.parsePipeChain()
 
 	// Multi-token lookahead to handle assignment after varied whitespace
