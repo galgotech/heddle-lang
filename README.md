@@ -142,9 +142,9 @@ The Heddle engine is a high-performance distributed that abstracts away the fric
 
 ---
 
-## **Core Architecture: Host-Core Symbiosis**
+## **Core Architecture: Control Plane/Workers**
 
-Heddle operates on a dual-paradigm architecture, functioning as a 100% self-contained "Smart Control Plane" that routes logic to isolated Workers:
+Heddle operates on architecture, functioning as a 100% self-contained "Smart Control Plane" that routes logic to isolated Workers:
 
 * **The Functional Core (Go):** A declarative, strictly-typed orchestration layer operating as a highly concurrent engine. It manages the Directed Acyclic Graph (DAG) logic, static analysis, and task routing.
 * **The Imperative Host (Go, Python, Node.js, Rust):** Computations and side-effect-heavy tasks (e.g., API calls, database writes) are encapsulated into "Steps". These steps act as a Foreign Function Interface (FFI), executing business logic in isolated, always-warm stateful workers.
