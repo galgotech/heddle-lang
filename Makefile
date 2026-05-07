@@ -8,7 +8,7 @@ PROTO_DIR=sdk/go/proto
 PROTO_FILES=$(PROTO_DIR)/worker.proto $(PROTO_DIR)/locality.proto
 
 # Services (Main build target)
-SERVICES=control-plane worker client lsp debug-adapter heddle-plugin-go
+SERVICES=heddle heddle-plugin-go
 RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
@@ -30,37 +30,21 @@ $(BINARY_DIR):
 build: $(BINARY_DIR) $(SERVICES) $(RUST_SERVICES) $(EXAMPLES)
 	@echo "All build targets complete."
 
-# Individual Service Targets
-control-plane: $(BINARY_DIR)
-	@echo "Building Control Plane..."
-	$(GO) build -o $(BINARY_DIR)/heddle-cp ./services/control-plane/cmd
-
-worker: $(BINARY_DIR)
-	@echo "Building Worker Service..."
-	$(GO) build -o $(BINARY_DIR)/heddle-worker ./services/worker/cmd
-
-client: $(BINARY_DIR)
-	@echo "Building Client CLI..."
-	$(GO) build -o $(BINARY_DIR)/heddle-client ./services/client/cmd
-
-lsp: $(BINARY_DIR)
-	@echo "Building LSP Server..."
-	$(GO) build -o $(BINARY_DIR)/heddle-lsp ./services/lsp/cmd
-
-debug-adapter: $(BINARY_DIR)
-	@echo "Building Debug Adapter..."
-	$(GO) build -o $(BINARY_DIR)/heddle-dap ./services/debug-adapter/cmd
+# Consolidated Heddle CLI
+heddle: $(BINARY_DIR)
+	@echo "Building Heddle CLI..."
+	$(GO) build -o $(BINARY_DIR)/heddle ./cmd
 
 # Heddle standard library (go)
-heddle-plugin-go: $(BINARY_DIR)
+heddle-plugin-std: $(BINARY_DIR)
 	@echo "Building Go SDK Plugin..."
-	$(GO) build -o $(BINARY_DIR)/heddle-plugin-go ./sdk/go/cmd
+	$(GO) build -o $(BINARY_DIR)/heddle-plugin-std ./sdk/go/cmd
 
 # Rust Service Targets
 relational-worker: $(BINARY_DIR)
 	@echo "Building Relational Worker (Rust)..."
-	cd services/relational-worker && cargo build --release
-	cp services/relational-worker/target/release/relational-worker $(BINARY_DIR)/heddle-relational-worker
+	cd internal/services/relational-worker && cargo build --release
+	cp internal/services/relational-worker/target/release/relational-worker $(BINARY_DIR)/heddle-relational-worker
 
 # Individual Example Targets
 calculator-example: $(BINARY_DIR)
@@ -72,14 +56,14 @@ test-calculator:
 	$(GO) test -v ./sdk-examples/go/calculator
 
 # Run Helpers
-run-server: control-plane
+run-server: heddle
 	@echo "Starting Control Plane..."
-	./$(BINARY_DIR)/heddle-cp
+	./$(BINARY_DIR)/heddle cp
 
-submit: client
+submit: heddle
 	@if [ -z "$(FILE)" ]; then echo "Error: FILE variable is required. Usage: make submit FILE=path/to/file.he"; exit 1; fi
 	@echo "Submitting $(FILE)..."
-	./$(BINARY_DIR)/heddle-client submit $(FILE)
+	./$(BINARY_DIR)/heddle client submit $(FILE)
 
 # Run all tests
 test:
@@ -95,15 +79,12 @@ clean:
 # Help target
 help:
 	@echo "Heddle Build Targets:"
-	@echo "  make all           - Build all services"
-	@echo "  make build         - Alias for all"
-	@echo "  make control-plane - Build only the control plane"
-	@echo "  make worker        - Build only the worker service"
-	@echo "  make client        - Build only the client CLI"
-	@echo "  make relational-worker - Build only the Rust relational worker"
+	@echo "  make all           	 - Build all services"
+	@echo "  make build         	 - Alias for all"
+	@echo "  make relational-worker  - Build only the Rust relational worker"
 	@echo "  make calculator-example - Build only the calculator example"
-	@echo "  make test-calculator   - Run tests for the calculator example"
-	@echo "  make run-server    - Build and start the control plane"
-	@echo "  make submit FILE=f.he - Build and submit a heddle file"
-	@echo "  make test          - Run all tests"
-	@echo "  make clean         - Remove build artifacts"
+	@echo "  make test-calculator    - Run tests for the calculator example"
+	@echo "  make run-server         - Build and start the control plane"
+	@echo "  make submit FILE=f.he   - Build and submit a heddle file"
+	@echo "  make test               - Run all tests"
+	@echo "  make clean              - Remove build artifacts"

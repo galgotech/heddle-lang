@@ -15,6 +15,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -22,7 +23,6 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
-	"golang.org/x/sys/unix"
 )
 
 // Server is the main Plugin server implementing the Arrow Flight interface.

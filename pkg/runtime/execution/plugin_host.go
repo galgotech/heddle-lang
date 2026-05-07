@@ -149,15 +149,43 @@ func (pm *PluginManager) ConnectPlugin(ctx context.Context, namespace string, ad
 		conn:    conn,
 	}
 
-	// Note: We skip full handshake here if the plugin was already verified or
-	// we just want to establish a connection. In a production environment,
-	// we would still perform a handshake to ensure the namespace matches.
-
 	pm.mu.Lock()
 	pm.plugins[namespace] = instance
 	pm.mu.Unlock()
 
 	return instance, nil
+}
+
+// DiscoverExistingPlugins scans a directory for plugin sockets and establishes connections.
+func (pm *PluginManager) DiscoverExistingPlugins(ctx context.Context, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("failed to read plugin directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "heddle-plugin-") && strings.HasSuffix(name, ".sock") {
+			namespace := strings.TrimPrefix(strings.TrimSuffix(name, ".sock"), "heddle-plugin-")
+			addr := fmt.Sprintf("unix://%s/%s", dir, name)
+
+			pm.mu.RLock()
+			_, exists := pm.plugins[namespace]
+			pm.mu.RUnlock()
+
+			if !exists {
+				_, err := pm.ConnectPlugin(ctx, namespace, addr)
+				if err != nil {
+					// Log and continue, some sockets might be stale
+					continue
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Handshake performs the initial registration handshake with the plugin.

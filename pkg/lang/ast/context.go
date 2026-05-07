@@ -47,20 +47,20 @@ type ASTContext struct {
 // Reset clears the context for reuse without reallocating the underlying arrays.
 func (ctx *ASTContext) Reset() {
 	ctx.StringBuffer = ctx.StringBuffer[:0]
-	ctx.ImportNodes = ctx.ImportNodes[:0]
-	ctx.SchemaNodes = ctx.SchemaNodes[:0]
-	ctx.SchemaBlockNodes = ctx.SchemaBlockNodes[:0]
-	ctx.SchemaFieldNodes = ctx.SchemaFieldNodes[:0]
-	ctx.SchemaRefNodes = ctx.SchemaRefNodes[:0]
-	ctx.ResourceNodes = ctx.ResourceNodes[:0]
-	ctx.StepBindingNodes = ctx.StepBindingNodes[:0]
-	ctx.StepSignatureNodes = ctx.StepSignatureNodes[:0]
-	ctx.FunctionRefNodes = ctx.FunctionRefNodes[:0]
-	ctx.HandlerNodes = ctx.HandlerNodes[:0]
-	ctx.WorkflowNodes = ctx.WorkflowNodes[:0]
-	ctx.PipelineStatementNodes = ctx.PipelineStatementNodes[:0]
-	ctx.PipeChainNodes = ctx.PipeChainNodes[:0]
-	ctx.CallNodes = ctx.CallNodes[:0]
+	ctx.ImportNodes = ctx.ImportNodes[:1]
+	ctx.SchemaNodes = ctx.SchemaNodes[:1]
+	ctx.SchemaBlockNodes = ctx.SchemaBlockNodes[:1]
+	ctx.SchemaFieldNodes = ctx.SchemaFieldNodes[:1]
+	ctx.SchemaRefNodes = ctx.SchemaRefNodes[:1]
+	ctx.ResourceNodes = ctx.ResourceNodes[:1]
+	ctx.StepBindingNodes = ctx.StepBindingNodes[:1]
+	ctx.StepSignatureNodes = ctx.StepSignatureNodes[:1]
+	ctx.FunctionRefNodes = ctx.FunctionRefNodes[:1]
+	ctx.HandlerNodes = ctx.HandlerNodes[:1]
+	ctx.WorkflowNodes = ctx.WorkflowNodes[:1]
+	ctx.PipelineStatementNodes = ctx.PipelineStatementNodes[:1]
+	ctx.PipeChainNodes = ctx.PipeChainNodes[:1]
+	ctx.CallNodes = ctx.CallNodes[:1]
 
 	ctx.ImportRefs = ctx.ImportRefs[:0]
 	ctx.SchemaRefs = ctx.SchemaRefs[:0]
@@ -72,12 +72,12 @@ func (ctx *ASTContext) Reset() {
 	ctx.FieldRefs = ctx.FieldRefs[:0]
 	ctx.CallRefs = ctx.CallRefs[:0]
 
-	ctx.ResourceRanges = ctx.ResourceRanges[:0]
-	ctx.StepRanges = ctx.StepRanges[:0]
-	ctx.HandlerRanges = ctx.HandlerRanges[:0]
-	ctx.WorkflowRanges = ctx.WorkflowRanges[:0]
-	ctx.CallRanges = ctx.CallRanges[:0]
-	ctx.SchemaRanges = ctx.SchemaRanges[:0]
+	ctx.ResourceRanges = ctx.ResourceRanges[:1]
+	ctx.StepRanges = ctx.StepRanges[:1]
+	ctx.HandlerRanges = ctx.HandlerRanges[:1]
+	ctx.WorkflowRanges = ctx.WorkflowRanges[:1]
+	ctx.CallRanges = ctx.CallRanges[:1]
+	ctx.SchemaRanges = ctx.SchemaRanges[:1]
 }
 
 // AddString appends a string to the buffer and returns its reference.
@@ -228,20 +228,20 @@ var astContextPool = sync.Pool{
 	New: func() interface{} {
 		return &ASTContext{
 			StringBuffer:           make([]byte, 0, 4096),
-			ImportNodes:            make([]ImportNode, 0, 16),
-			SchemaNodes:            make([]SchemaNode, 0, 32),
-			SchemaBlockNodes:       make([]SchemaBlockNode, 0, 32),
-			SchemaFieldNodes:       make([]SchemaFieldNode, 0, 128),
-			SchemaRefNodes:         make([]SchemaRefNode, 0, 64),
-			ResourceNodes:          make([]ResourceNode, 0, 16),
-			StepBindingNodes:       make([]StepBindingNode, 0, 32),
-			StepSignatureNodes:     make([]StepSignatureNode, 0, 32),
-			FunctionRefNodes:       make([]FunctionRefNode, 0, 32),
-			HandlerNodes:           make([]HandlerNode, 0, 16),
-			WorkflowNodes:          make([]WorkflowNode, 0, 16),
-			PipelineStatementNodes: make([]PipelineStatementNode, 0, 128),
-			PipeChainNodes:         make([]PipeChainNode, 0, 64),
-			CallNodes:              make([]CallNode, 0, 256),
+			ImportNodes:            []ImportNode{{}},
+			SchemaNodes:            []SchemaNode{{}},
+			SchemaBlockNodes:       []SchemaBlockNode{{}},
+			SchemaFieldNodes:       []SchemaFieldNode{{}},
+			SchemaRefNodes:         []SchemaRefNode{{}},
+			ResourceNodes:          []ResourceNode{{}},
+			StepBindingNodes:       []StepBindingNode{{}},
+			StepSignatureNodes:     []StepSignatureNode{{}},
+			FunctionRefNodes:       []FunctionRefNode{{}},
+			HandlerNodes:           []HandlerNode{{}},
+			WorkflowNodes:          []WorkflowNode{{}},
+			PipelineStatementNodes: []PipelineStatementNode{{}},
+			PipeChainNodes:         []PipeChainNode{{}},
+			CallNodes:              []CallNode{{}},
 
 			ImportRefs:    make([]NodeRef, 0, 16),
 			SchemaRefs:    make([]NodeRef, 0, 32),
@@ -253,12 +253,12 @@ var astContextPool = sync.Pool{
 			FieldRefs:     make([]NodeRef, 0, 128),
 			CallRefs:      make([]NodeRef, 0, 256),
 
-			ResourceRanges: make([]Range, 0, 16),
-			StepRanges:     make([]Range, 0, 32),
-			HandlerRanges:  make([]Range, 0, 16),
-			WorkflowRanges: make([]Range, 0, 16),
-			CallRanges:     make([]Range, 0, 256),
-			SchemaRanges:   make([]Range, 0, 32),
+			ResourceRanges: []Range{{}},
+			StepRanges:     []Range{{}},
+			HandlerRanges:  []Range{{}},
+			WorkflowRanges: []Range{{}},
+			CallRanges:     []Range{{}},
+			SchemaRanges:   []Range{{}},
 		}
 	},
 }

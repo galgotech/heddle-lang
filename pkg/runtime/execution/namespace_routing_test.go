@@ -21,7 +21,6 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/runtime/data"
 )
 
-
 func TestWorker_NamespaceRouting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -60,8 +59,6 @@ func TestWorker_NamespaceRouting(t *testing.T) {
 	w := NewWorker("worker-ns", nil, dataMgr, 1, 0)
 	defer w.dataMgr.Cleanup()
 
-
-
 	// 3. Prepare data
 	mem := memory.NewGoAllocator()
 	schema := arrow.NewSchema([]arrow.Field{{Name: "f", Type: arrow.PrimitiveTypes.Int32}}, nil)
@@ -85,7 +82,7 @@ func TestWorker_NamespaceRouting(t *testing.T) {
 	out1, err := w.executeTask(ctx, task1)
 	require.NoError(t, err, "Execution for ns1 should succeed")
 	assert.NotEmpty(t, out1)
-	
+
 	// Verify data was processed (echoed back)
 	rec1, err := w.dataMgr.Get(out1)
 	require.NoError(t, err)

@@ -34,7 +34,7 @@ type Worker struct {
 
 	// Plugin management
 	pm *PluginManager
-	
+
 	// Batching aggregator
 	agg *Aggregator
 
@@ -65,6 +65,14 @@ func NewWorker(id string, trans transport.NetworkTransport, dataMgr data.DataMan
 	return w
 }
 
+// DiscoverPlugins scans for already running plugins on the local system.
+func (w *Worker) DiscoverPlugins(ctx context.Context) error {
+	baseDir := os.Getenv("HEDDLE_PLUGIN_SOCKET_DIR")
+	if baseDir == "" {
+		baseDir = "/tmp"
+	}
+	return w.pm.DiscoverExistingPlugins(ctx, baseDir)
+}
 
 // Register notifies the Control Plane of the worker's availability.
 func (w *Worker) Register(ctx context.Context) error {
@@ -220,7 +228,7 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	for _, ticket := range task.Tickets {
 		inputHandle = ticket.ResourceId
 	}
-	
+
 	rec, err := w.dataMgr.Get(inputHandle)
 	if err != nil {
 		return "", fmt.Errorf("input handle %s not found in DataManager: %w", inputHandle, err)
@@ -318,7 +326,6 @@ func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket
 
 	return localHandle, nil
 }
-
 
 // delegateToPlugin transmits execution instructions to a polyglot plugin using SCM_RIGHTS.
 func (w *Worker) delegateToPlugin(ctx context.Context, module string, name string, inputHandle string) (string, error) {
