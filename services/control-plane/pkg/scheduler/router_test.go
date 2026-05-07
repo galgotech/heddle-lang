@@ -43,4 +43,22 @@ func TestRouter_DecideRoute(t *testing.T) {
 		_, err := router.DecideRoute("ghost", workerA)
 		assert.Error(t, err)
 	})
+
+	t.Run("Decide Affinity Route", func(t *testing.T) {
+		signature := "hash-rust-process-v2"
+		registry.RegisterSignature(signature, workerB)
+
+		// Decide route using affinity should bypass workerA and route to workerB
+		ticket, err := router.DecideAffinityRoute(resourceID, signature, workerA)
+		assert.NoError(t, err)
+		assert.Equal(t, proto.RouteType_REMOTE, ticket.RouteType)
+		assert.Equal(t, "grpc://127.0.0.1:50051", ticket.Address) // Assuming it uses metadata from registry
+	})
+
+	t.Run("Decide Affinity Route Missing Signature", func(t *testing.T) {
+		// Should fallback to default target worker
+		ticket, err := router.DecideAffinityRoute(resourceID, "ghost-sig", workerA)
+		assert.NoError(t, err)
+		assert.Equal(t, proto.RouteType_LOCAL, ticket.RouteType)
+	})
 }

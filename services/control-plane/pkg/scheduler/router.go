@@ -53,3 +53,16 @@ func (r *Router) DecideRoute(resourceID string, targetWorkerID string) (*proto.F
 
 	return ticket, nil
 }
+
+// DecideAffinityRoute evaluates the locality of a resource with priority given to a specific function signature.
+// If an affinity worker is registered for the signature, it routes the task there. Otherwise, it defaults to targetWorkerID.
+func (r *Router) DecideAffinityRoute(resourceID string, signature string, targetWorkerID string) (*proto.FlightTicket, error) {
+	// 1. Check if an affinity worker is registered for this signature
+	if affinityWorker, ok := r.registry.GetAffinityWorker(signature); ok {
+		// Route to the affinity worker instead of the default target worker
+		return r.DecideRoute(resourceID, affinityWorker)
+	}
+
+	// 2. Fallback to default routing behavior
+	return r.DecideRoute(resourceID, targetWorkerID)
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,7 +20,6 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/pkg/runtime/transport"
 )
-
 
 var (
 	// cfgFile holds the path to the configuration file provided via CLI flags.
@@ -43,16 +43,18 @@ var rootCmd = &cobra.Command{
 		}
 		defer logger.Sync()
 
-		// Retrieve worker identity and control plane coordinates from the configuration registry.
+		// Retrieve worker identity, batching config, and control plane coordinates.
 		workerID := viper.GetString("id")
 		cpAddr := viper.GetString("cp")
+		batchSize := viper.GetInt("batch-size")
+		batchWindow := viper.GetDuration("batch-window")
 
 		// Establish a gRPC connection to the Control Plane.
 		conn, err := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			logger.L().Fatal("failed to connect to CP", zap.Error(err))
 		}
-		
+
 		// Initialize the network transport abstraction.
 		trans := transport.NewFlightTransport(conn)
 
@@ -60,9 +62,8 @@ var rootCmd = &cobra.Command{
 		alloc := data.NewOSMemoryAllocator("/dev/shm/heddle")
 		dataMgr := data.NewLocalMmapManager(alloc, 1<<30) // 1GB limit
 
-		// Initialize the execution worker (the "Muscle").
-		worker := execution.NewWorker(workerID, trans, dataMgr)
-
+		// Initialize the execution worker (the "Muscle") with batching capabilities.
+		worker := execution.NewWorker(workerID, trans, dataMgr, batchSize, batchWindow)
 
 		// Create a root context to manage the lifecycle of all background goroutines.
 		ctx, cancel := context.WithCancel(context.Background())
@@ -107,13 +108,17 @@ func init() {
 	// Define persistent flags available to all commands.
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./heddle-worker.yaml)")
 
-	// Define local flags for identity and networking.
+	// Define local flags for identity, networking, and batching.
 	rootCmd.Flags().String("id", "worker-1", "Unique identifier for this worker instance")
 	rootCmd.Flags().String("cp", "localhost:50051", "gRPC address of the Heddle Control Plane")
+	rootCmd.Flags().Int("batch-size", 10, "Maximum number of tasks to aggregate per batch")
+	rootCmd.Flags().Duration("batch-window", 50*time.Millisecond, "Time window to wait for batch convergence")
 
 	// Bind CLI flags to Viper keys for unified configuration access.
 	viper.BindPFlag("id", rootCmd.Flags().Lookup("id"))
 	viper.BindPFlag("cp", rootCmd.Flags().Lookup("cp"))
+	viper.BindPFlag("batch-size", rootCmd.Flags().Lookup("batch-size"))
+	viper.BindPFlag("batch-window", rootCmd.Flags().Lookup("batch-window"))
 }
 
 func main() {

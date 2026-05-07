@@ -8,7 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/apache/arrow/go/v18/arrow/memory"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -31,16 +34,19 @@ type Worker struct {
 
 	// Plugin management
 	pm *PluginManager
+	
+	// Batching aggregator
+	agg *Aggregator
 
 	// Flight server for P2P
 	flight.BaseFlightServer
 }
 
 // NewWorker initializes a new worker instance using the provided transport and data manager.
-func NewWorker(id string, trans transport.NetworkTransport, dataMgr data.DataManager) *Worker {
+func NewWorker(id string, trans transport.NetworkTransport, dataMgr data.DataManager, batchSize int, batchWindow time.Duration) *Worker {
 	udsAddr := fmt.Sprintf("/tmp/heddle-%s.sock", id)
 
-	return &Worker{
+	w := &Worker{
 		ID:        id,
 		Transport: trans,
 		dataMgr:   dataMgr,
@@ -48,6 +54,15 @@ func NewWorker(id string, trans transport.NetworkTransport, dataMgr data.DataMan
 		udsAddr:   udsAddr,
 		pm:        NewPluginManager(),
 	}
+
+	// Initialize aggregator with provided config
+	config := BatchConfig{
+		MaxBatchSize: batchSize,
+		TimeWindow:   batchWindow,
+	}
+	w.agg = NewAggregator(config, memory.DefaultAllocator, w.batchExecutor)
+
+	return w
 }
 
 
@@ -113,7 +128,7 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 	}
 }
 
-// StartExecutionLoop processes tasks from the Control Plane.
+// StartExecutionLoop processes tasks from the Control Plane concurrently to allow batching.
 func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	exCtx := metadata.AppendToOutgoingContext(ctx, "x-heddle-worker-id", w.ID)
 	stream, err := w.Transport.DoExchange(exCtx)
@@ -122,6 +137,24 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 	}
 
 	logger.L().Info("Worker execution loop started", logger.String("workerID", w.ID))
+
+	// Channel to coordinate task updates back to the control plane
+	updateCh := make(chan TaskUpdate, 100)
+
+	// Update sender goroutine
+	go func() {
+		for {
+			select {
+			case update := <-updateCh:
+				updateBody, _ := json.Marshal(update)
+				if err := stream.Send(&flight.FlightData{DataBody: updateBody}); err != nil {
+					logger.L().Error("Failed to send task update", logger.Error(err))
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -140,32 +173,31 @@ func (w *Worker) StartExecutionLoop(ctx context.Context) {
 				continue
 			}
 
-			logger.L().Info("Executing task",
-				logger.String("taskID", task.ID),
-				logger.String("step", task.Step.DefinitionName))
+			// Process tasks in parallel to enable the Aggregator to converge structural overlaps
+			go func(t Task) {
+				logger.L().Info("Executing task",
+					logger.String("taskID", t.ID),
+					logger.String("step", t.Step.DefinitionName))
 
-			outputHandle, err := w.executeTask(ctx, task)
+				outputHandle, err := w.executeTask(ctx, t)
 
-			update := TaskUpdate{
-				TaskID:       task.ID,
-				Status:       string(TaskStatusDone),
-				OutputHandle: outputHandle,
-				Timestamp:    time.Now(),
-			}
-			if err != nil {
-				update.Status = string(TaskStatusFailed)
-				update.Error = err.Error()
-			}
-
-			updateBody, _ := json.Marshal(update)
-			if err := stream.Send(&flight.FlightData{DataBody: updateBody}); err != nil {
-				logger.L().Error("Failed to send task update", logger.Error(err))
-			}
+				update := TaskUpdate{
+					TaskID:       t.ID,
+					Status:       string(TaskStatusDone),
+					OutputHandle: outputHandle,
+					Timestamp:    time.Now(),
+				}
+				if err != nil {
+					update.Status = string(TaskStatusFailed)
+					update.Error = err.Error()
+				}
+				updateCh <- update
+			}(task)
 		}
 	}
 }
 
-// executeTask manages the full lifecycle of a task.
+// executeTask manages the full lifecycle of a task, utilizing the Aggregator for execution affinity.
 func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	if task.Step == nil || len(task.Step.Call) < 2 {
 		return "", fmt.Errorf("step implementation mapping invalid: %v", task.Step)
@@ -180,18 +212,69 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 		}
 	}
 
-	outputHandle, err := w.delegateTask(ctx, task)
+	// 1. Identify function signature for batching
+	module := task.Step.Call[0]
+	name := task.Step.Call[1]
+	signature := fmt.Sprintf("%s:%s", module, name)
+
+	// 2. Extract primary input record
+	var inputHandle string
+	for _, ticket := range task.Tickets {
+		inputHandle = ticket.ResourceId
+	}
+	
+	rec, err := w.dataMgr.Get(inputHandle)
 	if err != nil {
-		return "", fmt.Errorf("delegation failed: %w", err)
+		return "", fmt.Errorf("input handle %s not found in DataManager: %w", inputHandle, err)
 	}
 
-	if outputHandle != "" {
-		if err := w.dataMgr.Import(outputHandle); err != nil {
-			return "", fmt.Errorf("failed to import output handle %s: %w", outputHandle, err)
+	// 3. Intercept execution via Aggregator
+	promise := w.agg.Add(signature, rec)
+
+	select {
+	case resRec := <-promise.ResCh:
+		// 4. Generate deterministic handle for result
+		outputHandle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
+		if err := w.dataMgr.Put(outputHandle, resRec); err != nil {
+			return "", fmt.Errorf("failed to store result: %w", err)
 		}
+		return outputHandle, nil
+	case err := <-promise.ErrCh:
+		return "", err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// batchExecutor handles the actual invocation of merged Arrow tables.
+func (w *Worker) batchExecutor(ctx context.Context, signature string, table arrow.Table) (arrow.Table, error) {
+	parts := strings.Split(signature, ":")
+	module, name := parts[0], parts[1]
+
+	// Convert Table to a temporary Record for DataManager registration
+	tr := array.NewTableReader(table, table.NumRows())
+	defer tr.Release()
+	if !tr.Next() {
+		return nil, fmt.Errorf("failed to read table records")
+	}
+	rec := tr.Record()
+
+	inputHandle := fmt.Sprintf("batch-%s-%d", signature, time.Now().UnixNano())
+	if err := w.dataMgr.Put(inputHandle, rec); err != nil {
+		return nil, err
 	}
 
-	return outputHandle, nil
+	outputHandle, err := w.delegateToPlugin(ctx, module, name, inputHandle)
+	if err != nil {
+		return nil, err
+	}
+
+	resRec, err := w.dataMgr.Get(outputHandle)
+	if err != nil {
+		return nil, fmt.Errorf("output handle %s not found: %w", outputHandle, err)
+	}
+
+	return array.NewTableFromRecords(resRec.Schema(), []arrow.Record{resRec}), nil
 }
 
 // fetchRemoteData pulls an Arrow RecordBatch from a remote peer.
@@ -231,14 +314,9 @@ func (w *Worker) fetchRemoteData(ctx context.Context, ticket *proto.FlightTicket
 }
 
 
-// delegateTask identifies the target namespace and transmits execution instructions
-// to a polyglot plugin using SCM_RIGHTS for zero-copy file descriptor (FD) passing.
-func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
-	module := task.Step.Call[0]
-	name := task.Step.Call[1]
-
+// delegateToPlugin transmits execution instructions to a polyglot plugin using SCM_RIGHTS.
+func (w *Worker) delegateToPlugin(ctx context.Context, module string, name string, inputHandle string) (string, error) {
 	// The module part is now treated as the plugin's namespace.
-	// We may still have prefixes like "py:" or "go:", but the routing is namespace-based.
 	namespace := module
 	if parts := strings.Split(module, ":"); len(parts) > 1 {
 		namespace = parts[1]
@@ -259,31 +337,23 @@ func (w *Worker) delegateTask(ctx context.Context, task Task) (string, error) {
 		}
 	}
 
-	// 2. Extract the primary input handle from the task's data tickets.
-	var inputHandle string
-	for _, ticket := range task.Tickets {
-		inputHandle = ticket.ResourceId
-	}
-
-	// 3. Retrieve the underlying File Descriptor (FD) from the DataManager registry.
-	// This FD is passed to the plugin to enable direct memory mapping (mmap) of the data.
+	// 2. Retrieve the underlying File Descriptor (FD) from the DataManager registry.
 	file := w.dataMgr.GetRegistry().GetFile(inputHandle)
 	if file == nil {
 		return "", fmt.Errorf("input handle %s not found in DataManager registry", inputHandle)
 	}
 
-	// 4. Generate a deterministic handle for the output RecordBatch.
-	outputHandle := fmt.Sprintf("shm-%s-%d", task.ID, time.Now().UnixNano())
+	// 3. Generate a deterministic handle for the output RecordBatch.
+	outputHandle := fmt.Sprintf("shm-out-%d", time.Now().UnixNano())
 
-	// 5. Build the execution payload containing the function name and data handles.
+	// 4. Build the execution payload.
 	req := &proto.ExecuteStepRequest{
 		StepName:     name,
 		InputHandle:  inputHandle,
 		OutputHandle: outputHandle,
 	}
 
-	// 6. Execute the step via UDS. The input file descriptor is passed out-of-band
-	// using SCM_RIGHTS, ensuring zero-copy access for the plugin.
+	// 5. Execute the step via UDS.
 	logger.L().Debug("Delegating task to plugin via ExecuteStep",
 		logger.String("namespace", namespace),
 		logger.String("step", name),

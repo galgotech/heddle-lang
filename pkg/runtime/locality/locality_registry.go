@@ -14,10 +14,17 @@ type LocationMetadata struct {
 	MemoryHandle string
 }
 
+// SignatureMetadata tracks which worker is currently designated as the affinity host for a given function signature.
+type SignatureMetadata struct {
+	WorkerID    string
+	ActiveTasks int
+}
+
 // DataLocalityRegistry acts as the "Brain's" memory, mapping DAG outputs to their physical locations.
 // It uses sync.Map for high-performance concurrent access without the need for manual Mutex management.
 type DataLocalityRegistry struct {
-	locations sync.Map // map[string]LocationMetadata
+	locations  sync.Map // map[string]LocationMetadata
+	signatures sync.Map // map[string]SignatureMetadata
 }
 
 // NewDataLocalityRegistry initializes a new concurrent registry.
@@ -37,4 +44,18 @@ func (r *DataLocalityRegistry) Get(resourceID string) (LocationMetadata, bool) {
 		return LocationMetadata{}, false
 	}
 	return val.(LocationMetadata), true
+}
+
+// RegisterSignature assigns a function signature affinity to a specific worker.
+func (r *DataLocalityRegistry) RegisterSignature(signature string, workerID string) {
+	r.signatures.Store(signature, SignatureMetadata{WorkerID: workerID, ActiveTasks: 1})
+}
+
+// GetAffinityWorker returns the designated worker for a signature to enforce "Execution Affinity".
+func (r *DataLocalityRegistry) GetAffinityWorker(signature string) (string, bool) {
+	val, ok := r.signatures.Load(signature)
+	if !ok {
+		return "", false
+	}
+	return val.(SignatureMetadata).WorkerID, true
 }

@@ -39,4 +39,20 @@ func TestDataLocalityRegistry(t *testing.T) {
 		// Basic check that it doesn't panic
 		_, _ = registry.Get("res")
 	})
+
+	t.Run("Signature Affinity", func(t *testing.T) {
+		signature := "hash-python-process-v1"
+		workerID := "worker-b"
+
+		registry.RegisterSignature(signature, workerID)
+
+		gotWorker, ok := registry.GetAffinityWorker(signature)
+		assert.True(t, ok)
+		assert.Equal(t, workerID, gotWorker)
+	})
+
+	t.Run("Signature Affinity Non-Existent", func(t *testing.T) {
+		_, ok := registry.GetAffinityWorker("ghost-signature")
+		assert.False(t, ok)
+	})
 }
