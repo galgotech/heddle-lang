@@ -1,4 +1,4 @@
-package main
+package cluster
 
 import (
 	"github.com/spf13/cobra"

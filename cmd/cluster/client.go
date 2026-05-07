@@ -1,4 +1,4 @@
-package main
+package cluster
 
 import (
 	"context"
@@ -75,5 +75,5 @@ func init() {
 	viper.BindPFlag("server", clientCmd.PersistentFlags().Lookup("server"))
 
 	clientCmd.AddCommand(submitCmd)
-	rootCmd.AddCommand(clientCmd)
+	ClusterCmd.AddCommand(clientCmd)
 }

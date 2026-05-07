@@ -43,11 +43,6 @@ func (v *Validator) Validate() error {
 		return err
 	}
 
-	// 4. Validate types
-	if err := v.validateTypes(); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -75,11 +70,50 @@ func (v *Validator) registerDefinitions() {
 }
 
 func (v *Validator) validateReferences() error {
+	// Validate Resource references in Step bindings
+	for i := v.program.StepRefsStart; i < v.program.StepRefsEnd; i++ {
+		ref := v.ctx.StepRefs[i]
+		node := v.ctx.StepBindingNodes[ref]
+		if err := v.validateFunctionRef(node.RefRef); err != nil {
+			return err
+		}
+	}
+
+	// Validate Workflow references
 	for i := v.program.WorkflowRefsStart; i < v.program.WorkflowRefsEnd; i++ {
 		ref := v.ctx.WorkflowRefs[i]
 		node := v.ctx.WorkflowNodes[ref]
 		if err := v.validateWorkflowReferences(node); err != nil {
 			return err
+		}
+	}
+
+	// Validate Handler references
+	for i := v.program.HandlerRefsStart; i < v.program.HandlerRefsEnd; i++ {
+		ref := v.ctx.HandlerRefs[i]
+		node := v.ctx.HandlerNodes[ref]
+		if err := v.validateHandlerReferences(node); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (v *Validator) validateFunctionRef(ref ast.NodeRef) error {
+	if ref == 0 {
+		return nil
+	}
+	fn := v.ctx.FunctionRefNodes[ref]
+	if fn.ResourcesRef != 0 {
+		rr := v.ctx.ResourceRefNodes[fn.ResourcesRef]
+		for i := rr.MappingsRefStart; i < rr.MappingsRefEnd; i++ {
+			mappingRef := v.ctx.MappingRefs[i]
+			mapping := v.ctx.ResourceMappingNodes[mappingRef]
+			resourceName := v.ctx.GetString(mapping.ValueRef)
+			if _, ok := v.mapResource[resourceName]; !ok {
+				return fmt.Errorf("undefined resource '%s' used in step injection", resourceName)
+			}
 		}
 	}
 	return nil
@@ -103,15 +137,39 @@ func (v *Validator) validateWorkflowReferences(wd ast.WorkflowNode) error {
 	return nil
 }
 
-func (v *Validator) validatePipelineReferences(ps ast.PipelineStatementNode) error {
-	// For now, only pipe chains are supported in this simplified validator
-	ref := ps.ExprRef
-	pc := v.ctx.PipeChainNodes[ref]
-	for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
-		callRef := v.ctx.CallRefs[i]
-		call := v.ctx.CallNodes[callRef]
-		if err := v.validateCallReferences(call); err != nil {
+func (v *Validator) validateHandlerReferences(hd ast.HandlerNode) error {
+	for i := hd.HandlerStatementRefsStart; i < hd.HandlerStatementRefsEnd; i++ {
+		hsRef := v.ctx.HandlerStatementRefs[i]
+		hs := v.ctx.HandlerStatementNodes[hsRef]
+		ps := v.ctx.PipelineStatementNodes[hs.StmtRef]
+		if err := v.validatePipelineReferences(ps); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validatePipelineReferences(ps ast.PipelineStatementNode) error {
+	ref := ps.ExprRef
+	if ref == 0 {
+		return nil
+	}
+
+	// Pipeline statement can point to a PipeChain or a Dataframe
+	if int(ref) < len(v.ctx.PipeChainNodes) {
+		pc := v.ctx.PipeChainNodes[ref]
+		// This is a bit weak because we don't know for sure if ref points to PipeChainNodes
+		// but since we only have two options and NodeRef is an index into context slices...
+		// Ideally we'd have a type tag or separate refs.
+		// For now, let's assume if it's within bounds of PipeChainNodes and has calls, it's a pipe chain.
+		if pc.CallRefsEnd > pc.CallRefsStart {
+			for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
+				callRef := v.ctx.CallRefs[i]
+				call := v.ctx.CallNodes[callRef]
+				if err := v.validateCallReferences(call); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -125,155 +183,18 @@ func (v *Validator) validateCallReferences(call ast.CallNode) error {
 		}
 	}
 
-	name := v.ctx.GetString(call.NameRef)
-	if _, ok := v.mapStep[name]; !ok {
-		// return fmt.Errorf("undefined step: %s", name)
+	if !call.IsPrql {
+		name := v.ctx.GetString(call.NameRef)
+		if _, ok := v.mapStep[name]; !ok {
+			// return fmt.Errorf("undefined step: %s", name)
+		}
 	}
 
 	return nil
 }
 
 func (v *Validator) detectCycles() error {
-	return nil // Simplified for migration
-}
-
-func (v *Validator) validateTypes() error {
-	for i := v.program.WorkflowRefsStart; i < v.program.WorkflowRefsEnd; i++ {
-		ref := v.ctx.WorkflowRefs[i]
-		node := v.ctx.WorkflowNodes[ref]
-		if err := v.validateWorkflowTypes(node); err != nil {
-			return err
-		}
-	}
 	return nil
-}
-
-func (v *Validator) validateWorkflowTypes(wd ast.WorkflowNode) error {
-	for i := wd.StatementRefsStart; i < wd.StatementRefsEnd; i++ {
-		psRef := v.ctx.StatementRefs[i]
-		ps := v.ctx.PipelineStatementNodes[psRef]
-		if err := v.validatePipelineTypes(ps); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (v *Validator) validatePipelineTypes(ps ast.PipelineStatementNode) error {
-	ref := ps.ExprRef
-	pc := v.ctx.PipeChainNodes[ref]
-
-	var lastOutput ast.NodeRef
-	first := true
-
-	for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
-		callRef := v.ctx.CallRefs[i]
-		call := v.ctx.CallNodes[callRef]
-		name := v.ctx.GetString(call.NameRef)
-		stepRef, ok := v.mapStep[name]
-		if !ok {
-			return fmt.Errorf("undefined step: %s", name)
-		}
-
-		step := v.ctx.StepBindingNodes[stepRef]
-		sig := v.ctx.StepSignatureNodes[step.SignatureRef]
-
-		if !first {
-			// Check input matches last output
-			if !v.typesCompatible(lastOutput, sig.InputRef) {
-				return fmt.Errorf("type mismatch in pipeline: step '%s' expects %s, but receives %s",
-					name, v.TypeName(sig.InputRef), v.TypeName(lastOutput))
-			}
-		}
-
-		lastOutput = sig.OutputRef
-		first = false
-	}
-	return nil
-}
-
-func (v *Validator) typesCompatible(expected, actual ast.NodeRef) bool {
-	if expected == actual {
-		return true
-	}
-	if expected == 0 || actual == 0 {
-		return expected == actual
-	}
-
-	sr1 := v.ctx.SchemaRefNodes[expected]
-	sr2 := v.ctx.SchemaRefNodes[actual]
-
-	// Try name-based match first (fast path)
-	if v.ctx.GetString(sr1.NameRef) == v.ctx.GetString(sr2.NameRef) &&
-		v.ctx.GetString(sr1.ModuleRef) == v.ctx.GetString(sr2.ModuleRef) {
-		return true
-	}
-
-	// Fallback to structural matching
-	return v.checkStructuralMatch(expected, actual)
-}
-
-func (v *Validator) checkStructuralMatch(expected, actual ast.NodeRef) bool {
-	// 1. Resolve SchemaNodes
-	s1 := v.resolveSchema(expected)
-	s2 := v.resolveSchema(actual)
-
-	if s1 == nil || s2 == nil {
-		// If we can't find the definition, we can't do structural matching.
-		// For now, assume incompatible unless name matched.
-		return false
-	}
-
-	b1 := v.ctx.SchemaBlockNodes[s1.BlockRef]
-	b2 := v.ctx.SchemaBlockNodes[s2.BlockRef]
-
-	fields1 := v.ctx.FieldRefs[b1.FieldRefsStart:b1.FieldRefsEnd]
-	fields2 := v.ctx.FieldRefs[b2.FieldRefsStart:b2.FieldRefsEnd]
-
-	if len(fields1) != len(fields2) {
-		return false
-	}
-
-	for i := range fields1 {
-		f1 := v.ctx.SchemaFieldNodes[fields1[i]]
-		f2 := v.ctx.SchemaFieldNodes[fields2[i]]
-
-		if v.ctx.GetString(f1.NameRef) != v.ctx.GetString(f2.NameRef) {
-			return false
-		}
-		if v.ctx.GetString(f1.TypeRef) != v.ctx.GetString(f2.TypeRef) {
-			return false
-		}
-		// Recursive check for nested blocks could go here
-	}
-
-	return true
-}
-
-func (v *Validator) resolveSchema(ref ast.NodeRef) *ast.SchemaNode {
-	sr := v.ctx.SchemaRefNodes[ref]
-	name := v.ctx.GetString(sr.NameRef)
-	// Simplified: look in local schemas
-	for i := v.program.SchemaRefsStart; i < v.program.SchemaRefsEnd; i++ {
-		sRef := v.ctx.SchemaRefs[i]
-		sn := v.ctx.SchemaNodes[sRef]
-		if v.ctx.GetString(sn.NameRef) == name {
-			return &sn
-		}
-	}
-	return nil
-}
-
-func (v *Validator) TypeName(ref ast.NodeRef) string {
-	if ref == 0 {
-		return "void"
-	}
-	sr := v.ctx.SchemaRefNodes[ref]
-	name := v.ctx.GetString(sr.NameRef)
-	if sr.ModuleRef.Start != sr.ModuleRef.End {
-		return v.ctx.GetString(sr.ModuleRef) + "." + name
-	}
-	return name
 }
 
 // Lookup returns the definition node for a given name if it exists.
@@ -288,25 +209,4 @@ func (v *Validator) Lookup(name string) ast.NodeRef {
 		return handler
 	}
 	return 0
-}
-
-// GetTypeDetails returns the fields of a schema for LSP/introspection.
-func (v *Validator) GetTypeDetails(ref ast.NodeRef) map[string]string {
-	if ref == 0 {
-		return nil
-	}
-
-	sn := v.resolveSchema(ref)
-	if sn == nil {
-		return nil
-	}
-
-	details := make(map[string]string)
-	block := v.ctx.SchemaBlockNodes[sn.BlockRef]
-	for i := block.FieldRefsStart; i < block.FieldRefsEnd; i++ {
-		fieldRef := v.ctx.FieldRefs[i]
-		field := v.ctx.SchemaFieldNodes[fieldRef]
-		details[v.ctx.GetString(field.NameRef)] = v.ctx.GetString(field.TypeRef)
-	}
-	return details
 }

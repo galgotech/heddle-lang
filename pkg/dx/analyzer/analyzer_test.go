@@ -14,20 +14,15 @@ import (
 
 func TestEndToEndDiagnostics(t *testing.T) {
 	input := `
-import "stdlib" as std
+import "stdlib" std
 
-schema User {
-    id: int
-    name: string
-}
-
-step process: User -> User = std.Process
+step process = std.Process
 
 workflow main {
-    read_data
+  read_data
     | process
     | unknown_step
-    | process > result
+    | (from input select {id, val})
 }
 `
 	l := lexer.New(input)
@@ -51,7 +46,6 @@ workflow main {
 	}
 
 	// Run semantic analysis.
-	// We'll pass nil for the registry to trigger "Step not defined" for everything not in StepBindings.
 	ana := analyzer.New(ctx, nil)
 	semanticErrors := ana.Analyze(program)
 	diagnostics = append(diagnostics, semanticErrors...)
@@ -68,22 +62,30 @@ workflow main {
 
 	// Demonstrate Hover
 	fmt.Println("\n--- LSP Hover Example (on 'process' in workflow) ---")
-	// In the workflow block, 'process' is on line 14 (1-based), but I should check the exact column.
-	// Input starts with a newline, so line 1 is blank.
+	// line 1: blank
 	// line 2: import...
-	// line 12: workflow main {
-	// line 13:     read_data
-	// line 14:     | process
-	hoverPos := ast.Position{Line: 14, Col: 7}
+	// line 3: blank
+	// line 4: step process...
+	// line 5: blank
+	// line 6: workflow main {
+	// line 7:   read_data
+	// line 8:     | process
+	hoverPos := ast.Position{Line: 8, Col: 7}
 	hover := lsp.HandleHover(ctx, hoverPos)
 	if hover != nil {
 		fmt.Printf("Hover Value: %s\n", hover.Contents.Value)
 	} else {
-		// Try another position if 14:7 fails, let's print all call ranges
 		fmt.Println("Call Ranges in AST:")
 		for i, r := range ctx.CallRanges {
+			if i == 0 {
+				continue
+			}
 			call := ctx.CallNodes[i]
-			fmt.Printf("Call '%s': L%d:C%d - L%d:C%d\n", ctx.GetString(call.NameRef), r.Start.Line, r.Start.Col, r.End.Line, r.End.Col)
+			name := ctx.GetString(call.NameRef)
+			if call.IsPrql {
+				name = "PRQL"
+			}
+			fmt.Printf("Call '%s': L%d:C%d - L%d:C%d\n", name, r.Start.Line, r.Start.Col, r.End.Line, r.End.Col)
 		}
 	}
 }

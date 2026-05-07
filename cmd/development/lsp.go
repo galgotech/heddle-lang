@@ -1,4 +1,4 @@
-package main
+package development
 
 import (
 	"context"
@@ -26,7 +26,8 @@ func (stdioRW) Close() error {
 	return nil
 }
 
-var lspCmd = &cobra.Command{
+// LspCmd starts the Heddle Language Server
+var LspCmd = &cobra.Command{
 	Use:   "lsp",
 	Short: "Start the Heddle Language Server",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -60,9 +61,7 @@ var lspCmd = &cobra.Command{
 }
 
 func init() {
-	lspCmd.PersistentFlags().StringVar(&lspCfgFile, "config", "", "config file (default is ./heddle-lsp.yaml)")
-	lspCmd.Flags().String("log-path", "/tmp/heddle-lsp.log", "Path to log file")
-	viper.BindPFlag("log-path", lspCmd.Flags().Lookup("log-path"))
-
-	rootCmd.AddCommand(lspCmd)
+	LspCmd.PersistentFlags().StringVar(&lspCfgFile, "config", "", "config file (default is ./heddle-lsp.yaml)")
+	LspCmd.Flags().String("log-path", "/tmp/heddle-lsp.log", "Path to log file")
+	viper.BindPFlag("log-path", LspCmd.Flags().Lookup("log-path"))
 }

@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/metadata"
 
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/galgotech/heddle-lang/internal/services/control-plane/manager"
 	"github.com/galgotech/heddle-lang/internal/services/control-plane/scheduler"
 	"github.com/galgotech/heddle-lang/internal/services/control-plane/state"
-	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc/metadata"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 )
 
 // mockDoActionServer implements flight.FlightService_DoActionServer for testing
@@ -61,7 +61,7 @@ func TestControlPlaneServer_DoAction_RegisterWorker(t *testing.T) {
 	assert.Len(t, mockStream.results, 1)
 	assert.Equal(t, "OK", string(mockStream.results[0].Body))
 
-	worker, err := server.registry.GetHealthyWorker()
+	worker, err := server.registry.GetWorker("worker-1")
 	assert.NoError(t, err)
 	assert.Equal(t, "worker-1", worker.ID)
 }
@@ -94,10 +94,6 @@ func TestControlPlaneServer_DoAction_Heartbeat(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, mockStream.results, 1)
 	assert.Equal(t, "OK", string(mockStream.results[0].Body))
-
-	worker, err := server.registry.GetHealthyWorker()
-	assert.NoError(t, err)
-	assert.Equal(t, "worker-1", worker.ID)
 }
 
 func TestControlPlaneServer_DoAction_SubmitWorkflow(t *testing.T) {
@@ -109,7 +105,7 @@ func TestControlPlaneServer_DoAction_SubmitWorkflow(t *testing.T) {
 	mockStream := &mockDoActionServer{}
 
 	source := `
-step s1: void -> void = m.s1
+step s1 = m.s1
 workflow main {
   s1
 }
@@ -139,7 +135,6 @@ func TestControlPlaneServer_DoAction_GetHistory(t *testing.T) {
 
 	// Add a node to state machine
 	node := state.NewNode("task-1")
-	// Using the internal node directly for simplicity in testing
 	server.sm.AddNode(node)
 	server.sm.Transition("task-1", state.Pending, state.Completed, nil)
 

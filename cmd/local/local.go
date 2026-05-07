@@ -1,4 +1,4 @@
-package main
+package local
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -25,8 +24,14 @@ import (
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
-func init() {
-	rootCmd.Run = runStandalone
+// LocalCmd is the root command for running Heddle in local standalone mode.
+var LocalCmd = &cobra.Command{
+	Use:   "local [file.he]",
+	Short: "Run Heddle in local standalone mode",
+	Long: `In local mode, Heddle starts an internal Control Plane and Worker using Unix Domain Sockets.
+If a file is provided, it will be executed immediately.`,
+	Args: cobra.MaximumNArgs(1),
+	Run:  runStandalone,
 }
 
 func runStandalone(cmd *cobra.Command, args []string) {
@@ -46,27 +51,33 @@ func runStandalone(cmd *cobra.Command, args []string) {
 		cancel()
 	}()
 
-	// 1. Start Control Plane in background
-	cpPort := viper.GetInt("port")
-	if cpPort == 0 {
-		cpPort = 50051
+	// 1. Start Control Plane in background via Unix Domain Socket
+	cpSocket := "/tmp/heddle-cp-standalone.sock"
+	_ = os.Remove(cpSocket)
+	cpLis, err := net.Listen("unix", cpSocket)
+	if err != nil {
+		logger.L().Fatal("failed to listen on CP socket", zap.Error(err))
 	}
+	defer os.Remove(cpSocket)
+
 	go func() {
-		logger.L().Info("Starting Control Plane (standalone mode)", zap.Int("port", cpPort))
-		server.StartServer(cpPort)
+		logger.L().Info("Starting Control Plane (standalone mode)", zap.String("socket", cpSocket))
+		server.Serve(cpLis)
 	}()
 
 	// Give the server a moment to start
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// 2. Start Stdlib Plugin in background
 	go runStdlibPlugin(ctx)
 
 	// 3. Start Worker
 	workerID := "standalone-worker"
-	cpAddr := fmt.Sprintf("localhost:%d", cpPort)
+	cpAddr := "unix://" + cpSocket
 
-	conn, err := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(cpAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		logger.L().Fatal("failed to connect to CP", zap.Error(err))
 	}
@@ -93,9 +104,9 @@ func runStandalone(cmd *cobra.Command, args []string) {
 	go worker.StartHeartbeat(ctx)
 	go worker.StartExecutionLoop(ctx)
 
-	logger.L().Info("Heddle is running in standalone mode",
+	logger.L().Info("Heddle is running in standalone mode (Pure Local)",
 		zap.String("workerID", workerID),
-		zap.String("cp", cpAddr))
+		zap.String("cp_socket", cpSocket))
 
 	// 5. Submit workflow if file is provided
 	if len(args) > 0 {

@@ -29,6 +29,9 @@ func (c *Compiler) Compile(source string) (*ir.ProgramIR, error) {
 	l := lexer.New(source)
 	p := parser.New(l, ctx)
 	program := p.Parse()
+	if len(p.Errors()) > 0 {
+		return nil, fmt.Errorf("parser errors: %v", p.Errors())
+	}
 
 	// 2. Semantic Validation
 	v := NewValidator(program, ctx)
@@ -79,7 +82,6 @@ func (c *Compiler) CompileFiles(paths []string) (*ir.ProgramIR, error) {
 	// Merge all programs into one
 	combinedProgram := ast.ProgramNode{
 		ImportRefsStart:   uint32(len(ctx.ImportRefs)),
-		SchemaRefsStart:   uint32(len(ctx.SchemaRefs)),
 		ResourceRefsStart: uint32(len(ctx.ResourceRefs)),
 		StepRefsStart:     uint32(len(ctx.StepRefs)),
 		HandlerRefsStart:  uint32(len(ctx.HandlerRefs)),
@@ -93,7 +95,6 @@ func (c *Compiler) CompileFiles(paths []string) (*ir.ProgramIR, error) {
 	}
 	// This merge logic is simplified and might need more work for a production compiler
 	combinedProgram.ImportRefsEnd = uint32(len(ctx.ImportRefs))
-	combinedProgram.SchemaRefsEnd = uint32(len(ctx.SchemaRefs))
 	combinedProgram.ResourceRefsEnd = uint32(len(ctx.ResourceRefs))
 	combinedProgram.StepRefsEnd = uint32(len(ctx.StepRefs))
 	combinedProgram.HandlerRefsEnd = uint32(len(ctx.HandlerRefs))

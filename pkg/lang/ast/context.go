@@ -10,30 +10,36 @@ type ASTContext struct {
 
 	// Node slices
 	ImportNodes            []ImportNode
-	SchemaNodes            []SchemaNode
-	SchemaBlockNodes       []SchemaBlockNode
-	SchemaFieldNodes       []SchemaFieldNode
-	SchemaRefNodes         []SchemaRefNode
 	ResourceNodes          []ResourceNode
 	StepBindingNodes       []StepBindingNode
-	StepSignatureNodes     []StepSignatureNode
 	FunctionRefNodes       []FunctionRefNode
+	ResourceRefNodes       []ResourceRefNode
+	ResourceMappingNodes   []ResourceMappingNode
 	HandlerNodes           []HandlerNode
+	HandlerStatementNodes  []HandlerStatementNode
 	WorkflowNodes          []WorkflowNode
 	PipelineStatementNodes []PipelineStatementNode
 	PipeChainNodes         []PipeChainNode
 	CallNodes              []CallNode
+	DataframeNodes         []DataframeNode
+	DictNodes              []DictNode
+	PairNodes              []PairNode
+	ListNodes              []ListNode
+	LiteralNodes           []LiteralNode
 
 	// Reference slices (to hold children indices)
-	ImportRefs    []NodeRef
-	SchemaRefs    []NodeRef
-	ResourceRefs  []NodeRef
-	StepRefs      []NodeRef
-	HandlerRefs   []NodeRef
-	WorkflowRefs  []NodeRef
-	StatementRefs []NodeRef
-	FieldRefs     []NodeRef
-	CallRefs      []NodeRef
+	ImportRefs           []NodeRef
+	ResourceRefs         []NodeRef
+	StepRefs             []NodeRef
+	HandlerRefs          []NodeRef
+	WorkflowRefs         []NodeRef
+	StatementRefs        []NodeRef
+	HandlerStatementRefs []NodeRef
+	CallRefs             []NodeRef
+	MappingRefs          []NodeRef
+	DictRefs             []NodeRef
+	PairRefs             []NodeRef
+	LiteralRefs          []NodeRef
 
 	// Range slices (parallel to node slices)
 	ResourceRanges []Range
@@ -41,43 +47,47 @@ type ASTContext struct {
 	HandlerRanges  []Range
 	WorkflowRanges []Range
 	CallRanges     []Range
-	SchemaRanges   []Range
 }
 
 // Reset clears the context for reuse without reallocating the underlying arrays.
 func (ctx *ASTContext) Reset() {
 	ctx.StringBuffer = ctx.StringBuffer[:0]
 	ctx.ImportNodes = ctx.ImportNodes[:1]
-	ctx.SchemaNodes = ctx.SchemaNodes[:1]
-	ctx.SchemaBlockNodes = ctx.SchemaBlockNodes[:1]
-	ctx.SchemaFieldNodes = ctx.SchemaFieldNodes[:1]
-	ctx.SchemaRefNodes = ctx.SchemaRefNodes[:1]
 	ctx.ResourceNodes = ctx.ResourceNodes[:1]
 	ctx.StepBindingNodes = ctx.StepBindingNodes[:1]
-	ctx.StepSignatureNodes = ctx.StepSignatureNodes[:1]
 	ctx.FunctionRefNodes = ctx.FunctionRefNodes[:1]
+	ctx.ResourceRefNodes = ctx.ResourceRefNodes[:1]
+	ctx.ResourceMappingNodes = ctx.ResourceMappingNodes[:1]
 	ctx.HandlerNodes = ctx.HandlerNodes[:1]
+	ctx.HandlerStatementNodes = ctx.HandlerStatementNodes[:1]
 	ctx.WorkflowNodes = ctx.WorkflowNodes[:1]
 	ctx.PipelineStatementNodes = ctx.PipelineStatementNodes[:1]
 	ctx.PipeChainNodes = ctx.PipeChainNodes[:1]
 	ctx.CallNodes = ctx.CallNodes[:1]
+	ctx.DataframeNodes = ctx.DataframeNodes[:1]
+	ctx.DictNodes = ctx.DictNodes[:1]
+	ctx.PairNodes = ctx.PairNodes[:1]
+	ctx.ListNodes = ctx.ListNodes[:1]
+	ctx.LiteralNodes = ctx.LiteralNodes[:1]
 
 	ctx.ImportRefs = ctx.ImportRefs[:0]
-	ctx.SchemaRefs = ctx.SchemaRefs[:0]
 	ctx.ResourceRefs = ctx.ResourceRefs[:0]
 	ctx.StepRefs = ctx.StepRefs[:0]
 	ctx.HandlerRefs = ctx.HandlerRefs[:0]
 	ctx.WorkflowRefs = ctx.WorkflowRefs[:0]
 	ctx.StatementRefs = ctx.StatementRefs[:0]
-	ctx.FieldRefs = ctx.FieldRefs[:0]
+	ctx.HandlerStatementRefs = ctx.HandlerStatementRefs[:0]
 	ctx.CallRefs = ctx.CallRefs[:0]
+	ctx.MappingRefs = ctx.MappingRefs[:0]
+	ctx.DictRefs = ctx.DictRefs[:0]
+	ctx.PairRefs = ctx.PairRefs[:0]
+	ctx.LiteralRefs = ctx.LiteralRefs[:0]
 
 	ctx.ResourceRanges = ctx.ResourceRanges[:1]
 	ctx.StepRanges = ctx.StepRanges[:1]
 	ctx.HandlerRanges = ctx.HandlerRanges[:1]
 	ctx.WorkflowRanges = ctx.WorkflowRanges[:1]
 	ctx.CallRanges = ctx.CallRanges[:1]
-	ctx.SchemaRanges = ctx.SchemaRanges[:1]
 }
 
 // AddString appends a string to the buffer and returns its reference.
@@ -103,35 +113,6 @@ func (ctx *ASTContext) AddImportNode(n ImportNode) NodeRef {
 	return NodeRef(idx)
 }
 
-func (ctx *ASTContext) AddSchemaNode(n SchemaNode) NodeRef {
-	idx := uint32(len(ctx.SchemaNodes))
-	ctx.SchemaNodes = append(ctx.SchemaNodes, n)
-	ctx.SchemaRanges = append(ctx.SchemaRanges, Range{})
-	return NodeRef(idx)
-}
-
-func (ctx *ASTContext) SetSchemaRange(ref NodeRef, r Range) {
-	ctx.SchemaRanges[ref] = r
-}
-
-func (ctx *ASTContext) AddSchemaBlockNode(n SchemaBlockNode) NodeRef {
-	idx := uint32(len(ctx.SchemaBlockNodes))
-	ctx.SchemaBlockNodes = append(ctx.SchemaBlockNodes, n)
-	return NodeRef(idx)
-}
-
-func (ctx *ASTContext) AddSchemaFieldNode(n SchemaFieldNode) NodeRef {
-	idx := uint32(len(ctx.SchemaFieldNodes))
-	ctx.SchemaFieldNodes = append(ctx.SchemaFieldNodes, n)
-	return NodeRef(idx)
-}
-
-func (ctx *ASTContext) AddSchemaRefNode(n SchemaRefNode) NodeRef {
-	idx := uint32(len(ctx.SchemaRefNodes))
-	ctx.SchemaRefNodes = append(ctx.SchemaRefNodes, n)
-	return NodeRef(idx)
-}
-
 func (ctx *ASTContext) AddResourceNode(n ResourceNode) NodeRef {
 	idx := uint32(len(ctx.ResourceNodes))
 	ctx.ResourceNodes = append(ctx.ResourceNodes, n)
@@ -154,15 +135,21 @@ func (ctx *ASTContext) SetStepRange(ref NodeRef, r Range) {
 	ctx.StepRanges[ref] = r
 }
 
-func (ctx *ASTContext) AddStepSignatureNode(n StepSignatureNode) NodeRef {
-	idx := uint32(len(ctx.StepSignatureNodes))
-	ctx.StepSignatureNodes = append(ctx.StepSignatureNodes, n)
-	return NodeRef(idx)
-}
-
 func (ctx *ASTContext) AddFunctionRefNode(n FunctionRefNode) NodeRef {
 	idx := uint32(len(ctx.FunctionRefNodes))
 	ctx.FunctionRefNodes = append(ctx.FunctionRefNodes, n)
+	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) AddResourceRefNode(n ResourceRefNode) NodeRef {
+	idx := uint32(len(ctx.ResourceRefNodes))
+	ctx.ResourceRefNodes = append(ctx.ResourceRefNodes, n)
+	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) AddResourceMappingNode(n ResourceMappingNode) NodeRef {
+	idx := uint32(len(ctx.ResourceMappingNodes))
+	ctx.ResourceMappingNodes = append(ctx.ResourceMappingNodes, n)
 	return NodeRef(idx)
 }
 
@@ -175,6 +162,12 @@ func (ctx *ASTContext) AddHandlerNode(n HandlerNode) NodeRef {
 
 func (ctx *ASTContext) SetHandlerRange(ref NodeRef, r Range) {
 	ctx.HandlerRanges[ref] = r
+}
+
+func (ctx *ASTContext) AddHandlerStatementNode(n HandlerStatementNode) NodeRef {
+	idx := uint32(len(ctx.HandlerStatementNodes))
+	ctx.HandlerStatementNodes = append(ctx.HandlerStatementNodes, n)
+	return NodeRef(idx)
 }
 
 func (ctx *ASTContext) AddWorkflowNode(n WorkflowNode) NodeRef {
@@ -211,9 +204,38 @@ func (ctx *ASTContext) SetCallRange(ref NodeRef, r Range) {
 	ctx.CallRanges[ref] = r
 }
 
+func (ctx *ASTContext) AddDataframeNode(n DataframeNode) NodeRef {
+	idx := uint32(len(ctx.DataframeNodes))
+	ctx.DataframeNodes = append(ctx.DataframeNodes, n)
+	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) AddDictNode(n DictNode) NodeRef {
+	idx := uint32(len(ctx.DictNodes))
+	ctx.DictNodes = append(ctx.DictNodes, n)
+	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) AddPairNode(n PairNode) NodeRef {
+	idx := uint32(len(ctx.PairNodes))
+	ctx.PairNodes = append(ctx.PairNodes, n)
+	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) AddListNode(n ListNode) NodeRef {
+	idx := uint32(len(ctx.ListNodes))
+	ctx.ListNodes = append(ctx.ListNodes, n)
+	return NodeRef(idx)
+}
+
+func (ctx *ASTContext) AddLiteralNode(n LiteralNode) NodeRef {
+	idx := uint32(len(ctx.LiteralNodes))
+	ctx.LiteralNodes = append(ctx.LiteralNodes, n)
+	return NodeRef(idx)
+}
+
 // Helper methods to add refs
 func (ctx *ASTContext) AddImportRef(r NodeRef)   { ctx.ImportRefs = append(ctx.ImportRefs, r) }
-func (ctx *ASTContext) AddSchemaRef(r NodeRef)   { ctx.SchemaRefs = append(ctx.SchemaRefs, r) }
 func (ctx *ASTContext) AddResourceRef(r NodeRef) { ctx.ResourceRefs = append(ctx.ResourceRefs, r) }
 func (ctx *ASTContext) AddStepRef(r NodeRef)     { ctx.StepRefs = append(ctx.StepRefs, r) }
 func (ctx *ASTContext) AddHandlerRef(r NodeRef)  { ctx.HandlerRefs = append(ctx.HandlerRefs, r) }
@@ -221,44 +243,55 @@ func (ctx *ASTContext) AddWorkflowRef(r NodeRef) { ctx.WorkflowRefs = append(ctx
 func (ctx *ASTContext) AddStatementRef(r NodeRef) {
 	ctx.StatementRefs = append(ctx.StatementRefs, r)
 }
-func (ctx *ASTContext) AddFieldRef(r NodeRef) { ctx.FieldRefs = append(ctx.FieldRefs, r) }
-func (ctx *ASTContext) AddCallRef(r NodeRef)  { ctx.CallRefs = append(ctx.CallRefs, r) }
+func (ctx *ASTContext) AddHandlerStatementRef(r NodeRef) {
+	ctx.HandlerStatementRefs = append(ctx.HandlerStatementRefs, r)
+}
+func (ctx *ASTContext) AddCallRef(r NodeRef)    { ctx.CallRefs = append(ctx.CallRefs, r) }
+func (ctx *ASTContext) AddMappingRef(r NodeRef) { ctx.MappingRefs = append(ctx.MappingRefs, r) }
+func (ctx *ASTContext) AddDictRef(r NodeRef)    { ctx.DictRefs = append(ctx.DictRefs, r) }
+func (ctx *ASTContext) AddPairRef(r NodeRef)    { ctx.PairRefs = append(ctx.PairRefs, r) }
+func (ctx *ASTContext) AddLiteralRef(r NodeRef) { ctx.LiteralRefs = append(ctx.LiteralRefs, r) }
 
 var astContextPool = sync.Pool{
 	New: func() interface{} {
 		return &ASTContext{
 			StringBuffer:           make([]byte, 0, 4096),
 			ImportNodes:            []ImportNode{{}},
-			SchemaNodes:            []SchemaNode{{}},
-			SchemaBlockNodes:       []SchemaBlockNode{{}},
-			SchemaFieldNodes:       []SchemaFieldNode{{}},
-			SchemaRefNodes:         []SchemaRefNode{{}},
 			ResourceNodes:          []ResourceNode{{}},
 			StepBindingNodes:       []StepBindingNode{{}},
-			StepSignatureNodes:     []StepSignatureNode{{}},
 			FunctionRefNodes:       []FunctionRefNode{{}},
+			ResourceRefNodes:       []ResourceRefNode{{}},
+			ResourceMappingNodes:   []ResourceMappingNode{{}},
 			HandlerNodes:           []HandlerNode{{}},
+			HandlerStatementNodes:  []HandlerStatementNode{{}},
 			WorkflowNodes:          []WorkflowNode{{}},
 			PipelineStatementNodes: []PipelineStatementNode{{}},
 			PipeChainNodes:         []PipeChainNode{{}},
 			CallNodes:              []CallNode{{}},
+			DataframeNodes:         []DataframeNode{{}},
+			DictNodes:              []DictNode{{}},
+			PairNodes:              []PairNode{{}},
+			ListNodes:              []ListNode{{}},
+			LiteralNodes:           []LiteralNode{{}},
 
-			ImportRefs:    make([]NodeRef, 0, 16),
-			SchemaRefs:    make([]NodeRef, 0, 32),
-			ResourceRefs:  make([]NodeRef, 0, 16),
-			StepRefs:      make([]NodeRef, 0, 32),
-			HandlerRefs:   make([]NodeRef, 0, 16),
-			WorkflowRefs:  make([]NodeRef, 0, 16),
-			StatementRefs: make([]NodeRef, 0, 256),
-			FieldRefs:     make([]NodeRef, 0, 128),
-			CallRefs:      make([]NodeRef, 0, 256),
+			ImportRefs:           make([]NodeRef, 0, 16),
+			ResourceRefs:         make([]NodeRef, 0, 16),
+			StepRefs:             make([]NodeRef, 0, 32),
+			HandlerRefs:          make([]NodeRef, 0, 16),
+			WorkflowRefs:         make([]NodeRef, 0, 16),
+			StatementRefs:        make([]NodeRef, 0, 256),
+			HandlerStatementRefs: make([]NodeRef, 0, 256),
+			CallRefs:             make([]NodeRef, 0, 256),
+			MappingRefs:          make([]NodeRef, 0, 64),
+			DictRefs:             make([]NodeRef, 0, 64),
+			PairRefs:             make([]NodeRef, 0, 128),
+			LiteralRefs:          make([]NodeRef, 0, 128),
 
 			ResourceRanges: []Range{{}},
 			StepRanges:     []Range{{}},
 			HandlerRanges:  []Range{{}},
 			WorkflowRanges: []Range{{}},
 			CallRanges:     []Range{{}},
-			SchemaRanges:   []Range{{}},
 		}
 	},
 }

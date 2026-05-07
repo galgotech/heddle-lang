@@ -70,15 +70,15 @@ func (d *Dispatcher) NextTasks() []Task {
 	// 2. Check for follow-up tasks from completed ones
 	for id, state := range d.states {
 		if state.Status == TaskStatusDone {
-			inst := d.program.Instructions[id].(*ir.StepInstruction)
+			inst, ok := d.program.Instructions[id].(*ir.StepInstruction)
+			if !ok { continue }
 			if inst.Next != "" && d.isReady(inst.Next) {
-				// Pass the output of the current step as input to the next one
 				tasks = append(tasks, d.createTask(inst.Next, state.OutputHandle))
 			}
 		} else if state.Status == TaskStatusFailed {
-			inst := d.program.Instructions[id].(*ir.StepInstruction)
+			inst, ok := d.program.Instructions[id].(*ir.StepInstruction)
+			if !ok { continue }
 			if inst.Handler != "" && d.isReady(inst.Handler) {
-				// Trigger handler
 				raw := d.program.Instructions[inst.Handler]
 				if flow, ok := raw.(*ir.FlowInstruction); ok {
 					for _, headID := range flow.Heads {
@@ -86,7 +86,6 @@ func (d *Dispatcher) NextTasks() []Task {
 							tasks = append(tasks, d.createTask(headID, ""))
 						}
 					}
-					// Mark the flow itself as in-flight
 					d.states[inst.Handler] = &TaskState{Status: TaskStatusInFlight}
 				} else {
 					tasks = append(tasks, d.createTask(inst.Handler, ""))

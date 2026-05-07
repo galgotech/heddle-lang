@@ -15,7 +15,6 @@ type Lowerer struct {
 
 	// Maps for resolving symbols during lowering
 	mapImport   map[string]string // alias -> module path
-	mapSchema   map[string]ast.NodeRef
 	mapResource map[string]ast.NodeRef
 	mapStep     map[string]ast.NodeRef
 	mapHandler  map[string]ast.NodeRef
@@ -35,7 +34,6 @@ func NewLowerer(ctx *ast.ASTContext) *Lowerer {
 			Workflows:    []string{},
 		},
 		mapImport:   make(map[string]string),
-		mapSchema:   make(map[string]ast.NodeRef),
 		mapResource: make(map[string]ast.NodeRef),
 		mapStep:     make(map[string]ast.NodeRef),
 		mapHandler:  make(map[string]ast.NodeRef),
@@ -53,12 +51,6 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 		if alias != "" {
 			l.mapImport[alias] = l.ctx.GetString(node.PathRef)
 		}
-	}
-
-	for i := astProgram.SchemaRefsStart; i < astProgram.SchemaRefsEnd; i++ {
-		ref := l.ctx.SchemaRefs[i]
-		node := l.ctx.SchemaNodes[ref]
-		l.mapSchema[l.ctx.GetString(node.NameRef)] = ref
 	}
 
 	for i := astProgram.ResourceRefsStart; i < astProgram.ResourceRefsEnd; i++ {
@@ -89,7 +81,14 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 		l.registerInstruction(res)
 	}
 
-	// Third pass: Lower handlers
+	// Third pass: Lower handlers (collect IDs first for trap resolution)
+	for i := astProgram.HandlerRefsStart; i < astProgram.HandlerRefsEnd; i++ {
+		ref := l.ctx.HandlerRefs[i]
+		node := l.ctx.HandlerNodes[ref]
+		name := l.ctx.GetString(node.NameRef)
+		l.handlerIDs[name] = uuid.New().String()
+	}
+
 	for i := astProgram.HandlerRefsStart; i < astProgram.HandlerRefsEnd; i++ {
 		ref := l.ctx.HandlerRefs[i]
 		node := l.ctx.HandlerNodes[ref]
@@ -98,7 +97,6 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 			return nil, err
 		}
 		l.registerInstruction(flow)
-		l.handlerIDs[flow.Name] = flow.ID
 	}
 
 	// Fourth pass: Lower workflows
@@ -125,14 +123,19 @@ func (l *Lowerer) lowerResource(astResource ast.ResourceNode) (*ir.ResourceInstr
 }
 
 func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction, error) {
+	name := l.ctx.GetString(astHandler.NameRef)
 	flow := &ir.FlowInstruction{
-		BaseInstruction: l.newBase(ir.FlowInst),
-		Name:            l.ctx.GetString(astHandler.NameRef),
+		BaseInstruction: ir.BaseInstruction{
+			ID:   l.handlerIDs[name],
+			Type: ir.FlowInst,
+		},
+		Name: name,
 	}
 
-	for i := astHandler.StatementRefsStart; i < astHandler.StatementRefsEnd; i++ {
-		psRef := l.ctx.StatementRefs[i]
-		ps := l.ctx.PipelineStatementNodes[psRef]
+	for i := astHandler.HandlerStatementRefsStart; i < astHandler.HandlerStatementRefsEnd; i++ {
+		hsRef := l.ctx.HandlerStatementRefs[i]
+		hs := l.ctx.HandlerStatementNodes[hsRef]
+		ps := l.ctx.PipelineStatementNodes[hs.StmtRef]
 		headID, err := l.lowerPipeline(ps)
 		if err != nil {
 			return nil, err
@@ -147,6 +150,13 @@ func (l *Lowerer) lowerWorkflow(astWorkflow ast.WorkflowNode) (*ir.FlowInstructi
 	flow := &ir.FlowInstruction{
 		BaseInstruction: l.newBase(ir.FlowInst),
 		Name:            l.ctx.GetString(astWorkflow.NameRef),
+	}
+
+	if astWorkflow.TrapRef.Start != astWorkflow.TrapRef.End {
+		handlerName := l.ctx.GetString(astWorkflow.TrapRef)
+		if id, ok := l.handlerIDs[handlerName]; ok {
+			flow.Handler = id
+		}
 	}
 
 	for i := astWorkflow.StatementRefsStart; i < astWorkflow.StatementRefsEnd; i++ {
@@ -164,8 +174,18 @@ func (l *Lowerer) lowerWorkflow(astWorkflow ast.WorkflowNode) (*ir.FlowInstructi
 
 func (l *Lowerer) lowerPipeline(ps ast.PipelineStatementNode) (string, error) {
 	ref := ps.ExprRef
-	pc := l.ctx.PipeChainNodes[ref]
-	return l.lowerPipeChain(pc, l.ctx.GetString(ps.AssignmentRef))
+	if ref == 0 {
+		return "", nil
+	}
+
+	// For now assume it's a PipeChain if it's within bounds.
+	// In a real compiler we'd have a more robust way to distinguish Expr types.
+	if int(ref) < len(l.ctx.PipeChainNodes) {
+		pc := l.ctx.PipeChainNodes[ref]
+		return l.lowerPipeChain(pc, l.ctx.GetString(ps.AssignmentRef))
+	}
+
+	return "", nil
 }
 
 func (l *Lowerer) lowerPipeChain(pc ast.PipeChainNode, assignment string) (string, error) {
@@ -204,10 +224,38 @@ func (l *Lowerer) lowerPipeChain(pc ast.PipeChainNode, assignment string) (strin
 func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 	step := &ir.StepInstruction{
 		BaseInstruction: l.newBase(ir.StepInst),
+		Resources:       make(map[string]string),
+		Config:          make(map[string]any),
 	}
-	step.DefinitionName = l.ctx.GetString(call.NameRef)
 
-	if call.TrapRef != (ast.StringRef{}) {
+	if call.IsPrql {
+		step.DefinitionName = "prql"
+		step.Config["query"] = l.ctx.GetString(call.QueryRef)
+	} else {
+		name := l.ctx.GetString(call.NameRef)
+		step.DefinitionName = name
+
+		if stepRef, ok := l.mapStep[name]; ok {
+			binding := l.ctx.StepBindingNodes[stepRef]
+			fn := l.ctx.FunctionRefNodes[binding.RefRef]
+			
+			step.Call = []string{
+				l.ctx.GetString(fn.ModuleRef),
+				l.ctx.GetString(fn.NameRef),
+			}
+
+			if fn.ResourcesRef != 0 {
+				rr := l.ctx.ResourceRefNodes[fn.ResourcesRef]
+				for i := rr.MappingsRefStart; i < rr.MappingsRefEnd; i++ {
+					mappingRef := l.ctx.MappingRefs[i]
+					mapping := l.ctx.ResourceMappingNodes[mappingRef]
+					step.Resources[l.ctx.GetString(mapping.KeyRef)] = l.ctx.GetString(mapping.ValueRef)
+				}
+			}
+		}
+	}
+
+	if call.TrapRef.Start != call.TrapRef.End {
 		handlerName := l.ctx.GetString(call.TrapRef)
 		if id, ok := l.handlerIDs[handlerName]; ok {
 			step.Handler = id

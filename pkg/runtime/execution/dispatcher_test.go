@@ -8,11 +8,8 @@ import (
 
 func TestDispatcher_BasicFlow(t *testing.T) {
 	code := `
-schema df {
-    id: int
-}
-step s1: void -> void = m.extract
-step s2: void -> void = m.transform
+step s1 = m.extract
+step s2 = m.transform
 
 workflow main {
   s1
@@ -69,14 +66,12 @@ workflow main {
 
 func TestDispatcher_WithHandlers(t *testing.T) {
 	code := `
-schema df {
-    id: int
-}
-step s1: void -> df = m.extract
-step r1: df -> void = m.retry
+step s1 = m.extract
+step r1 = m.retry
 
 handler recover {
-    r1
+  *
+    | r1
 }
 
 workflow main {
@@ -101,14 +96,31 @@ workflow main {
 		Error:  "extract failed",
 	})
 
-	// Should now have r1 (from handler)
+	// Should now have the implicit input call (empty name)
 	nextTasks := d.NextTasks()
 	if len(nextTasks) != 1 {
 		t.Fatalf("expected 1 task from handler, got %d", len(nextTasks))
 	}
 
-	handlerTask := nextTasks[0]
+	emptyTask := nextTasks[0]
+	if emptyTask.Step.DefinitionName != "" {
+		t.Errorf("expected empty task, got %s", emptyTask.Step.DefinitionName)
+	}
+
+	// Complete empty task
+	d.ReportUpdate(TaskUpdate{
+		TaskID: emptyTask.ID,
+		Status: "completed",
+	})
+
+	// Should now have r1
+	handlerTasks := d.NextTasks()
+	if len(handlerTasks) != 1 {
+		t.Fatalf("expected 1 task after empty, got %d", len(handlerTasks))
+	}
+
+	handlerTask := handlerTasks[0]
 	if handlerTask.Step.DefinitionName != "r1" {
-		t.Errorf("expected handler task r1, got %s", handlerTask.Step.DefinitionName)
+		t.Errorf("expected handler task r1, got %s (ID: %s)", handlerTask.Step.DefinitionName, handlerTask.ID)
 	}
 }

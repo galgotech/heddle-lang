@@ -11,21 +11,42 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-func TestValidator_TypeMismatch(t *testing.T) {
+func TestValidator_ResourceInjection(t *testing.T) {
 	input := `
-schema S1 {
-    f: int
-}
-schema S2 {
-    g: string
+resource pg_db = pg.connection {
+  host: "localhost"
 }
 
-step stepA: S1 -> S2 = m.a
-step stepB: S1 -> void = m.b
+step fetch_users = pg.query <connection=pg_db> {
+  query: "SELECT * FROM users"
+}
 
 workflow main {
-    stepA
-        | stepB
+  fetch_users
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx)
+	err := v.Validate()
+
+	assert.NoError(t, err)
+}
+
+func TestValidator_UndefinedResource(t *testing.T) {
+	input := `
+step fetch_users = pg.query <connection=missing_db> {
+  query: "SELECT * FROM users"
+}
+
+workflow main {
+  fetch_users
 }
 `
 	ctx := ast.AcquireASTContext()
@@ -40,24 +61,19 @@ workflow main {
 	err := v.Validate()
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "type mismatch")
+	assert.Contains(t, err.Error(), "undefined resource 'missing_db'")
 }
 
-func TestValidator_ValidChain(t *testing.T) {
+func TestValidator_HandlerReference(t *testing.T) {
 	input := `
-schema S1 {
-    f: int
-}
-schema S2 {
-    f: int
+handler err_log {
+  *
+    | io.stderr
 }
 
-step stepA: S1 -> S2 = m.a
-step stepC: S2 -> S2 = m.c
-
-workflow main {
-    stepA
-        | stepC
+workflow main ? err_log {
+  (from input select *)
+    | io.print
 }
 `
 	ctx := ast.AcquireASTContext()
@@ -74,21 +90,10 @@ workflow main {
 	assert.NoError(t, err)
 }
 
-func TestValidator_StructuralMatch(t *testing.T) {
+func TestValidator_UndefinedHandler(t *testing.T) {
 	input := `
-schema S1 {
-    f: int
-}
-schema S2 {
-    f: int
-}
-
-step stepA: S1 -> S1 = m.a
-step stepB: S2 -> void = m.b
-
-workflow main {
-    stepA
-        | stepB
+workflow main ? missing_handler {
+  (from input select *)
 }
 `
 	ctx := ast.AcquireASTContext()
@@ -102,5 +107,6 @@ workflow main {
 	v := NewValidator(prog, ctx)
 	err := v.Validate()
 
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "undefined handler 'missing_handler'")
 }

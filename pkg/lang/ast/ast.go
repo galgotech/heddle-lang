@@ -3,6 +3,10 @@ package ast
 // NodeRef represents an index into the respective slice in ASTContext.
 type NodeRef uint32
 
+const (
+	NilNode NodeRef = 0
+)
+
 // StringRef represents a start and end index into the byte slice in ASTContext.
 type StringRef struct {
 	Start uint32
@@ -27,63 +31,49 @@ type ImportNode struct {
 	AliasRef StringRef
 }
 
-// SchemaNode represents a schema definition.
-type SchemaNode struct {
-	NameRef  StringRef
-	BlockRef NodeRef // Index in SchemaBlockNodes
-	RefRef   NodeRef // Index in SchemaRefNodes
-}
-
-// SchemaBlockNode represents a structured schema body.
-type SchemaBlockNode struct {
-	FieldRefsStart uint32
-	FieldRefsEnd   uint32
-}
-
-// SchemaFieldNode represents a field in a schema block.
-type SchemaFieldNode struct {
-	NameRef  StringRef
-	TypeRef  StringRef // Primitive type name
-	BlockRef NodeRef   // Optional nested block
-}
-
-// SchemaRefNode represents a reference to a schema (Module.Name).
-type SchemaRefNode struct {
-	ModuleRef StringRef
-	NameRef   StringRef
-}
-
 // ResourceNode represents a resource binding.
 type ResourceNode struct {
 	NameRef StringRef
 	RefRef  NodeRef // Index in FunctionRefNodes
 }
 
-// StepBindingNode represents a step binding with signature.
+// StepBindingNode represents a step binding.
 type StepBindingNode struct {
-	NameRef      StringRef
-	SignatureRef NodeRef // Index in StepSignatureNodes
-	RefRef       NodeRef // Index in FunctionRefNodes
+	NameRef StringRef
+	RefRef  NodeRef // Index in FunctionRefNodes
 }
 
-// StepSignatureNode represents an input -> output contract.
-type StepSignatureNode struct {
-	InputRef  NodeRef // Index in SchemaRefNodes or Void (special value)
-	OutputRef NodeRef // Index in SchemaRefNodes or Void
-}
-
-// FunctionRefNode represents a module.function reference with optional config.
+// FunctionRefNode represents a module.function reference with optional resource mapping and config.
 type FunctionRefNode struct {
-	ModuleRef StringRef
-	NameRef   StringRef
-	// Optional resource/config could be added here
+	ModuleRef    StringRef
+	NameRef      StringRef
+	ResourcesRef NodeRef // Index in ResourceRefNodes
+	ConfigRef    NodeRef // Index in DictNodes
+}
+
+// ResourceRefNode represents a list of resource mappings <key=val, ...>.
+type ResourceRefNode struct {
+	MappingsRefStart uint32
+	MappingsRefEnd   uint32
+}
+
+// ResourceMappingNode represents a single key=value mapping in a resource reference.
+type ResourceMappingNode struct {
+	KeyRef   StringRef
+	ValueRef StringRef
 }
 
 // HandlerNode represents an error/event handler.
 type HandlerNode struct {
-	NameRef            StringRef
-	StatementRefsStart uint32
-	StatementRefsEnd   uint32
+	NameRef                   StringRef
+	HandlerStatementRefsStart uint32
+	HandlerStatementRefsEnd   uint32
+}
+
+// HandlerStatementNode represents a statement in a handler, which may have a catch-all '*'.
+type HandlerStatementNode struct {
+	IsCatchAll bool
+	StmtRef    NodeRef // Index in PipelineStatementNodes
 }
 
 // WorkflowNode represents a workflow definition.
@@ -100,24 +90,66 @@ type PipelineStatementNode struct {
 	AssignmentRef StringRef // Optional > variable
 }
 
-// PipeChainNode represents a sequence of step calls.
+// PipeChainNode represents a sequence of calls.
 type PipeChainNode struct {
 	CallRefsStart uint32
 	CallRefsEnd   uint32
 }
 
-// CallNode represents a step call with optional trap.
+// CallNode represents a step call or query block with optional trap.
 type CallNode struct {
-	NameRef StringRef
-	TrapRef StringRef // Optional ?handler
+	NameRef  StringRef // Optional for query blocks (where PRQL is used)
+	QueryRef StringRef // Optional for PRQL blocks
+	TrapRef  StringRef // Optional ?handler
+	IsPrql   bool
 }
+
+// DataframeNode represents a constant dataframe [ { ... }, { ... } ].
+type DataframeNode struct {
+	DictRefsStart uint32
+	DictRefsEnd   uint32
+}
+
+// DictNode represents a { key: value } structure.
+type DictNode struct {
+	PairRefsStart uint32
+	PairRefsEnd   uint32
+}
+
+// PairNode represents a key-value pair in a dictionary.
+type PairNode struct {
+	KeyRef   StringRef
+	ValueRef NodeRef // Index in LiteralNodes
+}
+
+// ListNode represents a [ val1, val2 ] list.
+type ListNode struct {
+	LiteralRefsStart uint32
+	LiteralRefsEnd   uint32
+}
+
+// LiteralNode represents a primitive value or a nested structure.
+type LiteralNode struct {
+	Type     LiteralType
+	ValueRef StringRef // For primitive types
+	Ref      NodeRef   // For Dict or List
+}
+
+type LiteralType uint8
+
+const (
+	LiteralString LiteralType = iota
+	LiteralNumber
+	LiteralBool
+	LiteralNull
+	LiteralDict
+	LiteralList
+)
 
 // ProgramNode is the root of the AST.
 type ProgramNode struct {
 	ImportRefsStart   uint32
 	ImportRefsEnd     uint32
-	SchemaRefsStart   uint32
-	SchemaRefsEnd     uint32
 	ResourceRefsStart uint32
 	ResourceRefsEnd   uint32
 	StepRefsStart     uint32

@@ -25,27 +25,23 @@ const (
 	RANGLE   = ">"
 	LANGLE   = "<"
 	PIPE     = "|"
-	ARROW    = "->"
 	QUESTION = "?"
 	COMMA    = ","
 	DOT      = "."
 
 	// Keywords
-	IMPORT    = "IMPORT"
-	SCHEMA    = "SCHEMA"
-	RESOURCE  = "RESOURCE"
-	STEP      = "STEP"
-	HANDLER   = "HANDLER"
-	WORKFLOW  = "WORKFLOW"
-	VOID      = "VOID"
-	INT       = "INT"
-	STRING    = "STRING"
-	FLOAT     = "FLOAT"
-	BOOL      = "BOOL"
-	TIMESTAMP = "TIMESTAMP"
-	TRUE      = "TRUE"
-	FALSE     = "FALSE"
-	NULL      = "NULL"
+	IMPORT   = "IMPORT"
+	RESOURCE = "RESOURCE"
+	STEP     = "STEP"
+	HANDLER  = "HANDLER"
+	WORKFLOW = "WORKFLOW"
+	INT      = "INT"
+	STRING   = "STRING"
+	FLOAT    = "FLOAT"
+	BOOLEAN  = "BOOLEAN"
+	TRUE     = "TRUE"
+	FALSE    = "FALSE"
+	NULL     = "NULL"
 
 	// Formatting
 	NEWLINE = "NEWLINE"
@@ -54,21 +50,18 @@ const (
 )
 
 var keywords = map[string]TokenType{
-	"import":    IMPORT,
-	"schema":    SCHEMA,
-	"resource":  RESOURCE,
-	"step":      STEP,
-	"handler":   HANDLER,
-	"workflow":  WORKFLOW,
-	"void":      VOID,
-	"int":       INT,
-	"string":    STRING,
-	"float":     FLOAT,
-	"bool":      BOOL,
-	"timestamp": TIMESTAMP,
-	"true":      TRUE,
-	"false":     FALSE,
-	"null":      NULL,
+	"import":   IMPORT,
+	"resource": RESOURCE,
+	"step":     STEP,
+	"handler":  HANDLER,
+	"workflow": WORKFLOW,
+	"int":      INT,
+	"string":   STRING,
+	"float":    FLOAT,
+	"boolean":  BOOLEAN,
+	"true":     TRUE,
+	"false":    FALSE,
+	"null":     NULL,
 }
 
 func LookupIdent(ident string) TokenType {

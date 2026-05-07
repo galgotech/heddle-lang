@@ -1,4 +1,4 @@
-package main
+package development
 
 import (
 	"os"
@@ -6,14 +6,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/galgotech/heddle-lang/internal/services/debug-adapter"
+	debugadapter "github.com/galgotech/heddle-lang/internal/services/debug-adapter"
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var dapCfgFile string
 
-var dapCmd = &cobra.Command{
+// DapCmd starts the Heddle Debug Adapter
+var DapCmd = &cobra.Command{
 	Use:   "dap",
 	Short: "Start the Heddle Debug Adapter",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -40,12 +41,10 @@ var dapCmd = &cobra.Command{
 }
 
 func init() {
-	dapCmd.PersistentFlags().StringVar(&dapCfgFile, "config", "", "config file (default is ./heddle-dap.yaml)")
-	dapCmd.Flags().Bool("server", false, "Start in server mode")
-	dapCmd.Flags().String("addr", "localhost:4711", "Address to listen on in server mode")
+	DapCmd.PersistentFlags().StringVar(&dapCfgFile, "config", "", "config file (default is ./heddle-dap.yaml)")
+	DapCmd.Flags().Bool("server", false, "Start in server mode")
+	DapCmd.Flags().String("addr", "localhost:4711", "Address to listen on in server mode")
 
-	viper.BindPFlag("server", dapCmd.Flags().Lookup("server"))
-	viper.BindPFlag("addr", dapCmd.Flags().Lookup("addr"))
-
-	rootCmd.AddCommand(dapCmd)
+	viper.BindPFlag("server", DapCmd.Flags().Lookup("server"))
+	viper.BindPFlag("addr", DapCmd.Flags().Lookup("addr"))
 }

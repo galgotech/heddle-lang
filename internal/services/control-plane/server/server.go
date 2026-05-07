@@ -12,19 +12,17 @@ import (
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 
+	"github.com/galgotech/heddle-lang/internal/services/control-plane/manager"
+	"github.com/galgotech/heddle-lang/internal/services/control-plane/scheduler"
+	"github.com/galgotech/heddle-lang/internal/services/control-plane/state"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
-	"github.com/galgotech/heddle-lang/internal/services/control-plane/manager"
-	"github.com/galgotech/heddle-lang/internal/services/control-plane/scheduler"
-	"github.com/galgotech/heddle-lang/internal/services/control-plane/state"
 )
 
 // ControlPlaneServer implements the "Smart Control Plane" (the Brain) in the Heddle architecture.
-// It manages the global DAG topology, orchestrates task dispatch via a locality-aware
-// scheduler, and maintains the authoritative state of all distributed workers.
 type ControlPlaneServer struct {
 	flight.BaseFlightServer
 
@@ -42,15 +40,13 @@ type ControlPlaneServer struct {
 	// stream and the synchronous executor calls.
 	taskResults map[string]chan error
 
-	// locality tracks the physical placement of data across the cluster to optimize
-	// for zero-copy memory access via UDS where possible.
+	// locality tracks the physical placement of data across the cluster.
 	locality manager.DataLocalityRegistry
-	// outputs maps node identifiers to their respective memory handles (e.g., Plasma/UDS paths).
+	// outputs maps node identifiers to their respective memory handles.
 	outputs map[string]string // nodeID -> outputHandle
 }
 
-// NewControlPlaneServer initializes a new instance of the control plane with
-// injected registries and state tracking mechanisms.
+// NewControlPlaneServer initializes a new instance of the control plane.
 func NewControlPlaneServer(
 	registry manager.WorkerRegistry,
 	queue *scheduler.WorkQueue,
@@ -69,8 +65,6 @@ func NewControlPlaneServer(
 	return s
 }
 
-// DoAction handles unary control-plane operations including worker registration,
-// heartbeats, and workflow submission.
 func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
 	workerID := GetWorkerID(stream.Context())
 
@@ -81,7 +75,6 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			return fmt.Errorf("failed to unmarshal registration: %w", err)
 		}
 
-		// Resolve Worker ID from metadata or explicit body registration.
 		id := workerID
 		if id == "" {
 			id = reg.WorkerID
@@ -119,8 +112,6 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case execution.ActionSubmitWorkflow:
-		// workflow submission triggers Just-In-Time (JIT) compilation of Heddle source
-		// into an Intermediate Representation (IR) and initializes the execution DAG.
 		logger.L().Info("Received workflow submission", zap.Int("bytes", len(action.Body)))
 
 		source := string(action.Body)
@@ -136,28 +127,27 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		s.mu.Lock()
 		s.program = program
-		// Flush state machine and work queue for the new execution context.
 		s.sm = state.NewStateMachine()
 		s.queue = scheduler.NewWorkQueue(rate.Limit(100), 10, nil)
 
-		// DAG Traversal: Identify leaf nodes (no dependencies) and queue them for execution.
-		for id, inst := range program.Instructions {
-			if _, ok := inst.(*ir.StepInstruction); ok {
-				s.sm.AddNode(state.NewNode(id))
-				s.queue.Add(id, 3)
+		for id := range program.Instructions {
+			s.sm.AddNode(state.NewNode(id))
+		}
+
+		for _, wfID := range program.Workflows {
+			wf := program.Instructions[wfID].(*ir.FlowInstruction)
+			for _, headID := range wf.Heads {
+				s.queue.Add(headID, 3)
 			}
 		}
 
-		// Initialize dispatcher if not already active.
 		if s.dispatcher == nil {
-			// Inject GoroutinePool as the default concurrency implementation.
 			pool := manager.NewGoroutinePool()
 			s.dispatcher = manager.NewDispatcher(s.queue, s.registry, s.sm, s.executor, pool)
 			d := s.dispatcher
 			s.mu.Unlock()
-			d.Start(5)
+			go d.Start(5)
 		} else {
-
 			s.mu.Unlock()
 		}
 
@@ -165,7 +155,6 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		return stream.Send(&flight.Result{Body: []byte("Workflow initialized successfully")})
 
 	case execution.ActionGetHistory:
-		// Retrieves a snapshot of the current state machine for visualization or debugging.
 		history := s.sm.GetHistory()
 		body, err := json.Marshal(history)
 		if err != nil {
@@ -178,9 +167,6 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 	}
 }
 
-// executor is the core dispatch logic that maps an IR node to a physical worker.
-// It performs locality-aware routing by analyzing predecessor outputs to determine
-// if the target worker can access data via LOCAL shared-memory (UDS) or REMOTE gRPC.
 func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, nodeID string) error {
 	s.mu.RLock()
 	ch, ok := s.workerStreams[workerID]
@@ -191,21 +177,16 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		return fmt.Errorf("worker stream not found: %s", workerID)
 	}
 
-	// Resolve the IR instruction for the target node.
 	raw, ok := program.Instructions[nodeID]
 	if !ok {
 		return fmt.Errorf("node not found: %s", nodeID)
 	}
+
 	step, ok := raw.(*ir.StepInstruction)
 	if !ok {
 		return fmt.Errorf("node is not a step: %s", nodeID)
 	}
 
-	if step == nil {
-		return fmt.Errorf("step not found: %s", nodeID)
-	}
-
-	// Initialize result channel to await task completion via DoExchange updates.
 	resCh := make(chan error, 1)
 	s.mu.Lock()
 	s.taskResults[nodeID] = resCh
@@ -216,35 +197,25 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		s.mu.Unlock()
 	}()
 
-	// Locality-aware ticket generation determines the optimal data transfer route.
 	tickets := make(map[string]*pb.FlightTicket)
-
-	// Identify predecessors to resolve input dependencies and their physical locations.
 	for pid, inst := range program.Instructions {
 		if stepInst, ok := inst.(*ir.StepInstruction); ok {
 			if stepInst.Next == nodeID {
-				// Predecessor found; check for a valid memory handle.
 				s.mu.RLock()
 				handle, exists := s.outputs[pid]
 				s.mu.RUnlock()
 
 				if exists {
-					// Query DataLocalityRegistry to find the producing worker.
 					producerID, found := s.locality.GetProducer(handle)
 					if found {
-						ticket := &pb.FlightTicket{
-							ResourceId: handle,
-						}
-
+						ticket := &pb.FlightTicket{ResourceId: handle}
 						if producerID == workerID {
-							// LOCAL: Co-located worker can access via Unix Domain Socket (Shared Memory).
 							ticket.RouteType = pb.RouteType_LOCAL
 							worker, err := s.registry.GetWorker(producerID)
 							if err == nil {
 								ticket.Address = worker.UDSAddress
 							}
 						} else {
-							// REMOTE: Data must be fetched via Arrow Flight RPC over TCP.
 							ticket.RouteType = pb.RouteType_REMOTE
 							worker, err := s.registry.GetWorker(producerID)
 							if err == nil {
@@ -258,7 +229,6 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		}
 	}
 
-	// Dispatch task through the registered worker stream.
 	task := &execution.Task{
 		ID:      nodeID,
 		Step:    step,
@@ -271,7 +241,6 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 		return ctx.Err()
 	}
 
-	// Block until the worker reports success or failure via the TaskUpdate flow.
 	select {
 	case err := <-resCh:
 		return err
@@ -280,8 +249,6 @@ func (s *ControlPlaneServer) executor(ctx context.Context, workerID string, node
 	}
 }
 
-// DoExchange establishes a persistent, bidirectional Flight stream for task delegation
-// and execution telemetry. It manages the lifecycle of worker-specific task channels.
 func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
 	workerID := GetWorkerID(stream.Context())
 	if workerID == "" {
@@ -290,7 +257,6 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 
 	logger.L().Info("Worker established exchange stream", zap.String("workerID", workerID))
 
-	// Initialize the outbound task channel and register it in the stream map.
 	ch := make(chan *execution.Task, 10)
 	s.mu.Lock()
 	s.workerStreams[workerID] = ch
@@ -305,7 +271,6 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 
 	errCh := make(chan error, 2)
 
-	// Task Dispatch Loop: Serializes and pushes IR tasks to the connected worker.
 	go func() {
 		for {
 			select {
@@ -324,7 +289,6 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		}
 	}()
 
-	// Telemetry Feedback Loop: Processes TaskUpdates (success/failure) from the worker.
 	go func() {
 		for {
 			data, err := stream.Recv()
@@ -346,7 +310,6 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 				if ok {
 					var taskErr error
 					if update.Status == "completed" {
-						// Update output tracking and locality registry for subsequent DAG steps.
 						s.mu.Lock()
 						s.outputs[update.TaskID] = update.OutputHandle
 						s.mu.Unlock()
@@ -354,7 +317,6 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 					} else if update.Status == "failed" {
 						taskErr = fmt.Errorf("%s", update.Error)
 					}
-					// Signal the blocking executor call that the task has finished.
 					resCh <- taskErr
 				}
 			}
@@ -366,15 +328,16 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 	return nil
 }
 
-// StartServer bootstraps the gRPC and Flight service listener for the Control Plane.
 func StartServer(port int) {
 	addr := fmt.Sprintf(":%d", port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		logger.L().Fatal("failed to listen", zap.Error(err))
 	}
+	Serve(lis)
+}
 
-	// Configure gRPC server with interceptors for worker identification.
+func Serve(lis net.Listener) {
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(UnaryWorkerInterceptor),
 		grpc.StreamInterceptor(StreamWorkerInterceptor),
@@ -388,7 +351,7 @@ func StartServer(port int) {
 	cpServer := NewControlPlaneServer(registry, queue, sm, locality)
 	flight.RegisterFlightServiceServer(server, cpServer)
 
-	logger.L().Info("Control Plane Flight Server listening", zap.String("address", addr))
+	logger.L().Info("Control Plane Flight Server listening", zap.String("address", lis.Addr().String()))
 	if err := server.Serve(lis); err != nil {
 		logger.L().Fatal("failed to serve", zap.Error(err))
 	}

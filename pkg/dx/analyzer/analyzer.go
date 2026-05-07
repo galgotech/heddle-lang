@@ -63,8 +63,6 @@ func (a *Analyzer) validateDAG(program ast.ProgramNode) {
 
 func (a *Analyzer) checkWorkflowCycles(wf ast.WorkflowNode, visited map[string]bool) {
 	// Simple cycle detection: if a step calls a workflow that eventually calls this workflow.
-	// In Heddle, steps are usually linear, but a step could be another workflow.
-	// For now, we'll just track step names within the workflow chain.
 }
 
 func (a *Analyzer) validateLocality(program ast.ProgramNode) {
@@ -72,36 +70,46 @@ func (a *Analyzer) validateLocality(program ast.ProgramNode) {
 	for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
 		wfRef := a.ctx.WorkflowRefs[i]
 		wf := a.ctx.WorkflowNodes[wfRef]
-		a.validateStatements(wf.StatementRefsStart, wf.StatementRefsEnd)
+		for j := wf.StatementRefsStart; j < wf.StatementRefsEnd; j++ {
+			stmtRef := a.ctx.StatementRefs[j]
+			stmt := a.ctx.PipelineStatementNodes[stmtRef]
+			a.validatePipeChain(stmt.ExprRef)
+		}
 	}
 
 	for i := program.HandlerRefsStart; i < program.HandlerRefsEnd; i++ {
 		hRef := a.ctx.HandlerRefs[i]
 		h := a.ctx.HandlerNodes[hRef]
-		a.validateStatements(h.StatementRefsStart, h.StatementRefsEnd)
-	}
-}
-
-func (a *Analyzer) validateStatements(start, end uint32) {
-	for i := start; i < end; i++ {
-		stmtRef := a.ctx.StatementRefs[i]
-		stmt := a.ctx.PipelineStatementNodes[stmtRef]
-		a.validatePipeChain(stmt.ExprRef)
+		for j := h.HandlerStatementRefsStart; j < h.HandlerStatementRefsEnd; j++ {
+			hsRef := a.ctx.HandlerStatementRefs[j]
+			hs := a.ctx.HandlerStatementNodes[hsRef]
+			stmt := a.ctx.PipelineStatementNodes[hs.StmtRef]
+			a.validatePipeChain(stmt.ExprRef)
+		}
 	}
 }
 
 func (a *Analyzer) validatePipeChain(ref ast.NodeRef) {
-	chain := a.ctx.PipeChainNodes[ref]
-	for i := chain.CallRefsStart; i < chain.CallRefsEnd; i++ {
-		callRef := a.ctx.CallRefs[i]
-		call := a.ctx.CallNodes[callRef]
-		name := a.ctx.GetString(call.NameRef)
+	if ref == 0 {
+		return
+	}
+	// For now assume it's a PipeChain if it's within bounds.
+	if int(ref) < len(a.ctx.PipeChainNodes) {
+		chain := a.ctx.PipeChainNodes[ref]
+		for i := chain.CallRefsStart; i < chain.CallRefsEnd; i++ {
+			callRef := a.ctx.CallRefs[i]
+			call := a.ctx.CallNodes[callRef]
+			if call.IsPrql {
+				continue
+			}
+			name := a.ctx.GetString(call.NameRef)
 
-		// Check if the step is defined in StepBindings or available in the registry.
-		if !a.isStepDefined(name) {
-			a.reportError(a.ctx.CallRanges[callRef],
-				fmt.Sprintf("Step '%s' is not defined in the current context.", name),
-				fmt.Sprintf("Did you forget to import it or define it with 'step %s: ...'?", name))
+			// Check if the step is defined in StepBindings or available in the registry.
+			if !a.isStepDefined(name) {
+				a.reportError(a.ctx.CallRanges[callRef],
+					fmt.Sprintf("Step '%s' is not defined in the current context.", name),
+					fmt.Sprintf("Did you forget to import it or define it with 'step %s: ...'?", name))
+			}
 		}
 	}
 }
