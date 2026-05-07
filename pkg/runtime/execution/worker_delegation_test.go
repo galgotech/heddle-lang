@@ -77,7 +77,7 @@ func TestWorker_Delegation(t *testing.T) {
 
 	alloc := data.NewOSMemoryAllocator(shmPath)
 	dataMgr := data.NewLocalMmapManager(alloc, 0)
-	w := NewWorker("worker-1", nil, dataMgr)
+	w := NewWorker("worker-1", nil, dataMgr, 1, 0)
 	defer w.dataMgr.Cleanup()
 
 	// Start Worker UDS server for FD passing

@@ -213,9 +213,7 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 	}
 
 	// 1. Identify function signature for batching
-	module := task.Step.Call[0]
-	name := task.Step.Call[1]
-	signature := fmt.Sprintf("%s:%s", module, name)
+	signature := strings.Join(task.Step.Call, "|")
 
 	// 2. Extract primary input record
 	var inputHandle string
@@ -248,7 +246,10 @@ func (w *Worker) executeTask(ctx context.Context, task Task) (string, error) {
 
 // batchExecutor handles the actual invocation of merged Arrow tables.
 func (w *Worker) batchExecutor(ctx context.Context, signature string, table arrow.Table) (arrow.Table, error) {
-	parts := strings.Split(signature, ":")
+	parts := strings.Split(signature, "|")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid signature format: %s", signature)
+	}
 	module, name := parts[0], parts[1]
 
 	// Convert Table to a temporary Record for DataManager registration
@@ -267,6 +268,11 @@ func (w *Worker) batchExecutor(ctx context.Context, signature string, table arro
 	outputHandle, err := w.delegateToPlugin(ctx, module, name, inputHandle)
 	if err != nil {
 		return nil, err
+	}
+
+	// Import the output handle to register it in the worker's DataManager
+	if err := w.dataMgr.Import(outputHandle); err != nil {
+		return nil, fmt.Errorf("failed to import batch output %s: %w", outputHandle, err)
 	}
 
 	resRec, err := w.dataMgr.Get(outputHandle)
