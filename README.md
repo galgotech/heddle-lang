@@ -1,228 +1,275 @@
-# **Heddle: The Language for Orchestration Logic**
+# Heddle: The High-Performance Orchestration Weave
 
-_Simplicity, High Performance, and Radical Reuse._
-
-Heddle is a strictly-typed, domain-specific programming language (DSL) and orchestration engine designed for orchestrating logic, whether it be data pipelines, distributed backend systems, or other complex tasks. It bridges the gap between the rigorous safety of functional data pipelines and the pragmatic utility of imperative code (Go/Python/NodeJS/Rust).
-
-**Join the weave. Collaborate on the core and help us architect an ecosystem of radical reusability through `fhub`.**
+Heddle is a strictly-typed, domain-specific programming language (**DSL**) and orchestration engine engineered for high-performance pipelines independently of business domains. It bridges the gap between functional safety and imperative utility, delivering execution through a native Go core integrated with Python, Node.js, Rust, and Go with zero-copy data transmission.
 
 ---
 
-## **What Does Heddle Look Like?**
+## The Heddle Advantage
 
-Heddle uses explicit contracts and readable pipelines. Below is a comprehensive example demonstrating schemas, resources, complex error handlers, native PRQL integration, and multiple workflows in a single file.
+Heddle replaces tangled scripts with verifiable, high-performance pipelines. It prioritizes Developer Experience (**DX**) by eliminating the friction between local development and production scale.
+
+*   **Zero-Copy Efficiency:** Utilizes **Apache Arrow** and **Arrow Flight** for universal memory exchange, allowing data to flow between Go, Python, Rust, and Node.js at the speed of local RAM.
+*   **Static Safety:** A strictly-typed DSL catches logic errors at compile-time, while JIT type inference adapts schemas dynamically based on step configurations.
+*   **Invisible Local-to-Cloud Bridge:** Execute workflows locally on your laptop or deploy to a global cluster with zero configuration changes.
+*   **Native Relational Logic:** Embeds **PRQL** (Pipelined Relational Query Language) for side-effect-free data transformations directly within the orchestration layer.
+*   **Radical Reusability:** The **fhub** (Functions Hub) ecosystem provides a "Lego-style" library of modular connectors and steps.
+
+---
+
+## Heddle in Action
+
+Heddle uses explicit contracts and readable pipelines. Below is a comprehensive example demonstrating `resources`, `steps`, and native `PRQL` integration.
+
+### The Orchestration Logic (`auth_service.he`)
 
 ```heddle
-// auth_service.he
-
 import "fhub/http" http
 import "fhub/database" db
-import "fhub/security" security
-import "fhub/input" input
-import "fhub/window" window
 import "std/io" io
 
-// 1. Define Strict Schemas
-schema User {
-  id: int
-  username: string
+// 1. Define Reusable Resources
+resource pg_db = db.connection {
+  host: "db.internal"
+  port: 5432
 }
 
-// 2. Define Reusable Steps (FFI to Go/Python/Rust)
-step route_login: void -> User = http.post {
-  path: "/login",
-  response: { contentType: "application/json" }
+// 2. Bind Imperative Steps
+step fetch_user = db.query <connection=pg_db> {
+  query: "SELECT id, username FROM users WHERE id = @id"
 }
 
-step validate_login: User -> User = input.validate {
-  rules: {
-    username: { type: "string", minLength: 1 },
-    password: "string"
+step send_welcome = io.print {
+  message: "User authenticated successfully."
+}
+
+// 3. Orchestrate the Workflow
+workflow Login {
+  http.post { path: "/login" }
+    | (from input select id) // Relational transformation
+    | fetch_user
+    > authenticated_user
+
+  authenticated_user
+    | send_welcome
+}
+```
+
+### The Polyglot Implementation
+
+Heddle provides native SDKs for the most common systems languages. Each SDK leverages **Apache Arrow** for zero-copy memory exchange, ensuring that data transformations happen at the speed of local RAM regardless of the language.
+
+#### Python SDK
+Utilizes a decorator-based API for quick implementation of functions and resources.
+
+```python
+from heddle.sdk.plugin import Plugin
+from heddle.core.table import Table
+from heddle.core.step import StepConfig
+from heddle.core.resource import ResourceConfig, Resource
+
+# 1. Define Specific Table Types
+class CredentialsTable(Table):
+    """Input: contains 'id' and 'password'."""
+    pass
+
+class SecureTable(Table):
+    """Output: contains 'id' and 'hash'."""
+    pass
+
+# 2. Define Resource & Step Configurations
+class VaultConfig(ResourceConfig):
+    api_key: str
+
+class HashConfig(StepConfig[VaultConfig]):
+    algorithm: str
+
+# 3. Define the Resource Instance
+class Vault(Resource):
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+# 4. Initialize and Register
+plugin = Plugin(namespace="security")
+
+@plugin.resource(name="vault")
+def init_vault(config: VaultConfig) -> Vault:
+    return Vault(config.api_key)
+
+@plugin.step(name="hash", resource="vault")
+def hash_password(config: HashConfig, input: CredentialsTable) -> SecureTable:
+    # The 'vault' resource is automatically injected into the config
+    vault = config.resource 
+    
+    df = input.to_pandas() # Contains 'id' and 'password'
+    # ... use vault.api_key for salt or pepper ...
+    return SecureTable.from_pandas(df) # Returns 'id' and 'hash'
+
+if __name__ == "__main__":
+    plugin.serve()
+```
+
+#### Go SDK
+Optimized for high-concurrency and native performance within the Go ecosystem.
+
+```go
+import (
+	"context"
+	"github.com/galgotech/heddle-lang/sdk/go/core"
+	"github.com/galgotech/heddle-lang/sdk/go/plugin"
+)
+
+// 1. Define Specific Table Types
+type CredentialsTable struct { core.Table } // Input: id, password
+type SecureTable struct { core.Table }      // Output: id, hash
+
+// 2. Define Resource & Step Configurations
+type VaultConfig struct { ApiKey string `json:"api_key"` }
+type HashConfig struct {
+	Algorithm string `json:"algorithm"`
+	Resource  *Vault `json:"-"` // Automatically injected
+}
+
+// 3. Define the Resource Instance
+type Vault struct { ApiKey string }
+func (v *Vault) Start(ctx context.Context) error { return nil }
+
+// 4. Define the Step Logic with Resource Injection
+func HashPassword(ctx context.Context, cfg HashConfig, input CredentialsTable) (SecureTable, error) {
+	record := input.Native() // Contains 'id' and 'password'
+	// The resource is now a key of the config
+	vault := cfg.Resource 
+	
+	// ... use vault.ApiKey for salt or pepper ...
+	return SecureTable{core.NewTableFromRecord(record)}, nil
+}
+
+func main() {
+	p := plugin.New("security")
+	plugin.RegisterResource(p, "vault", func(ctx context.Context, cfg VaultConfig) (*Vault, error) {
+		return &Vault{ApiKey: cfg.ApiKey}, nil
+	})
+	plugin.RegisterStep(p, "hash", HashPassword, plugin.WithResource("vault"))
+	p.Serve()
+}
+```
+
+#### Node.js SDK
+Class-based approach using TypeScript decorators for enterprise-grade orchestration.
+
+```typescript
+import { Plugin, Step, Resource, Table } from '@heddle/sdk';
+
+// 1. Define Specific Table Types
+class CredentialsTable extends Table {} // Input: id, password
+class SecureTable extends Table {}      // Output: id, hash
+
+// 2. Define Resource & Step Configurations
+interface VaultConfig { api_key: string; }
+interface HashConfig { algorithm: string; resource?: Vault; }
+
+// 3. Define the Resource Instance
+class Vault {
+  constructor(public apiKey: string) {}
+  async start() {}
+}
+
+// 4. Define the Plugin logic
+class SecurityPlugin {
+  @Resource({ name: 'vault' })
+  initVault(config: VaultConfig): Vault {
+    return new Vault(config.api_key);
+  }
+
+  @Step({ name: 'hash', resource: 'vault' })
+  async hash(config: HashConfig, input: CredentialsTable): Promise<SecureTable> {
+    const vault = config.resource!; // Injected from the vault resource
+    const df = input.toDataFrame(); // Contains 'id' and 'password'
+    // ... perform hashing logic (password -> hash) ...
+    return new SecureTable(df);
   }
 }
 
-step password_security: User -> User = security.hash {
-  algorithm: "argon2",
-  config: { rounds: 10 }
+const plugin = new Plugin('security');
+plugin.register(SecurityPlugin);
+plugin.serve();
+```
+
+#### Rust SDK
+Aggressive memory safety and performance using zero-copy trait-based implementation.
+
+```rust
+use heddle_sdk::{plugin, Step, Resource, Table, Result};
+use serde::Deserialize;
+
+// 1. Define Specific Table Types
+struct CredentialsTable(Table); // Input: id, password
+struct SecureTable(Table);      // Output: id, hash
+
+// 2. Define Resource & Step Configurations
+#[derive(Deserialize)]
+struct VaultConfig { api_key: String }
+#[derive(Deserialize)]
+struct HashConfig { 
+    algorithm: String,
+    resource: Option<Vault>, // Injected from the vault resource
 }
 
-step user_exists: User -> User = db.query {
-  query: "SELECT id, username FROM users WHERE username = $username AND password = $password"
+// 3. Define the Resource Instance
+struct Vault { api_key: String }
+impl Resource for Vault {
+    async fn start(&self) -> Result<()> { Ok(()) }
 }
 
-step send_welcome_email: User -> void = io.print {
-  message: "Sending email..."
-}
+// 4. Define the Plugin logic
+#[plugin(namespace = "security")]
+pub struct SecurityPlugin;
 
-// 3. Advanced Error Handling
-handler global_error_handler {
-  * error -> void = io.stderr
-}
-
-handler detailed_error_handler {
-  // Chain error processing
-  * error -> error = error.process
-    | error -> error = error.add_debug_info
-  > enriched_error
-
-  enriched_error
-    | error -> void = io.stderr
-  enriched_error
-    | error -> void = kafka.retry_queue
-}
-
-// 4. Orchestrate Complex Workflows
-workflow Login ? global_error_handler {
-  route_login
-    | window.accumulate { interval: 50 } // Rate limiting window
-    | validate_login ? detailed_error_handler
-    | (from input select { username, password }) // PRQL enrichment
-    | password_security
-    | user_exists ? detailed_error_handler
-  > authenticated_user
-
-  // Fan-out execution
-  authenticated_user
-    | http.response { status: 200 }
-  authenticated_user
-    | send_welcome_email
-}
-
-workflow Register ? global_error_handler {
-  http.post { path: "/register" }
-    | validate_login ? detailed_error_handler
-    | db.insert { table: "users" }
-    | http.response { status: 201 }
+#[Step(name = "hash", resource = "vault")]
+impl SecurityPlugin {
+    async fn hash(&self, config: HashConfig, input: CredentialsTable) -> Result<SecureTable> {
+        let vault = config.resource.as_ref().unwrap();
+        let df = input.0.as_polars()?; // Contains 'id' and 'password'
+        // ... use vault.api_key for high-speed hashing ...
+        Ok(SecureTable(Table::try_from(df)?))
+    }
 }
 ```
 
 ---
 
-### **The Python Counterpart (SDK)**
+## Core Architecture
 
-Connecting your existing imperative logic to Heddle is seamless. Here is how a custom Step is implemented in Python:
+Heddle operates on a decoupled architecture that ensures robust fault tolerance and performance.
 
-```python
-# local/security.py
-from typing import TypedDict
-from heddle.core import Table
+### 1. The Smart Control Plane
+A self-contained Go binary that reads the logical topology (**DAG**), optimizes execution plans through operator fusion, and routes metadata via a **Data Locality Registry**. It manages execution state without handling raw payload traffic.
 
-class HashConfig(TypedDict):
-    algorithm: str
-    rounds: int
+### 2. Polyglot Workers
+Stateless execution units that run on the same host or across a cluster. Workers utilize **JIT Code Injection** to load imperative functions (Steps) dynamically.
 
-def hash_password(config: HashConfig, input_table: Table) -> Table:
-    # input_table is a zero-copy Apache Arrow table!
-    arrow_data = input_table.to_pandas()
-    
-    # ... perform hashing logic ...
-    
-    return Table.from_pandas(arrow_data)
-```
+### 3. Data Locality Registry
+An optimized memory-mapping subsystem that maps DAG outputs to physical locations (Memory Handles). It enables zero-copy data routing and handles memory offloading for large datasets.
 
 ---
 
-## **Core Philosophy**
+## Project Structure
 
-### **The Language: Declarative Orchestration**
-
-Heddle's DSL (`.he`) is a strictly-typed, functional language designed to eliminate the maintainability nightmare of traditional data orchestration and complex backend architectures. By enforcing a mathematical boundary between **orchestration logic** (the *what*) and **imperative computation** (the *how*), Heddle replaces tangled, unmaintainable scripts with verifiable, high-performance pipelines.
-
-* **Static Safety:** Catch logic errors at compile-time with a robust, strictly-typed system.
-* **Relational Native:** Embedded PRQL support allows for side-effect-free data enrichment directly within the orchestration layer.
-* **Radical Reuse:** Designed for the `fhub` ecosystem, enabling LEGO-like modularity of data connectors and execution steps.
-
-### **The Transparent Serverless Supercomputer**
-
-The Heddle engine is a high-performance distributed that abstracts away the friction of infrastructure. It acts as a **Smart Control Plane**, providing the illusion of a single, infinitely scalable machine where execution is local by default and distributed by necessity.
-
-* **Zero-Copy Memory Interconnect:** Powered by Apache Arrow, Heddle eliminates serialization overhead, allowing data to flow between polyglot workers (Python, GO, Rust, Node.js) at the speed of local RAM.
-* **The Invisible Bridge:** Erases the boundary between local development and production clusters. Your laptop becomes the head node of a global supercomputer with zero configuration changes.
-* **Deep Observability:** A "transparent" execution model with native DAG visualization and time-travel debugging, allowing you to trace the exact lineage of every data packet.
-
----
-
-## **Core Architecture: Control Plane/Workers**
-
-Heddle operates on architecture, functioning as a 100% self-contained "Smart Control Plane" that routes logic to isolated Workers:
-
-* **The Functional Core (Go):** A declarative, strictly-typed orchestration layer operating as a highly concurrent engine. It manages the Directed Acyclic Graph (DAG) logic, static analysis, and task routing.
-* **The Imperative Host (Go, Python, Node.js, Rust):** Computations and side-effect-heavy tasks (e.g., API calls, database writes) are encapsulated into "Steps". These steps act as a Foreign Function Interface (FFI), executing business logic in isolated, always-warm stateful workers.
-
-### **How It Works: The Flow of Execution**
-
-```plaintext
-[Local Machine / IDE]
-         | 
-         |  (Heddle CLI: Executes 100% locally OR triggers remote cluster)
-         v
-+---------------------------------------------------------+
-|            SMART CONTROL PLANE (Go Core)                |
-|                                                         |
-|  1. Parses Functional DSL (.he)                         |
-|  2. Analyzes & Optimizes DAG (Operator Fusion)          |
-|  3. Routes Data & Injects Code dynamically              |
-+---------------------------------------------------------+
-         |
-         |  (Apache Arrow Flight RPC - Zero-Copy Transfer)
-         v
-+---------------------------------------------------------+
-|                ISOLATED WORKERS                         |
-|                                                         |
-|  [ Imperative Logic ]       [ Functional Transforms ]   |
-|  - Go SDK                   - Go PRQL                   |
-|  - Python SDK               - DataFusion (Rust)         |
-|  - Node.js SDK                                          |
-|  - Rust SDK                                             |
-+---------------------------------------------------------+
-```
-
-## **The Local-to-Cloud Bridge**
-
-Heddle is fundamentally designed to act as an **"Invisible Local-to-Cloud Bridge"**. Developer Experience (DX) dictates that there should be no friction between local development and production execution:
-
-* **100% Local Execution:** Everything can be run locally. The pipeline can be tested entirely on your machine, leveraging the Go core to manage concurrency without relying on external infrastructure.
-* **Transparent Cloud Bridge:** With zero configuration changes, the same local environment acts as a bridge to the cloud. The local CLI can securely stream gigabytes of local data via Arrow Flight to be processed on a remote cluster, or alternatively, it can send just the DAG manifest to serve as a trigger for data already residing in remote Data Lakes.
-
-## **Key Features**
-
-* **Zero-Copy Memory Standard:** Heddle uses Apache Arrow for universal memory exchange. Data flows through the pipeline as immutable HeddleFrames (Arrow Tables), completely eliminating serialization and deserialization overhead.
-* **High-Speed Transport:** Network communication between the Go orchestrator and isolated polyglot workers relies on Apache Arrow Flight RPC, allowing columnar data batches to stream.
-* **Relational Pushdown (PRQL & DataFusion):** Heddle natively embeds PRQL (Pipelined Relational Query Language) for side-effect-free data derivations. Workers utilize the embedded DataFusion engine to execute these transformations locally over Arrow memory, ensuring mathematical consistency across all languages.
-* **Time-Travel Debugging:** Because data flows immutably, Heddle maintains an append-only history log. If a step fails, developers can trace the exact lineage and state of the data at any preceding step.
-* **Radical Reusability (fhub):** Heddle promotes a Lego-like modularity. The Functions Hub (fhub) is an open-source standard library of reusable data connectors and steps designed to be written once and shared across any workflow.
-
-## **🛠️ Developer Experience (DX)**
-
-Developer Experience is the single most important metric for Heddle's success.
-
-* **Trivial Step Creation:** Polyglot SDKs hide the complexity of gRPC and Arrow memory management, allowing developers to focus purely on writing their imperative business logic.
-* **Instant Diagnostics:** A custom Language Server Protocol (LSP) integrated with VS Code provides real-time syntax highlighting, type-checking, and diagnostics backed directly by the Go compiler.
-* **Time-Travel Debugging:** Because data flows immutably, Heddle maintains an append-only history log. If a step fails, developers can trace the exact lineage and state of the data at any preceding step.
-
-## **Project Structure (Monorepo)**
-
-Heddle is organized as a polyglot monorepo to ensure tight integration between the control plane, data management, and its multi-language execution environment.
+Heddle is a polyglot monorepo designed for tight integration between the control plane and multi-language SDKs.
 
 ```plaintext
 /
-├── services/
-│   ├── control-plane/    # Go-based orchestration engine
-│   ├── data-manager/     # Go-based data management & catalog
-│   ├── cli/              # Heddle Command Line Interface
-│   ├── worker/           # Go-based Worker implementation to connect to SDKs plugins
-│   └── lsp/              # Go-based Language Server Protocol implementation
-├── sdk/
-│   ├── go/               # Go SDK Worker plugin to implement functions
-│   ├── python/           # Python SDK Worker plugin to implement functions
-│   ├── rust/             # Rust SDK Worker plugin to implement functions
-│   └── nodejs/           # Node.js SDK Worker plugin to implement functions
-├── editors/
-│   └── vscode/           # VS Code extension for Heddle DSL
-├── pkg/                  # Shared Go libraries (Parser, Lexer, IR, etc.)
-└── internal/             # Internal Go logic
+├── cmd/                  # CLI entrypoints (cluster, development, local)
+├── internal/services/    # Core services (Control Plane, LSP, Debug Adapter)
+├── sdk/                  # Polyglot SDKs (Python, Go, Rust, Node.js)
+├── pkg/                  # Shared libraries (Parser, IR, Arrow utilities)
+├── editors/              # Editor integrations (VS Code extension)
+└── web/                  # Playground
 ```
 
 ---
 
-_Heddle: Orchestrate Logic._
+## Getting Started
+
+Visit the [official documentation](https://docs.heddle.dev) for installation guides, language specifications, and tutorials.
+
+**Heddle: Join the Weave.**
