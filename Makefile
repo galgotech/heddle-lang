@@ -70,19 +70,6 @@ test:
 	@echo "Running tests across workspace..."
 	$(GO) test ./...
 
-# Web Site targets
-site-build:
-	$(MAKE) -C web/site build
-
-site-run:
-	$(MAKE) -C web/site run
-
-site-docker-build:
-	$(MAKE) -C web/site docker-build
-
-site-docker-run:
-	$(MAKE) -C web/site docker-run
-
 # Documentation
 docs-serve:
 	@echo "Starting MkDocs server..."
@@ -112,8 +99,4 @@ help:
 	@echo "  make test               - Run all tests"
 	@echo "  make docs-serve         - Start MkDocs development server"
 	@echo "  make docs-build         - Build MkDocs static documentation"
-	@echo "  make site-build         - Build the Hugo site locally"
-	@echo "  make site-run           - Run the Hugo site locally"
-	@echo "  make site-docker-build  - Build the Hugo site Docker image"
-	@echo "  make site-docker-run    - Run the Hugo site in Docker"
 	@echo "  make clean              - Remove build artifacts"

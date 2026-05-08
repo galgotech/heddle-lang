@@ -2,9 +2,12 @@ site_name: Heddle Lang
 site_url: https://heddle.fhub.dev/docs/
 site_description: Heddle is a language and high-performance orchestration engine built for seamless code reuse and streamlined development.
 repo_url: https://github.com/galgotech/heddle-lang
+edit_uri: edit/main/docs/
 
 theme:
   name: readthedocs
+  analytics:
+    gtag: G-0QBXG4L9QL
   language: en
   features:
     - navigation.tabs
@@ -40,6 +43,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Examples: examples.md
   - Language Reference:
     - Specification: grammar/lang-spec.md
     - Grammar: grammar/grammar.md

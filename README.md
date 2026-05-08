@@ -26,37 +26,81 @@ Heddle replaces tangled scripts with verifiable, high-performance pipelines. It 
 
 Heddle uses explicit contracts and readable pipelines. Below is a comprehensive example demonstrating `resources`, `steps`, and native `PRQL` integration.
 
-### The Orchestration Logic (`auth_service.he`)
+### The Orchestration Logic (`fraud_detection.he`)
 
 ```heddle
-import "fhub/http" http
-import "fhub/database" db
-import "std/io" io
+import "fhub/kafka" kafka
+import "fhub/postgresql" pg
+import "fhub/clickhouse" ch
+import "fhub/llm" openai
+import "fraud-score/detect" fraud_detection
 
-// 1. Define Reusable Resources
-resource pg_db = db.connection {
-  host: "db.internal"
-  port: 5432
+// 1. Centralized Resources (State/Connections)
+// PostgreSQL
+resource pg_db = pg.connection {
+  host: "pg.internal"
+} 
+
+// Clickhouse
+resource ch_db = ch.connection {
+  host: "ch.internal"
 }
 
-// 2. Bind Imperative Steps
-step fetch_user = db.query <connection=pg_db> {
-  query: "SELECT id, username FROM users WHERE id = @id"
+// Kafka
+resource kf_broker = kafka.connection {
+  broker: "kafka.internal:9092"
 }
 
-step send_welcome = io.print {
-  message: "User authenticated successfully."
+// 2. Bound Imperative Steps with Resource Injection
+step fetch_user_data = pg.query <connection=pg_db> {
+  query: "SELECT id AS user_id, country FROM users WHERE id = @user_id"
 }
 
-// 3. Orchestrate the Workflow
-workflow Login {
-  http.post { path: "/login" }
-    | (from input select id) // Relational transformation
-    | fetch_user
-    > authenticated_user
+step fetch_risk_profile = ch.query <connection=ch_db> {
+  query: "SELECT user_id, velocity_score FROM risk_metrics WHERE user_id = @user_id"
+}
 
-  authenticated_user
-    | send_welcome
+step generate_audit = openai.prompt {
+  system: "Analyze transaction, location, and velocity score. Generate a fraud audit text report."
+}
+
+// Global error catcher
+handler alert_on_fail {
+  *
+    | kafka.produce <broker=kf_broker> { topic: "dlq_alerts" }
+}
+
+// Step error catcher
+handler alert_step_fail {
+  *
+    | kafka.produce <broker=kf_broker> { topic: "dlq_alerts" }
+}
+
+
+// 3. Strict DAG Workflow
+workflow FraudDetection ? alert_on_fail {
+
+  kafka.consume <broker=kf_broker> { topic: "live_transactions" }
+  > tx_stream
+
+  // 1. Filter: High-value txns isolated via native PRQL
+  // 2. Process: Imperative logic with localized error trap
+  // 3. Enrich: Joined with user data & risk metrics
+  // 4. Audit: LLM generates natural language report
+  tx_stream
+    | (
+        from input
+        filter amount > 10000
+        select {user_id, amount}
+      ) 
+    | fraud_detection.process ? alert_step_fail
+    | (
+        from input
+        join fetch_user_data (==user_id)
+        join fetch_risk_profile (==user_id)
+      )
+    | generate_audit
+    | kafka.produce <broker=kf_broker> { topic: "fraud_audits" }
 }
 ```
 
