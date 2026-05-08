@@ -64,13 +64,6 @@ var keywords = map[string]TokenType{
 	"null":     NULL,
 }
 
-func LookupIdent(ident string) TokenType {
-	if tok, ok := keywords[ident]; ok {
-		return tok
-	}
-	return IDENT
-}
-
 type Token struct {
 	Type      TokenType
 	Literal   string
@@ -78,9 +71,17 @@ type Token struct {
 	Column    int
 	EndLine   int
 	EndColumn int
+	Start     int
 }
 
-func newToken(tokenType TokenType, literal string, line, col, endLine, endCol int) Token {
+func LookupIdent(ident string) TokenType {
+	if tok, ok := keywords[ident]; ok {
+		return tok
+	}
+	return IDENT
+}
+
+func newToken(tokenType TokenType, literal string, line, col, endLine, endCol, start int) Token {
 	return Token{
 		Type:      tokenType,
 		Literal:   literal,
@@ -88,5 +89,6 @@ func newToken(tokenType TokenType, literal string, line, col, endLine, endCol in
 		Column:    col,
 		EndLine:   endLine,
 		EndColumn: endCol,
+		Start:     start,
 	}
 }
