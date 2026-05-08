@@ -111,12 +111,8 @@ func (r *Registry) RegisterStep(name string, fn any, opts ...StepOption) {
 	}
 
 	expectedArgs := 3
-	if reg.ResourceName != "" {
-		expectedArgs = 4
-	}
-
 	if typ.NumIn() != expectedArgs {
-		panic(fmt.Sprintf("step %q function must take exactly %d arguments", name, expectedArgs))
+		panic(fmt.Sprintf("step %q function must take exactly %d arguments (ctx, config, table)", name, expectedArgs))
 	}
 
 	ctxType := reflect.TypeOf((*context.Context)(nil)).Elem()

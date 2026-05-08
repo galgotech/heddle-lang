@@ -207,8 +207,18 @@ func (s *Server) ExecuteStep(ctx context.Context, req *pb.ExecuteStepRequest) (r
 			}, nil
 		}
 
-		// Optional: Verify resource type matches expected parameter
-		args = append(args, reflect.ValueOf(resInstance))
+		// Inject into the "Resource" field of the config struct if it exists
+		configElem := configVal
+		if configElem.Kind() == reflect.Ptr {
+			configElem = configElem.Elem()
+		}
+
+		if configElem.Kind() == reflect.Struct {
+			resourceField := configElem.FieldByName("Resource")
+			if resourceField.IsValid() && resourceField.CanSet() {
+				resourceField.Set(reflect.ValueOf(resInstance))
+			}
+		}
 	}
 
 	// Create and append input table
@@ -512,7 +522,18 @@ func (s *Server) executeStepWithTable(ctx context.Context, req *pb.ExecuteStepRe
 			}, nil
 		}
 
-		args = append(args, reflect.ValueOf(resInstance))
+		// Inject into the "Resource" field of the config struct if it exists
+		configElem := configVal
+		if configElem.Kind() == reflect.Ptr {
+			configElem = configElem.Elem()
+		}
+
+		if configElem.Kind() == reflect.Struct {
+			resourceField := configElem.FieldByName("Resource")
+			if resourceField.IsValid() && resourceField.CanSet() {
+				resourceField.Set(reflect.ValueOf(resInstance))
+			}
+		}
 	}
 
 	args = append(args, reflect.ValueOf(inputTable))
