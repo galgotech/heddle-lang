@@ -1,9 +1,0 @@
-.git
-.github
-node_modules
-public
-resources
-.hugo_build.lock
-hugo_stats.json
-.agent
-.devcontainer

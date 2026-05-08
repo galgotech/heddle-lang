@@ -1,6 +1,6 @@
 # Heddle Lang
 
-Heddle is a strictly-typed Domain-Specific Language (**DSL**) and high-performance orchestration engine built to eliminate the complexity. It allows engineers to focus on domain-specific requiriments, through modularity and orchestration.
+Heddle is a strictly-typed Domain-Specific Language (**DSL**) and high-performance orchestration engine built to eliminate the complexity. It allows engineers to focus on domain-specific requirements, through modularity and orchestration.
 
 ### Core Value Propositions
 
