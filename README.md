@@ -54,6 +54,60 @@ workflow Login {
 }
 ```
 
+---
+
+## Core Architecture
+
+Heddle utilizes a decoupled, high-performance architecture designed to separate logical orchestration from physical execution. This separation ensures that the system maintains high fault tolerance while delivering near-zero data serialization overhead.
+
+### 1. The Smart Control Plane (Orchestrator)
+The Control Plane manages global execution state and routing without processing raw payload data.
+
+*   **Operator Fusion and DAG Optimization:** The compiler transforms the Heddle DSL into an Intermediate Representation (**IR**). It performs aggressive topology pruning and "Operator Fusion," merging continuous nodes into atomic **Super Steps**. This optimization minimizes the I/O bounds and inter-process communication overhead between workers.
+*   **Dynamic JIT Provisioning:** Step implementations are dynamically loaded into stateless workers via a Just-In-Time (**JIT**) model. This ensures that workers remain lightweight and specialized for the current task. By caching binaries locally and using proactive injection, the system achieves **zero warm-up time** for new workflows.
+*   **Secure Environment Injection:** The Control Plane acts as a secure proxy for infrastructure secrets and environment variables. It injects these sensitive configurations directly into worker memory at runtime, ensuring that no secrets are ever persisted on the worker nodes.
+*   **Hierarchical State Isolation (CHASM):** Using the **CHASM** engine, Heddle implements strict state isolation. External failures trigger exclusive retries only for the problematic connector, bypassing massive **DAG** re-executions and ensuring deterministic recovery.
+
+
+### 2. Polyglot Workers (Execution)
+The execution layer uses a bifurcated architecture to support multi-language environments with maximum efficiency:
+
+*   **Main Worker:** A central orchestrating daemon running on each host. It coordinates data retrieval from the **Data Locality Registry**, manages local plugin lifecycles, and synchronizes state with the Control Plane.
+*   **Polyglot Plugins:** Language-specific execution units (Python, Go, Rust, Node.js) that execute business logic. The Main Worker delegates tasks to these plugins via Remote Procedure Call (**RPC**), passing data through zero-copy memory pointers.
+*   **P2P Data Resolution:** Workers resolve data dependencies through Peer-to-Peer (**P2P**) communication, bypassing the Control Plane to avoid throughput bottlenecks.
+*   **Cross-Workflow Batching:** To maximize efficiency, the Main Worker identifies lexical signature overlaps across independent pipelines. It consolidates parallel data flows into a single table (`HeddleFrame`), invoking the imperative code only once per batch, processing as single instruction multiple data (SIMD).
+*   **Resource:** It manages the lifecycle of stateful resources (e.g., database handles).
+
+### 3. Data Locality Registry work (Data Management)
+Inspired by the **Vineyard (v6d)** architecture, this subsystem acts as an optimized memory-mapping layer.
+
+*   **Zero-Copy Routing:** Maps **DAG** outputs to physical locations (e.g., Host IP, Memory Handle). This allows workers to access data directly from RAM without copying or serialization.
+*   **Memory Offloading:** Dynamically manages data that exceeds local RAM capacity by offloading it to persistent storage while maintaining performance during large-scale aggregations.
+*   **Garbage Collection:** Automatically tracks memory allocations and releases resources once the immutable intermediate data is no longer required by the workflow.
+
+---
+
+## Communication Protocols
+
+Heddle enforces a strict physical separation between the Control Plane and the Data Plane to eliminate architectural bottlenecks and ensure consistent performance under load.
+
+### 1. Control Plane ↔ Worker (The Control Channel)
+This channel handles the administrative lifecycle of the Directed Acyclic Graph (**DAG**) without touching raw data payloads.
+
+*   **Protocol:** Utilizes high-performance **gRPC** for low-latency command and control.
+*   **Payload:** Transmits execution state, task assignments, resource metadata, and **JIT** code instructions.
+*   **Optimization:** By isolating control logic from data traffic, the Control Plane remains responsive during data processing, as it never serializes or deserializes business data.
+
+### 2. Worker ↔ Worker / Data Manager (The Data Plane)
+The Data Plane handles the high-throughput transmission of **Apache Arrow** records between workers and the **Data Locality Registry**.
+
+*   **Protocol:** Employs **Apache Arrow Flight**, a framework specifically optimized for high-performance transport of large columnar datasets.
+*   **Flight Tickets:** Instead of sending raw data, the system passes lightweight **Flight Tickets**. These metadata objects contain the `RouteType`, `Address`, and `ResourceID` required for a worker to resolve and retrieve a physical memory handle.
+*   **Dual-Mode Transport Strategy:**
+    *   **Local (`LOCAL`)**: For workers on the same physical host, Heddle uses **Unix Domain Sockets (UDS)** and shared memory. This results in near-zero latency data resolution by passing memory pointers instead of copying bytes.
+    *   **Remote (`REMOTE`)**: For cross-cluster communication, the system utilizes high-speed network paths over **gRPC**, optimized for concurrent stream processing of **Arrow RecordBatches**.
+
+
 ### The Polyglot Implementation
 
 Heddle provides native SDKs for the most common systems languages. Each SDK leverages **Apache Arrow** for zero-copy memory exchange, ensuring that data transformations happen at the speed of local RAM regardless of the language.
@@ -237,24 +291,9 @@ impl SecurityPlugin {
 
 ---
 
-## Core Architecture
-
-Heddle operates on a decoupled architecture that ensures robust fault tolerance and performance.
-
-### 1. The Smart Control Plane
-A self-contained Go binary that reads the logical topology (**DAG**), optimizes execution plans through operator fusion, and routes metadata via a **Data Locality Registry**. It manages execution state without handling raw payload traffic.
-
-### 2. Polyglot Workers
-Stateless execution units that run on the same host or across a cluster. Workers utilize **JIT Code Injection** to load imperative functions (Steps) dynamically.
-
-### 3. Data Locality Registry
-An optimized memory-mapping subsystem that maps DAG outputs to physical locations (Memory Handles). It enables zero-copy data routing and handles memory offloading for large datasets.
-
----
-
 ## Project Structure
 
-Heddle is a polyglot monorepo designed for tight integration between the control plane and multi-language SDKs.
+Heddle is a polyglot monorepo designed for integration between the control plane and multi-language SDKs.
 
 ```plaintext
 /
