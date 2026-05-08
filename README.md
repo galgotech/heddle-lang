@@ -1,6 +1,12 @@
 # Heddle: The High-Performance Orchestration Weave
 
-Heddle is a strictly-typed, domain-specific programming language (**DSL**) and orchestration engine engineered for high-performance pipelines independently of business domains. It bridges the gap between functional safety and imperative utility, delivering execution through a native Go core integrated with Python, Node.js, Rust, and Go with zero-copy data transmission.
+Heddle is a strictly-typed, domain-specific programming language (**DSL**) and high-performance orchestration engine built to eliminate "orchestration debt", the maintainability nightmares caused by fragmented microservices, untyped data pipelines, and excessive serialization overhead.
+
+Whether coordinating **real-time Machine Learning (ML) inference**, **asynchronous data processing**, or **complex polyglot microservices**, Heddle bridges the gap between functional safety and imperative utility. It provides a unified orchestration layer for engineers tackling modern infrastructure challenges:
+
+*   **Reliable ML Pipelines:** Seamlessly integrate sophisticated model logic with high-speed data delivery. By enforcing strict data contracts, Heddle ensures that data moving from preprocessing to inference remain consistent, eliminating the common "silent failures" found in loosely-typed systems.
+*   **Structured Data Workflows:** Transform tangled, imperative scripts into clear, declarative pipelines. Heddle allows developers to model complex logical dependencies with a readable syntax, providing full visibility into execution flows and simplifying the maintenance of large-scale ingestion systems.
+*   **Seamless Polyglot Coordination:** Unify services written in different languages under a single orchestration standard. Teams can leverage the strengths of Python, Go, Rust, or Node.js within a single workflow, ensuring that every handoff is validated through a strictly-typed shared interface.
 
 ---
 
