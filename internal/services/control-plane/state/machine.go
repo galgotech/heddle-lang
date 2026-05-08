@@ -7,17 +7,23 @@ import (
 	"time"
 )
 
-// State represents the execution state of a DAG node.
+// State defines the execution lifecycle phases of a DAG node.
 type State int
 
 const (
+	// Pending indicates the node is initialized but not yet picked up by the scheduler.
 	Pending State = iota
+	// Running indicates the node is currently being executed by a worker.
 	Running
+	// WaitState indicates the node is parked, typically awaiting a timer or external signal.
 	WaitState
+	// Completed indicates the node has finished execution successfully.
 	Completed
+	// Failed indicates the node encountered an unrecoverable error during execution.
 	Failed
 )
 
+// String returns the human-readable representation of the execution state.
 func (s State) String() string {
 	switch s {
 	case Pending:
@@ -35,34 +41,34 @@ func (s State) String() string {
 	}
 }
 
-// Credentials represent security credentials.
+// Credentials holds the security context and authorization roles for an execution thread.
 type Credentials struct {
 	Token string
 	Roles []string
 }
 
-// Lineage tracks the execution history and origin in the DAG.
+// Lineage provides traceability for a node within the context of a specific DAG execution.
 type Lineage struct {
 	DAGID    string
 	NodeID   string
 	ParentID string
 }
 
-// Metadata contains execution metadata.
+// Metadata encapsulates arbitrary execution-time values passed between nodes.
 type Metadata struct {
-	Values map[string]interface{} `json:"values"`
+	Values map[string]any `json:"values"`
 }
 
-// NodeSnapshot represents a serializable view of a node's state.
+// NodeSnapshot provides a point-in-time, serializable representation of a node's status for monitoring.
 type NodeSnapshot struct {
-	ID        string    `json:"id"`
-	State     string    `json:"state"`
+	ID        string    `json:"task_id"`
+	State     string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Error     string    `json:"error,omitempty"`
 }
 
-// HeddleContext is a robust Context wrapper carrying security credentials, execution metadata, and DAG lineage.
+// HeddleContext extends the standard context with security, lineage, and metadata required for DAG orchestration.
 type HeddleContext struct {
 	context.Context
 	Creds    Credentials
@@ -70,13 +76,13 @@ type HeddleContext struct {
 	Metadata Metadata
 }
 
-// NewHeddleContext creates a new HeddleContext.
+// NewHeddleContext initializes a HeddleContext, ensuring metadata maps are instantiated to prevent nil access.
 func NewHeddleContext(parent context.Context, creds Credentials, lineage Lineage, meta Metadata) *HeddleContext {
 	if parent == nil {
 		parent = context.Background()
 	}
 	if meta.Values == nil {
-		meta.Values = make(map[string]interface{})
+		meta.Values = make(map[string]any)
 	}
 	return &HeddleContext{
 		Context:  parent,
@@ -86,29 +92,31 @@ func NewHeddleContext(parent context.Context, creds Credentials, lineage Lineage
 	}
 }
 
-// Node represents a node in the DAG.
+// Node represents the internal state and synchronization primitive for an atomic execution unit in the DAG.
 type Node struct {
 	id        string
 	state     State
 	createdAt time.Time
 	updatedAt time.Time
 	err       error
-	mu        sync.RWMutex
+	mu        sync.RWMutex // Protects internal state during concurrent transitions and status reads.
 }
 
+// GetState returns the current execution state of the node.
 func (n *Node) GetState() State {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.state
 }
 
+// GetError returns the error that caused the node to enter the Failed state, if any.
 func (n *Node) GetError() error {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.err
 }
 
-// NewNode creates a new DAG node.
+// NewNode creates a new Node instance initialized to the Pending state.
 func NewNode(id string) *Node {
 	now := time.Now()
 	return &Node{
@@ -119,28 +127,32 @@ func NewNode(id string) *Node {
 	}
 }
 
-// StateMachine defines the interface for managing DAG node state transitions.
+// StateMachine defines the contract for managing lifecycle transitions across all nodes in a DAG.
 type StateMachine interface {
+	// AddNode registers a new node in the state machine index.
 	AddNode(node *Node) error
+	// GetNode retrieves a node pointer by its unique identifier.
 	GetNode(id string) (*Node, error)
+	// Transition attempts an atomic state change, validating the current state against the expected baseline.
 	Transition(id string, expected State, next State, err error) error
+	// GetHistory returns an immutable snapshot of all registered nodes for observability purposes.
 	GetHistory() []NodeSnapshot
 }
 
-// DefaultStateMachine manages the state transitions for nodes in the DAG.
+// DefaultStateMachine provides a thread-safe implementation of the StateMachine interface using an in-memory map.
 type DefaultStateMachine struct {
 	nodes map[string]*Node
-	mu    sync.RWMutex
+	mu    sync.RWMutex // Protects the nodes map from concurrent registration and lookups.
 }
 
-// NewStateMachine creates a new state machine.
+// NewStateMachine returns a factory-initialized instance of DefaultStateMachine.
 func NewStateMachine() StateMachine {
 	return &DefaultStateMachine{
 		nodes: make(map[string]*Node),
 	}
 }
 
-// AddNode adds a new node to the state machine.
+// AddNode adds a node to the registry; returns an error if the node ID is already registered.
 func (sm *DefaultStateMachine) AddNode(node *Node) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -152,7 +164,7 @@ func (sm *DefaultStateMachine) AddNode(node *Node) error {
 	return nil
 }
 
-// GetNode retrieves a node by its ID.
+// GetNode looks up a node by ID; returns an error if the node is not found in the registry.
 func (sm *DefaultStateMachine) GetNode(id string) (*Node, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -164,10 +176,12 @@ func (sm *DefaultStateMachine) GetNode(id string) (*Node, error) {
 	return node, nil
 }
 
+// ErrInvalidTransition is returned when a requested state change does not match the node's current state.
 var ErrInvalidTransition = errors.New("invalid state transition")
 
-// Transition atomically transitions a node from an expected state to a new state.
+// Transition performs an atomic state update. It first verifies the node exists and then validates the state change.
 func (sm *DefaultStateMachine) Transition(id string, expected State, next State, err error) error {
+	// Identify the node within the registry.
 	sm.mu.RLock()
 	node, exists := sm.nodes[id]
 	sm.mu.RUnlock()
@@ -176,6 +190,7 @@ func (sm *DefaultStateMachine) Transition(id string, expected State, next State,
 		return errors.New("node not found")
 	}
 
+	// Update the specific node state under its own lock to minimize contention.
 	node.mu.Lock()
 	defer node.mu.Unlock()
 
@@ -185,6 +200,7 @@ func (sm *DefaultStateMachine) Transition(id string, expected State, next State,
 
 	node.state = next
 	node.updatedAt = time.Now()
+	// Persistence of error context is only permitted if transitioning to the Failed state.
 	if err != nil && next == Failed {
 		node.err = err
 	}
@@ -192,7 +208,7 @@ func (sm *DefaultStateMachine) Transition(id string, expected State, next State,
 	return nil
 }
 
-// GetHistory returns a snapshot of all nodes in the state machine.
+// GetHistory iterates through the registry and produces a serializable status list.
 func (sm *DefaultStateMachine) GetHistory() []NodeSnapshot {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

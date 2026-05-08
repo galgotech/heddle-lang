@@ -29,7 +29,7 @@ import (
 type Server struct {
 	flight.BaseFlightServer
 	registry  *Registry
-	resources sync.Map // map[string]interface{} (UUID -> Resource Instance)
+	resources sync.Map // map[string]any (UUID -> Resource Instance)
 	Namespace string
 	Language  string
 }
@@ -588,12 +588,12 @@ func New(namespace string) *Plugin {
 }
 
 // RegisterResource is a proxy to Registry.RegisterResource.
-func (p *Plugin) RegisterResource(name string, fn interface{}) {
+func (p *Plugin) RegisterResource(name string, fn any) {
 	p.registry.RegisterResource(name, fn)
 }
 
 // RegisterStep is a proxy to Registry.RegisterStep.
-func (p *Plugin) RegisterStep(name string, fn interface{}, opts ...StepOption) {
+func (p *Plugin) RegisterStep(name string, fn any, opts ...StepOption) {
 	p.registry.RegisterStep(name, fn, opts...)
 }
 

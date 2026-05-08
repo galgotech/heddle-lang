@@ -89,6 +89,6 @@ func Error(err error) zap.Field {
 	return zap.Error(err)
 }
 
-func Any(key string, val interface{}) zap.Field {
+func Any(key string, val any) zap.Field {
 	return zap.Any(key, val)
 }

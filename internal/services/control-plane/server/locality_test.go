@@ -14,12 +14,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
-	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 	"github.com/galgotech/heddle-lang/internal/services/control-plane/manager"
 	"github.com/galgotech/heddle-lang/internal/services/control-plane/scheduler"
 	"github.com/galgotech/heddle-lang/internal/services/control-plane/state"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
+	pb "github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 func TestControlPlane_LocalityAwareTickets(t *testing.T) {
@@ -32,7 +32,7 @@ func TestControlPlane_LocalityAwareTickets(t *testing.T) {
 		grpc.UnaryInterceptor(UnaryWorkerInterceptor),
 		grpc.StreamInterceptor(StreamWorkerInterceptor),
 	)
-	
+
 	registry := manager.NewRegistry()
 	queue := scheduler.NewWorkQueue(rate.Limit(100), 10, nil)
 	sm := state.NewStateMachine()
@@ -87,7 +87,7 @@ func TestControlPlane_LocalityAwareTickets(t *testing.T) {
 		BaseInstruction: ir.BaseInstruction{ID: "s2", Type: ir.StepInst},
 	}
 	program := &ir.ProgramIR{
-		Instructions: map[string]interface{}{
+		Instructions: map[string]any{
 			"s1": s1,
 			"s2": s2,
 		},
@@ -96,7 +96,7 @@ func TestControlPlane_LocalityAwareTickets(t *testing.T) {
 
 	// 4. Simulate s1 completion on worker-1
 	outputHandle := "handle-1"
-	
+
 	// Simulate receiving this update
 	cpServer.mu.Lock()
 	cpServer.outputs["s1"] = outputHandle

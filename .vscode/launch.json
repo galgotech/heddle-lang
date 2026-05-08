@@ -2,46 +2,91 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Control Plane",
+            "name": "Standalone (Pure Local)",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/services/control-plane/cmd/control-plane/main.go",
-            "env": {
-                "HEDDLE_CP_PORT": "50051"
-            },
-            "args": []
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+                "local",
+                "../../test.he"
+            ]
         },
         {
-            "name": "Worker",
+            "name": "Control Plane (Cluster)",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/services/worker/cmd/heddle-worker/main.go",
-            "env": {
-                "HEDDLE_WORKER_PORT": "50052",
-                "HEDDLE_WORKER_CONTROL_PLANE": "localhost:50051"
-            },
-            "args": []
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+                "cluster",
+                "cp",
+                "--port",
+                "50051"
+            ]
         },
         {
-            "name": "LSP",
+            "name": "Worker (Cluster)",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/services/lsp/cmd/heddle-lsp/main.go",
-            "env": {
-                "HEDDLE_LSP_PORT": "50053"
-            },
-            "args": []
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+                "cluster",
+                "worker",
+                "--cp",
+                "localhost:50051",
+                "--id",
+                "worker-1"
+            ]
+        },
+        {
+            "name": "LSP Server",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+                "development",
+                "lsp",
+                "--log-path",
+                "/tmp/heddle-lsp.log"
+            ]
+        },
+        {
+            "name": "Debug Adapter (DAP)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+                "development",
+                "dap",
+                "--server",
+                "--addr",
+                "localhost:4711"
+            ]
+        },
+        {
+            "name": "Client Submit (Current File)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/main.go",
+            "args": [
+                "cluster",
+                "client",
+                "submit",
+                "${file}"
+            ]
         }
     ],
     "compounds": [
         {
-            "name": "Full Stack",
+            "name": "Full Cluster",
             "configurations": [
-                "Control Plane",
-                "Worker"
+                "Control Plane (Cluster)",
+                "Worker (Cluster)"
             ]
         }
     ]

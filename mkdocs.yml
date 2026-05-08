@@ -1,0 +1,45 @@
+site_name: Heddle Lang
+site_url: https://heddle.fhub.dev/docs/
+site_description: Heddle is a language and high-performance orchestration engine built for seamless code reuse and streamlined development.
+repo_url: https://github.com/galgotech/heddle-lang
+
+theme:
+  name: readthedocs
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+    - search.share
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: cyan
+      accent: lime
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: cyan
+      accent: lime
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font:
+    text: Roboto
+    code: JetBrains Mono
+
+nav:
+  - Home: index.md
+  - Language Reference:
+    - Specification: grammar/lang-spec.md
+    - Grammar: grammar/grammar.md

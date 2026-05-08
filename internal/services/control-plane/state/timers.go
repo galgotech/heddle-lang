@@ -7,25 +7,34 @@ import (
 	"time"
 )
 
-// TimerTask represents a task to be executed after a delay.
-// Pointerless struct to avoid GC pressure.
+// TimerTask defines a scheduled execution event for a DAG node.
+// Implemented as a pointerless struct to minimize heap fragmentation and GC scanning overhead.
 type TimerTask struct {
 	NodeID   string
 	FireTime time.Time
 }
 
-// timerHeap is a min-heap of TimerTasks.
+// timerHeap provides a min-priority queue implementation for TimerTasks,
+// ordered by their firing timestamp.
 type timerHeap []TimerTask
 
-func (h timerHeap) Len() int           { return len(h) }
-func (h timerHeap) Less(i, j int) bool { return h[i].FireTime.Before(h[j].FireTime) }
-func (h timerHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h timerHeap) Len() int {
+	return len(h)
+}
 
-func (h *timerHeap) Push(x interface{}) {
+func (h timerHeap) Less(i, j int) bool {
+	return h[i].FireTime.Before(h[j].FireTime)
+}
+
+func (h timerHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+}
+
+func (h *timerHeap) Push(x any) {
 	*h = append(*h, x.(TimerTask))
 }
 
-func (h *timerHeap) Pop() interface{} {
+func (h *timerHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -33,6 +42,8 @@ func (h *timerHeap) Pop() interface{} {
 	return x
 }
 
+// Peek returns the earliest task from the heap without modification.
+// Returns nil if the heap is empty.
 func (h *timerHeap) Peek() *TimerTask {
 	if len(*h) == 0 {
 		return nil
@@ -40,7 +51,9 @@ func (h *timerHeap) Peek() *TimerTask {
 	return &(*h)[0]
 }
 
-// TimerManager manages massively concurrent wait-states.
+// TimerManager orchestrates massively concurrent wait-states for the control plane.
+// It multiplexes multiple logical timers into a single background runner loop using
+// a min-priority queue, ensuring high efficiency for thousands of concurrent nodes.
 type TimerManager struct {
 	mu       sync.Mutex
 	tasks    timerHeap
@@ -51,7 +64,7 @@ type TimerManager struct {
 	wg       sync.WaitGroup
 }
 
-// NewTimerManager creates a new TimerManager.
+// NewTimerManager initializes the manager and starts the background orchestration loop.
 func NewTimerManager(callback func(nodeID string)) *TimerManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	tm := &TimerManager{
@@ -67,7 +80,9 @@ func NewTimerManager(callback func(nodeID string)) *TimerManager {
 	return tm
 }
 
-// Schedule adds a new timer task for the given node ID.
+// Schedule registers a task for future execution.
+// If the new task fires earlier than the current queue head, it triggers a
+// runner wakeup to recalibrate the wait interval.
 func (tm *TimerManager) Schedule(nodeID string, delay time.Duration) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -78,17 +93,20 @@ func (tm *TimerManager) Schedule(nodeID string, delay time.Duration) {
 	}
 	heap.Push(&tm.tasks, task)
 
-	// Wake up the runner loop to recalculate wait time
+	// Notify the runner to re-evaluate the next firing window.
 	select {
 	case tm.wakeup <- struct{}{}:
 	default:
 	}
 }
 
+// run executes the primary timing loop.
+// It dynamically adjusts sleep intervals based on the priority queue and executes
+// ready tasks in separate goroutines to prevent callback latency from drifting the schedule.
 func (tm *TimerManager) run() {
 	defer tm.wg.Done()
 	timer := time.NewTimer(0)
-	<-timer.C // Drain it initially
+	<-timer.C // Ensure the timer is drained before the first use.
 
 	for {
 		tm.mu.Lock()
@@ -99,15 +117,15 @@ func (tm *TimerManager) run() {
 		if nextTask != nil {
 			now := time.Now()
 			if now.After(nextTask.FireTime) || now.Equal(nextTask.FireTime) {
-				// Task is ready, pop it and fire
+				// Task is ready; dequeue and dispatch.
 				task := heap.Pop(&tm.tasks).(TimerTask)
 				tm.mu.Unlock()
 
-				// Fire callback asynchronously so we don't block the timer loop
+				// Asynchronous dispatch preserves timing precision for subsequent tasks.
 				go tm.callback(task.NodeID)
 				continue
 			} else {
-				// Task is in the future
+				// Calculate remaining duration for the future task.
 				delay = nextTask.FireTime.Sub(now)
 				hasTask = true
 			}
@@ -118,9 +136,9 @@ func (tm *TimerManager) run() {
 			timer.Reset(delay)
 			select {
 			case <-timer.C:
-				// Timer expired, loop around to check tasks
+				// Window reached; loop to process ready tasks.
 			case <-tm.wakeup:
-				// A new task was added, stop timer and loop around to recalculate
+				// Interrupted by a new schedule; recalibrate wait time.
 				if !timer.Stop() {
 					select {
 					case <-timer.C:
@@ -132,9 +150,9 @@ func (tm *TimerManager) run() {
 				return
 			}
 		} else {
+			// Idle state: wait for a new task or shutdown signal.
 			select {
 			case <-tm.wakeup:
-				// A new task was added
 			case <-tm.ctx.Done():
 				return
 			}
@@ -142,7 +160,7 @@ func (tm *TimerManager) run() {
 	}
 }
 
-// Stop shuts down the TimerManager and waits for the runner loop to exit.
+// Stop terminates the manager and blocks until the background loop completes its exit.
 func (tm *TimerManager) Stop() {
 	tm.cancel()
 	tm.wg.Wait()

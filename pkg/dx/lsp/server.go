@@ -49,12 +49,12 @@ func PublishDiagnostics(uri string, diagnostics []analyzer.Diagnostic) string {
 		}
 	}
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"uri":         uri,
 		"diagnostics": lspDiagnostics,
 	}
 
-	notification := map[string]interface{}{
+	notification := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "textDocument/publishDiagnostics",
 		"params":  params,

@@ -138,7 +138,7 @@ func _PluginService_InitResource_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PluginService_ExecuteStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _PluginService_ExecuteStep_Handler(srv any, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
 	in := new(ExecuteStepRequest)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -150,13 +150,13 @@ func _PluginService_ExecuteStep_Handler(srv interface{}, ctx context.Context, de
 		Server:     srv,
 		FullMethod: PluginService_ExecuteStep_FullMethodName,
 	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+	handler := func(ctx context.Context, req any) (any, error) {
 		return srv.(PluginServiceServer).ExecuteStep(ctx, req.(*ExecuteStepRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PluginService_Describe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _PluginService_Describe_Handler(srv any, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func _PluginService_Describe_Handler(srv interface{}, ctx context.Context, dec f
 		Server:     srv,
 		FullMethod: PluginService_Describe_FullMethodName,
 	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+	handler := func(ctx context.Context, req any) (any, error) {
 		return srv.(PluginServiceServer).Describe(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)

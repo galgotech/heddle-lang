@@ -11,13 +11,13 @@ type ProgramIR struct {
 	BaseInstruction
 
 	// Instructions is a flat registry of all instructions by their unique ID.
-	Instructions map[string]interface{} `json:"instructions"`
+	Instructions map[string]any `json:"instructions"`
 
 	// Workflows lists the IDs of the entry points (FlowInstructions) in the program.
 	Workflows []string `json:"workflows"`
 }
 
-// Inflate reconstructs concrete instruction types from raw map[string]interface{}
+// Inflate reconstructs concrete instruction types from raw map[string]any
 // after JSON unmarshalling.
 func (p *ProgramIR) Inflate() error {
 	for id, raw := range p.Instructions {
@@ -26,7 +26,7 @@ func (p *ProgramIR) Inflate() error {
 			continue
 		}
 
-		// Otherwise, it's likely a map[string]interface{} from JSON
+		// Otherwise, it's likely a map[string]any from JSON
 		data, err := json.Marshal(raw)
 		if err != nil {
 			return fmt.Errorf("failed to re-marshal instruction %s: %w", id, err)

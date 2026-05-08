@@ -1,0 +1,34 @@
+############# English navigation ##############
+
+# main menu
+[[main]]
+name = "Home"
+url = "/"
+weight = 1
+
+[[main]]
+name = "About"
+url = "/about"
+weight = 2
+
+[[main]]
+name = "Examples"
+url = "/examples"
+weight = 3
+
+[[main]]
+name = "Docs"
+url = "/docs"
+weight = 4
+
+
+# footer menu
+[[footer]]
+name = "About"
+url = "/about"
+weight = 1
+
+[[footer]]
+name = "Privacy Policy"
+url = "/privacy-policy"
+weight = 2

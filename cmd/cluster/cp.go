@@ -29,7 +29,7 @@ var cpCmd = &cobra.Command{
 			zap.Int("port", port),
 			zap.String("standard", "Apache Arrow Flight"))
 
-		server.StartServer(port)
+		server.ListenAndServe(port)
 	},
 }
 

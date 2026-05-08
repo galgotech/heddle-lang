@@ -30,7 +30,7 @@ func NewLowerer(ctx *ast.ASTContext) *Lowerer {
 				ID:   uuid.New().String(),
 				Type: ir.ProgramInst,
 			},
-			Instructions: make(map[string]interface{}),
+			Instructions: make(map[string]any),
 			Workflows:    []string{},
 		},
 		mapImport:   make(map[string]string),
@@ -238,7 +238,7 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 		if stepRef, ok := l.mapStep[name]; ok {
 			binding := l.ctx.StepBindingNodes[stepRef]
 			fn := l.ctx.FunctionRefNodes[binding.RefRef]
-			
+
 			step.Call = []string{
 				l.ctx.GetString(fn.ModuleRef),
 				l.ctx.GetString(fn.NameRef),

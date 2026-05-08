@@ -69,7 +69,7 @@ func runStandalone(cmd *cobra.Command, args []string) {
 	time.Sleep(200 * time.Millisecond)
 
 	// 2. Start Stdlib Plugin in background
-	go runStdlibPlugin(ctx)
+	go runStdPlugin(ctx)
 
 	// 3. Start Worker
 	workerID := "standalone-worker"
@@ -129,12 +129,46 @@ func runStandalone(cmd *cobra.Command, args []string) {
 			}
 
 			logger.L().Info("Submitting local workflow", zap.String("path", filePath))
-			result, err := client.SubmitWorkflow(ctx, content)
+			_, err = client.SubmitWorkflow(ctx, content)
 			if err != nil {
 				logger.L().Error("Workflow submission failed", zap.Error(err))
 				return
 			}
-			fmt.Printf("\nWorkflow Submitted Successfully: %s\n", result)
+
+			// Polling for completion to allow standalone exit
+			ticker := time.NewTicker(200 * time.Millisecond)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					history, err := client.GetHistory(ctx)
+					if err != nil {
+						continue
+					}
+
+					if len(history) == 0 {
+						continue
+					}
+
+					allDone := true
+					for _, node := range history {
+						// Note: Status comes from state.State.String() which is capitalized
+						if node.Status != "Completed" && node.Status != "Failed" {
+							allDone = false
+							break
+						}
+					}
+
+					if allDone {
+						logger.L().Info("Workflow execution complete, shutting down...")
+						cancel()
+						return
+					}
+				}
+			}
 		}()
 	}
 
@@ -142,7 +176,7 @@ func runStandalone(cmd *cobra.Command, args []string) {
 	logger.L().Info("Heddle standalone shutdown complete")
 }
 
-func runStdlibPlugin(ctx context.Context) {
+func runStdPlugin(ctx context.Context) {
 	namespace := "std"
 	p := plugin.New(namespace)
 	stdlib.RegisterAll(p)

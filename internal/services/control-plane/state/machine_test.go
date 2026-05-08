@@ -22,7 +22,7 @@ func TestHeddleContext(t *testing.T) {
 	parent := context.Background()
 	creds := Credentials{Token: "test-token", Roles: []string{"admin", "user"}}
 	lineage := Lineage{DAGID: "dag-1", NodeID: "node-1", ParentID: "root"}
-	meta := Metadata{Values: map[string]interface{}{"retry_count": 3}}
+	meta := Metadata{Values: map[string]any{"retry_count": 3}}
 
 	ctx := NewHeddleContext(parent, creds, lineage, meta)
 

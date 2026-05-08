@@ -1,0 +1,14 @@
+{
+  "content": "content",
+  "media": "assets/images",
+  "public": "static",
+  "configs": [
+    "config/_default",
+    "hugo.toml",
+    "data",
+    "i18n"
+  ],
+  "custom-commit": false,
+  "arrangement": [],
+  "code": "themes/hugoplate/layouts"
+}

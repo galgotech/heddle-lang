@@ -253,7 +253,7 @@ func (ctx *ASTContext) AddPairRef(r NodeRef)    { ctx.PairRefs = append(ctx.Pair
 func (ctx *ASTContext) AddLiteralRef(r NodeRef) { ctx.LiteralRefs = append(ctx.LiteralRefs, r) }
 
 var astContextPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &ASTContext{
 			StringBuffer:           make([]byte, 0, 4096),
 			ImportNodes:            []ImportNode{{}},

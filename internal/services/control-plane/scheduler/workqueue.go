@@ -9,7 +9,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Task represents a unit of work in the queue.
+// Task represents a unit of work within the scheduler, maintaining execution state
+// and retry metadata for deterministic workflow orchestration.
 type Task struct {
 	NodeID      string
 	Retries     int
@@ -17,48 +18,55 @@ type Task struct {
 	LastFailure time.Time
 }
 
-// AoTAnalyzer is an interface to inspect workload before scheduling.
+// AoTAnalyzer (Ahead-of-Time) defines the contract for inspecting and prioritizing
+// tasks before they are committed to the execution queue.
 type AoTAnalyzer interface {
 	Analyze(task *Task) (priority int, group string)
 }
 
-// DefaultAnalyzer is a simple analyzer that treats all tasks equally.
+// DefaultAnalyzer provides a no-op implementation of AoTAnalyzer, treating
+// all tasks with uniform priority and group assignments.
 type DefaultAnalyzer struct{}
 
 func (d *DefaultAnalyzer) Analyze(task *Task) (int, string) {
 	return 0, "default"
 }
 
-// WorkQueue is a highly concurrent, k8s-inspired task distribution queue.
+// WorkQueue implements a highly concurrent, state-aware task distribution system.
+// It utilizes a Kubernetes-inspired 'dirty/processing' state machine to ensure
+// that any individual task is never executed by more than one worker simultaneously,
+// while guaranteeing that updates occurring during processing are eventually handled.
 type WorkQueue struct {
-	mu           sync.Mutex
-	cond         *sync.Cond
-	queue        []*Task
-	processing   map[string]*Task
-	dirty        map[string]*Task
+	mu   sync.Mutex
+	cond *sync.Cond
 
-	rateLimiter  *rate.Limiter
-	analyzer     AoTAnalyzer
+	queue      []*Task
+	processing map[string]*Task
+	dirty      map[string]*Task
 
-	taskPool     sync.Pool
+	rateLimiter *rate.Limiter
+	analyzer    AoTAnalyzer
+
+	taskPool sync.Pool
 
 	shuttingDown bool
 }
 
-// NewWorkQueue creates a new workqueue with token-bucket rate limiting.
+// NewWorkQueue initializes a WorkQueue with token-bucket rate limiting and
+// a task object pool to minimize heap allocations.
 func NewWorkQueue(qps rate.Limit, burst int, analyzer AoTAnalyzer) *WorkQueue {
 	if analyzer == nil {
 		analyzer = &DefaultAnalyzer{}
 	}
 
 	wq := &WorkQueue{
-		queue:      make([]*Task, 0),
-		processing: make(map[string]*Task),
-		dirty:      make(map[string]*Task),
+		queue:       make([]*Task, 0),
+		processing:  make(map[string]*Task),
+		dirty:       make(map[string]*Task),
 		rateLimiter: rate.NewLimiter(qps, burst),
-		analyzer:   analyzer,
+		analyzer:    analyzer,
 		taskPool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return &Task{}
 			},
 		},
@@ -67,7 +75,9 @@ func NewWorkQueue(qps rate.Limit, burst int, analyzer AoTAnalyzer) *WorkQueue {
 	return wq
 }
 
-// Add enqueues a new task.
+// Add enqueues a node ID for processing. If the node is already in the 'dirty' set,
+// the call is ignored as a pending execution is already scheduled. If the node is
+// currently being processed, it is marked 'dirty' to trigger a re-sync upon completion.
 func (wq *WorkQueue) Add(nodeID string, maxRetries int) {
 	wq.mu.Lock()
 	defer wq.mu.Unlock()
@@ -77,11 +87,11 @@ func (wq *WorkQueue) Add(nodeID string, maxRetries int) {
 	}
 
 	if _, exists := wq.dirty[nodeID]; exists {
-		// Already added but not processed yet
+		// Already in the dirty set; a pending execution is already scheduled.
 		return
 	}
 
-	// Task allocation via sync.Pool to reduce GC
+	// Retrieve a task object from the pool to minimize heap allocations and GC pressure.
 	task := wq.taskPool.Get().(*Task)
 	task.NodeID = nodeID
 	task.Retries = 0
@@ -96,7 +106,8 @@ func (wq *WorkQueue) Add(nodeID string, maxRetries int) {
 	}
 }
 
-// AddRateLimited adds an item after checking the rate limiter.
+// AddRateLimited enqueues a task after successfully acquiring a token from the rate limiter.
+// This blocks if the global throughput limit has been reached.
 func (wq *WorkQueue) AddRateLimited(ctx context.Context, nodeID string, maxRetries int) error {
 	if err := wq.rateLimiter.Wait(ctx); err != nil {
 		return err
@@ -105,7 +116,8 @@ func (wq *WorkQueue) AddRateLimited(ctx context.Context, nodeID string, maxRetri
 	return nil
 }
 
-// Get blocks until a task is available to process.
+// Get retrieves the next task from the queue, blocking until an item is available
+// or the queue initiates shutdown. Upon return, the task is moved to the 'processing' state.
 func (wq *WorkQueue) Get() (*Task, bool) {
 	wq.mu.Lock()
 	defer wq.mu.Unlock()
@@ -115,7 +127,7 @@ func (wq *WorkQueue) Get() (*Task, bool) {
 	}
 
 	if len(wq.queue) == 0 {
-		return nil, true // Shutting down
+		return nil, true // Queue is shutting down; return nil to signal termination.
 	}
 
 	task := wq.queue[0]
@@ -127,25 +139,29 @@ func (wq *WorkQueue) Get() (*Task, bool) {
 	return task, false
 }
 
-// Done marks a task as finished and cleans it up.
+// Done signals the completion of a task's execution. If the task was marked 'dirty'
+// while processing, it is immediately re-enqueued. Otherwise, the task object is
+// recycled into the pool to reduce GC pressure.
 func (wq *WorkQueue) Done(task *Task) {
 	wq.mu.Lock()
 	defer wq.mu.Unlock()
 
 	delete(wq.processing, task.NodeID)
 
-	// If it was added again while processing, re-queue it
+	// Check if the task was marked dirty during processing to trigger a re-sync.
 	if dirtyTask, exists := wq.dirty[task.NodeID]; exists {
 		wq.queue = append(wq.queue, dirtyTask)
 		wq.cond.Signal()
 	} else {
-		// Otherwise return to pool
+		// Task completed without further updates; recycle object into the pool.
 		task.NodeID = ""
 		wq.taskPool.Put(task)
 	}
 }
 
-// Retry schedules a failed task for retry with exponential backoff if possible.
+// Retry handles task failure by scheduling a re-execution with exponential backoff.
+// If MaxRetries is exceeded, the task is dropped. The backoff wait is executed
+// in a background goroutine to prevent blocking the worker thread.
 func (wq *WorkQueue) Retry(task *Task) error {
 	wq.mu.Lock()
 
@@ -158,11 +174,11 @@ func (wq *WorkQueue) Retry(task *Task) error {
 	task.Retries++
 	task.LastFailure = time.Now()
 
-	// Calculate backoff: e.g., 100ms * 2^retries
+	// Apply exponential backoff (100ms * 2^retries) to stagger retries.
 	backoffDuration := time.Duration(100<<task.Retries) * time.Millisecond
 	wq.mu.Unlock()
 
-	// Wait before adding back (non-blocking in caller by using a goroutine)
+	// Asynchronously wait for the backoff duration before re-enqueuing the task.
 	go func(t *Task, d time.Duration) {
 		time.Sleep(d)
 
@@ -182,7 +198,8 @@ func (wq *WorkQueue) Retry(task *Task) error {
 	return nil
 }
 
-// ShutDown stops the queue from accepting new tasks.
+// ShutDown transitions the queue to a terminal state, preventing new task additions
+// and unblocking any pending Get() calls.
 func (wq *WorkQueue) ShutDown() {
 	wq.mu.Lock()
 	defer wq.mu.Unlock()
@@ -191,7 +208,7 @@ func (wq *WorkQueue) ShutDown() {
 	wq.cond.Broadcast()
 }
 
-// Length returns the current length of the queue.
+// Length returns the current number of items waiting in the queue.
 func (wq *WorkQueue) Length() int {
 	wq.mu.Lock()
 	defer wq.mu.Unlock()

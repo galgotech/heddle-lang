@@ -57,7 +57,7 @@ func WithResource(resourceName string) StepOption {
 }
 
 // RegisterResource registers a resource function.
-func (r *Registry) RegisterResource(name string, fn interface{}) {
+func (r *Registry) RegisterResource(name string, fn any) {
 	val := reflect.ValueOf(fn)
 	typ := val.Type()
 
@@ -92,7 +92,7 @@ func (r *Registry) RegisterResource(name string, fn interface{}) {
 }
 
 // RegisterStep registers a step function.
-func (r *Registry) RegisterStep(name string, fn interface{}, opts ...StepOption) {
+func (r *Registry) RegisterStep(name string, fn any, opts ...StepOption) {
 	val := reflect.ValueOf(fn)
 	typ := val.Type()
 
@@ -125,7 +125,7 @@ func (r *Registry) RegisterStep(name string, fn interface{}, opts ...StepOption)
 	}
 
 	tableType := reflect.TypeOf((*core.Table)(nil)).Elem()
-	if !typ.In(expectedArgs-1).Implements(tableType) {
+	if !typ.In(expectedArgs - 1).Implements(tableType) {
 		panic(fmt.Sprintf("step %q last argument must implement core.Table", name))
 	}
 
