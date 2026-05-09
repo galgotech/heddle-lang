@@ -74,7 +74,7 @@ func (v *Validator) validateReferences() error {
 	for i := v.program.StepRefsStart; i < v.program.StepRefsEnd; i++ {
 		ref := v.ctx.StepRefs[i]
 		node := v.ctx.StepBindingNodes[ref]
-		if err := v.validateFunctionRef(node.RefRef); err != nil {
+		if err := v.validateFunctionRef(node.FunctionRef); err != nil {
 			return err
 		}
 	}
@@ -105,8 +105,8 @@ func (v *Validator) validateFunctionRef(ref ast.NodeRef) error {
 		return nil
 	}
 	fn := v.ctx.FunctionRefNodes[ref]
-	if fn.ResourcesRef != 0 {
-		rr := v.ctx.ResourceRefNodes[fn.ResourcesRef]
+	if fn.ResourcesRefRef != 0 {
+		rr := v.ctx.ResourceRefNodes[fn.ResourcesRefRef]
 		for i := rr.MappingsRefStart; i < rr.MappingsRefEnd; i++ {
 			mappingRef := v.ctx.MappingRefs[i]
 			mapping := v.ctx.ResourceMappingNodes[mappingRef]

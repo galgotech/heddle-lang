@@ -7,9 +7,8 @@ const (
 	EOF     = "EOF"
 
 	// Identifiers + literals
-	IDENT      = "IDENT"
+	IDENTIFIER = "IDENTIFIER"
 	STRING_LIT = "STRING_LIT"
-	NUMBER_LIT = "NUMBER_LIT"
 	PRQL_BLOCK = "PRQL_BLOCK"
 
 	// Operators and punctuation
@@ -78,7 +77,7 @@ func LookupIdent(ident string) TokenType {
 	if tok, ok := keywords[ident]; ok {
 		return tok
 	}
-	return IDENT
+	return IDENTIFIER
 }
 
 func newToken(tokenType TokenType, literal string, line, col, endLine, endCol, start int) Token {

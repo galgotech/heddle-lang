@@ -6,9 +6,9 @@ import "fmt"
 type InstructionType string
 
 const (
+	ResourceInst InstructionType = "resource"
 	StepInst     InstructionType = "step"
 	FlowInst     InstructionType = "flow"
-	ResourceInst InstructionType = "resource"
 	ProgramInst  InstructionType = "program"
 )
 

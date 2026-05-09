@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	"go.lsp.dev/protocol"
 )
 
@@ -101,7 +101,7 @@ func (h *LSPHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*
 	case "step":
 		step := doc.Ctx.StepBindingNodes[ref]
 		content = "### Step: " + doc.Ctx.GetString(step.NameRef) + "\n"
-		fn := doc.Ctx.FunctionRefNodes[step.RefRef]
+		fn := doc.Ctx.FunctionRefNodes[step.FunctionRef]
 		content += "**Implementation**: `" + doc.Ctx.GetString(fn.ModuleRef) + "." + doc.Ctx.GetString(fn.NameRef) + "`\n"
 	case "call":
 		call := doc.Ctx.CallNodes[ref]
@@ -113,7 +113,7 @@ func (h *LSPHandler) Hover(ctx context.Context, params *protocol.HoverParams) (*
 			stepRef := doc.Validator.Lookup(name)
 			if stepRef != 0 {
 				step := doc.Ctx.StepBindingNodes[stepRef]
-				fn := doc.Ctx.FunctionRefNodes[step.RefRef]
+				fn := doc.Ctx.FunctionRefNodes[step.FunctionRef]
 				content += "**Step Implementation**: `" + doc.Ctx.GetString(fn.ModuleRef) + "." + doc.Ctx.GetString(fn.NameRef) + "`\n"
 			}
 		}

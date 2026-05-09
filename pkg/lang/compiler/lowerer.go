@@ -7,43 +7,26 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
-// Lowerer handles the translation of the Abstract Syntax Tree (AST) into
-// the Intermediate Representation (IR).
+// Lowerer orchestrates the transformation of the Abstract Syntax Tree (AST) into
+// the Intermediate Representation (IR). It manages symbol resolution and
+// instruction generation across multiple lowering passes.
 type Lowerer struct {
-	ctx     *ast.ASTContext
-	program *ir.ProgramIR
+	ctx     *ast.ASTContext // The source AST context containing all nodes.
+	program *ir.ProgramIR   // The target IR program being constructed.
 
-	// Maps for resolving symbols during lowering
-	mapImport   map[string]string // alias -> module path
-	mapResource map[string]ast.NodeRef
-	mapStep     map[string]ast.NodeRef
-	mapHandler  map[string]ast.NodeRef
-	handlerIDs  map[string]string // name -> IR ID
+	// Symbol resolution maps for cross-referencing declarations.
+	mapImport   map[string]string      // Maps module aliases to their absolute paths.
+	mapResource map[string]ast.NodeRef // Maps resource names to their AST node references.
+	mapStep     map[string]ast.NodeRef // Maps step binding names to their AST node references.
+	mapHandler  map[string]ast.NodeRef // Maps error handler names to their AST node references.
+	handlerIDs  map[string]string      // Maps handler names to their generated IR IDs for trap resolution.
 }
 
-// NewLowerer creates a new instance of the Lowerer.
-func NewLowerer(ctx *ast.ASTContext) *Lowerer {
-	return &Lowerer{
-		ctx: ctx,
-		program: &ir.ProgramIR{
-			BaseInstruction: ir.BaseInstruction{
-				ID:   uuid.New().String(),
-				Type: ir.ProgramInst,
-			},
-			Instructions: make(map[string]any),
-			Workflows:    []string{},
-		},
-		mapImport:   make(map[string]string),
-		mapResource: make(map[string]ast.NodeRef),
-		mapStep:     make(map[string]ast.NodeRef),
-		mapHandler:  make(map[string]ast.NodeRef),
-		handlerIDs:  make(map[string]string),
-	}
-}
-
-// Lower translates an AST Program into a ProgramIR.
+// Lower translates the provided AST ProgramNode into a ProgramIR.
+// It executes four distinct passes to ensure all cross-references (traps, resources)
+// are correctly resolved across the workflow topology.
 func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
-	// First pass: Register all definitions for resolution
+	// Pass 1: Symbol Registration. Populates lookup tables for all top-level definitions.
 	for i := astProgram.ImportRefsStart; i < astProgram.ImportRefsEnd; i++ {
 		ref := l.ctx.ImportRefs[i]
 		node := l.ctx.ImportNodes[ref]
@@ -71,7 +54,7 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 		l.mapHandler[l.ctx.GetString(node.NameRef)] = ref
 	}
 
-	// Second pass: Lower resources
+	// Pass 2: Resource Lowering. Transforms stateful resource declarations into IR.
 	for _, ref := range l.mapResource {
 		node := l.ctx.ResourceNodes[ref]
 		res, err := l.lowerResource(node)
@@ -81,7 +64,8 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 		l.registerInstruction(res)
 	}
 
-	// Third pass: Lower handlers (collect IDs first for trap resolution)
+	// Pass 3: Handler Lowering. Translates error handlers into FlowInstructions.
+	// Handler IDs are pre-allocated to allow steps to reference them via traps.
 	for i := astProgram.HandlerRefsStart; i < astProgram.HandlerRefsEnd; i++ {
 		ref := l.ctx.HandlerRefs[i]
 		node := l.ctx.HandlerNodes[ref]
@@ -99,7 +83,7 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 		l.registerInstruction(flow)
 	}
 
-	// Fourth pass: Lower workflows
+	// Pass 4: Workflow Lowering. Translates main workflow blocks into execution entry points.
 	for i := astProgram.WorkflowRefsStart; i < astProgram.WorkflowRefsEnd; i++ {
 		ref := l.ctx.WorkflowRefs[i]
 		node := l.ctx.WorkflowNodes[ref]
@@ -114,6 +98,7 @@ func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
 	return l.program, nil
 }
 
+// lowerResource transforms an AST resource node into a ResourceInstruction.
 func (l *Lowerer) lowerResource(astResource ast.ResourceNode) (*ir.ResourceInstruction, error) {
 	res := &ir.ResourceInstruction{
 		BaseInstruction: l.newBase(ir.ResourceInst),
@@ -122,6 +107,7 @@ func (l *Lowerer) lowerResource(astResource ast.ResourceNode) (*ir.ResourceInstr
 	return res, nil
 }
 
+// lowerHandler lowers a handler block into a FlowInstruction (DAG).
 func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction, error) {
 	name := l.ctx.GetString(astHandler.NameRef)
 	flow := &ir.FlowInstruction{
@@ -146,12 +132,14 @@ func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction,
 	return flow, nil
 }
 
+// lowerWorkflow lowers a main workflow block into a FlowInstruction.
 func (l *Lowerer) lowerWorkflow(astWorkflow ast.WorkflowNode) (*ir.FlowInstruction, error) {
 	flow := &ir.FlowInstruction{
 		BaseInstruction: l.newBase(ir.FlowInst),
 		Name:            l.ctx.GetString(astWorkflow.NameRef),
 	}
 
+	// Resolve the workflow-level error handler if specified via the trap operator '?'.
 	if astWorkflow.TrapRef.Start != astWorkflow.TrapRef.End {
 		handlerName := l.ctx.GetString(astWorkflow.TrapRef)
 		if id, ok := l.handlerIDs[handlerName]; ok {
@@ -172,6 +160,7 @@ func (l *Lowerer) lowerWorkflow(astWorkflow ast.WorkflowNode) (*ir.FlowInstructi
 	return flow, nil
 }
 
+// lowerPipeline dispatches a pipeline statement to its specific lowering logic.
 func (l *Lowerer) lowerPipeline(ps ast.PipelineStatementNode) (string, error) {
 	ref := ps.ExprRef
 	if ref == 0 {
@@ -188,6 +177,7 @@ func (l *Lowerer) lowerPipeline(ps ast.PipelineStatementNode) (string, error) {
 	return "", nil
 }
 
+// lowerPipeChain connects a sequence of calls into a linked list of IR instructions.
 func (l *Lowerer) lowerPipeChain(pc ast.PipeChainNode, assignment string) (string, error) {
 	var prevStep *ir.StepInstruction
 	var firstStepID string
@@ -206,10 +196,12 @@ func (l *Lowerer) lowerPipeChain(pc ast.PipeChainNode, assignment string) (strin
 			firstStepID = step.ID
 		}
 
+		// Connect steps in a pipeline to form an execution chain.
 		if prevStep != nil {
 			prevStep.Next = step.ID
 		}
 
+		// Apply variable assignment to the final step in the pipeline.
 		if i == callCount-1 && assignment != "" {
 			step.Assignment = assignment
 		}
@@ -221,6 +213,7 @@ func (l *Lowerer) lowerPipeChain(pc ast.PipeChainNode, assignment string) (strin
 	return firstStepID, nil
 }
 
+// lowerCall transforms an AST call (standard or PRQL) into a StepInstruction.
 func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 	step := &ir.StepInstruction{
 		BaseInstruction: l.newBase(ir.StepInst),
@@ -235,6 +228,7 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 		name := l.ctx.GetString(call.NameRef)
 		step.DefinitionName = name
 
+		// Resolve function binding and module mapping.
 		if stepRef, ok := l.mapStep[name]; ok {
 			binding := l.ctx.StepBindingNodes[stepRef]
 			fn := l.ctx.FunctionRefNodes[binding.RefRef]
@@ -244,6 +238,7 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 				l.ctx.GetString(fn.NameRef),
 			}
 
+			// Map resource requirements to the step configuration.
 			if fn.ResourcesRef != 0 {
 				rr := l.ctx.ResourceRefNodes[fn.ResourcesRef]
 				for i := rr.MappingsRefStart; i < rr.MappingsRefEnd; i++ {
@@ -255,6 +250,7 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 		}
 	}
 
+	// Resolve the step-level error handler if specified via the trap operator '?'.
 	if call.TrapRef.Start != call.TrapRef.End {
 		handlerName := l.ctx.GetString(call.TrapRef)
 		if id, ok := l.handlerIDs[handlerName]; ok {
@@ -265,13 +261,35 @@ func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
 	return step, nil
 }
 
+// registerInstruction adds a generated instruction to the IR program's registry.
 func (l *Lowerer) registerInstruction(inst ir.Instruction) {
 	l.program.Instructions[inst.GetID()] = inst
 }
 
+// newBase generates a new BaseInstruction with a unique ID and specified type.
 func (l *Lowerer) newBase(t ir.InstructionType) ir.BaseInstruction {
 	return ir.BaseInstruction{
 		ID:   uuid.New().String(),
 		Type: t,
+	}
+}
+
+// NewLowerer creates a new instance of the Lowerer with a clean IR program state.
+func NewLowerer(ctx *ast.ASTContext) *Lowerer {
+	return &Lowerer{
+		ctx: ctx,
+		program: &ir.ProgramIR{
+			BaseInstruction: ir.BaseInstruction{
+				ID:   uuid.New().String(),
+				Type: ir.ProgramInst,
+			},
+			Instructions: make(map[string]any),
+			Workflows:    []string{},
+		},
+		mapImport:   make(map[string]string),
+		mapResource: make(map[string]ast.NodeRef),
+		mapStep:     make(map[string]ast.NodeRef),
+		mapHandler:  make(map[string]ast.NodeRef),
+		handlerIDs:  make(map[string]string),
 	}
 }

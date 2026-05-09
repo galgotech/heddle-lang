@@ -1,15 +1,15 @@
 package ir
 
-// FlowInstruction represents a high-level workflow definition (DAG).
+// FlowInstruction defines the high-level orchestration logic and DAG topology for a Heddle workflow.
 type FlowInstruction struct {
 	BaseInstruction
 
-	// Name is the identifier for the workflow.
+	// Name is the unique human-readable identifier for the workflow.
 	Name string `json:"name"`
 
-	// Heads are the starting points (Step IDs) of the workflow's execution paths.
+	// Heads lists the Step IDs that serve as the entry points for workflow execution.
 	Heads []string `json:"heads"`
 
-	// Handler is the ID of the global error handler for the workflow.
+	// Handler identifies the Step ID of the global error handler for the workflow.
 	Handler string `json:"handler,omitempty"`
 }

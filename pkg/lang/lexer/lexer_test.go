@@ -42,18 +42,18 @@ workflow main {
 	}{
 		{IMPORT, "import", 1, 1, 0},
 		{STRING_LIT, "std/io", 1, 8, 7},
-		{IDENT, "io", 1, 17, 16},
+		{IDENTIFIER, "io", 1, 17, 16},
 		{NEWLINE, "\n\n", 1, 19, 18},
 		{RESOURCE, "resource", 3, 1, 20},
-		{IDENT, "db", 3, 10, 29},
+		{IDENTIFIER, "db", 3, 10, 29},
 		{ASSIGN, "=", 3, 13, 32},
-		{IDENT, "postgres", 3, 15, 34},
+		{IDENTIFIER, "postgres", 3, 15, 34},
 		{DOT, ".", 3, 23, 42},
-		{IDENT, "connect", 3, 24, 43},
+		{IDENTIFIER, "connect", 3, 24, 43},
 		{LBRACE, "{", 3, 32, 51},
 		{NEWLINE, "\n", 3, 33, 52},
 		{INDENT, "  ", 4, 1, 53},
-		{IDENT, "host", 4, 3, 55},
+		{IDENTIFIER, "host", 4, 3, 55},
 		{COLON, ":", 4, 7, 59},
 		{STRING_LIT, "localhost", 4, 9, 61},
 		{DEDENT, "", 5, 1, 73},
@@ -61,14 +61,14 @@ workflow main {
 		{RBRACE, "}", 5, 1, 73},
 		{NEWLINE, "\n\n", 5, 2, 74},
 		{STEP, "step", 7, 1, 76},
-		{IDENT, "process", 7, 6, 81},
+		{IDENTIFIER, "process", 7, 6, 81},
 		{ASSIGN, "=", 7, 14, 89},
-		{IDENT, "my_plugin", 7, 16, 91},
+		{IDENTIFIER, "my_plugin", 7, 16, 91},
 		{DOT, ".", 7, 25, 100},
-		{IDENT, "run", 7, 26, 101},
+		{IDENTIFIER, "run", 7, 26, 101},
 		{NEWLINE, "\n\n", 7, 29, 104},
 		{WORKFLOW, "workflow", 9, 1, 106},
-		{IDENT, "main", 9, 10, 115},
+		{IDENTIFIER, "main", 9, 10, 115},
 		{LBRACE, "{", 9, 15, 120},
 		{NEWLINE, "\n", 9, 16, 121},
 		{INDENT, "  ", 10, 1, 122},
@@ -89,13 +89,13 @@ workflow main {
 		{RBRACKET, "]", 14, 3, 153},
 		{NEWLINE, "\n", 14, 4, 154},
 		{RANGLE, ">", 15, 3, 157},
-		{IDENT, "data", 15, 5, 159},
+		{IDENTIFIER, "data", 15, 5, 159},
 		{NEWLINE, "\n\n", 15, 9, 163},
-		{IDENT, "data", 17, 3, 167},
+		{IDENTIFIER, "data", 17, 3, 167},
 		{NEWLINE, "\n", 17, 7, 171},
 		{INDENT, "    ", 18, 1, 172},
 		{PIPE, "|", 18, 5, 176},
-		{IDENT, "process", 18, 7, 178},
+		{IDENTIFIER, "process", 18, 7, 178},
 		{NEWLINE, "\n", 18, 14, 185},
 		{PIPE, "|", 19, 5, 190},
 		{PRQL_BLOCK, "(from users select {name, age})", 19, 7, 192},
@@ -105,7 +105,7 @@ workflow main {
 		{DEDENT, "", 25, 1, 317},
 		{NEWLINE, "\n", 24, 7, 314},
 		{RANGLE, ">", 25, 3, 317},
-		{IDENT, "processed", 25, 5, 319},
+		{IDENTIFIER, "processed", 25, 5, 319},
 		{DEDENT, "", 26, 1, 329},
 		{NEWLINE, "\n", 25, 14, 328},
 		{RBRACE, "}", 26, 1, 329},
@@ -243,17 +243,17 @@ func TestTokenSequences(t *testing.T) {
 		{
 			name:     "mixed tabs and spaces in same line",
 			input:    "workflow main {\n\t  step1\n}",
-			expected: []TokenType{WORKFLOW, IDENT, LBRACE, NEWLINE, ILLEGAL},
+			expected: []TokenType{WORKFLOW, IDENTIFIER, LBRACE, NEWLINE, ILLEGAL},
 		},
 		{
 			name:     "conflicting indentation style in file",
 			input:    "workflow main {\n  step1\n\tstep2\n}",
-			expected: []TokenType{WORKFLOW, IDENT, LBRACE, NEWLINE, INDENT, IDENT, NEWLINE, ILLEGAL},
+			expected: []TokenType{WORKFLOW, IDENTIFIER, LBRACE, NEWLINE, INDENT, IDENTIFIER, NEWLINE, ILLEGAL},
 		},
 		{
 			name:     "unindent mismatch",
 			input:    "workflow main {\n  step1\n step2\n}",
-			expected: []TokenType{WORKFLOW, IDENT, LBRACE, NEWLINE, INDENT, IDENT, DEDENT, ILLEGAL, NEWLINE},
+			expected: []TokenType{WORKFLOW, IDENTIFIER, LBRACE, NEWLINE, INDENT, IDENTIFIER, DEDENT, ILLEGAL, NEWLINE},
 		},
 
 		// Invalid syntax scenarios
@@ -261,8 +261,8 @@ func TestTokenSequences(t *testing.T) {
 			name:  "illegal character in workflow",
 			input: "workflow main {\n  source @| process\n}",
 			expected: []TokenType{
-				WORKFLOW, IDENT, LBRACE, NEWLINE,
-				INDENT, IDENT, ILLEGAL, PIPE, IDENT, DEDENT, NEWLINE,
+				WORKFLOW, IDENTIFIER, LBRACE, NEWLINE,
+				INDENT, IDENTIFIER, ILLEGAL, PIPE, IDENTIFIER, DEDENT, NEWLINE,
 				RBRACE, EOF,
 			},
 		},
@@ -270,7 +270,7 @@ func TestTokenSequences(t *testing.T) {
 			name:  "unclosed PRQL block",
 			input: "workflow main {\n  (from users\n}",
 			expected: []TokenType{
-				WORKFLOW, IDENT, LBRACE, NEWLINE,
+				WORKFLOW, IDENTIFIER, LBRACE, NEWLINE,
 				INDENT, PRQL_BLOCK, DEDENT, EOF,
 			},
 		},
@@ -278,14 +278,14 @@ func TestTokenSequences(t *testing.T) {
 			name:  "malformed number (lonely sign)",
 			input: "step x = + ",
 			expected: []TokenType{
-				STEP, IDENT, ASSIGN, ILLEGAL, EOF,
+				STEP, IDENTIFIER, ASSIGN, ILLEGAL, EOF,
 			},
 		},
 		{
 			name:  "invalid comment start",
 			input: "workflow / main",
 			expected: []TokenType{
-				WORKFLOW, ILLEGAL, IDENT, EOF,
+				WORKFLOW, ILLEGAL, IDENTIFIER, EOF,
 			},
 		},
 		{
@@ -299,21 +299,21 @@ func TestTokenSequences(t *testing.T) {
 			name:  "illegal character in resource",
 			input: "resource db # = postgres",
 			expected: []TokenType{
-				RESOURCE, IDENT, ILLEGAL, ASSIGN, IDENT, EOF,
+				RESOURCE, IDENTIFIER, ILLEGAL, ASSIGN, IDENTIFIER, EOF,
 			},
 		},
 		{
 			name:  "illegal character in step",
 			input: "step process $ = plugin.run",
 			expected: []TokenType{
-				STEP, IDENT, ILLEGAL, ASSIGN, IDENT, DOT, IDENT, EOF,
+				STEP, IDENTIFIER, ILLEGAL, ASSIGN, IDENTIFIER, DOT, IDENTIFIER, EOF,
 			},
 		},
 		{
 			name:  "illegal character in handler",
 			input: "handler on_error ! { }",
 			expected: []TokenType{
-				HANDLER, IDENT, ILLEGAL, LBRACE, RBRACE, EOF,
+				HANDLER, IDENTIFIER, ILLEGAL, LBRACE, RBRACE, EOF,
 			},
 		},
 
@@ -321,22 +321,22 @@ func TestTokenSequences(t *testing.T) {
 		{
 			name:     "same-line pipe",
 			input:    "step1 | step2",
-			expected: []TokenType{IDENT, PIPE, IDENT},
+			expected: []TokenType{IDENTIFIER, PIPE, IDENTIFIER},
 		},
 		{
 			name:     "same-line assignment",
 			input:    "step1 > output",
-			expected: []TokenType{IDENT, RANGLE, IDENT},
+			expected: []TokenType{IDENTIFIER, RANGLE, IDENTIFIER},
 		},
 		{
 			name:     "valid new-line pipe",
 			input:    "step1\n| step2",
-			expected: []TokenType{IDENT, NEWLINE, PIPE, IDENT},
+			expected: []TokenType{IDENTIFIER, NEWLINE, PIPE, IDENTIFIER},
 		},
 		{
 			name:     "removed keywords",
 			input:    "schema void timestamp bool ->",
-			expected: []TokenType{IDENT, IDENT, IDENT, IDENT, ILLEGAL},
+			expected: []TokenType{IDENTIFIER, IDENTIFIER, IDENTIFIER, IDENTIFIER, ILLEGAL},
 		},
 	}
 
@@ -394,7 +394,7 @@ func TestDetailedIdentifiers(t *testing.T) {
 		expType TokenType
 		expLit  string
 	}{
-		{"hyphenated", "my-step-name", IDENT, "my-step-name"},
+		{"hyphenated", "my-step-name", IDENTIFIER, "my-step-name"},
 		{"standalone prql", "(from users select id)", PRQL_BLOCK, "(from users select id)"},
 	}
 

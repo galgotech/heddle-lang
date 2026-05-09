@@ -17,7 +17,7 @@ resource pg_db = pg.connection {
   host: "localhost"
 }
 
-step fetch_users = pg.query <connection=pg_db> {
+step fetch_users = <connection=pg_db> pg.query {
   query: "SELECT * FROM users"
 }
 
@@ -41,7 +41,7 @@ workflow main {
 
 func TestValidator_UndefinedResource(t *testing.T) {
 	input := `
-step fetch_users = pg.query <connection=missing_db> {
+step fetch_users = <connection=missing_db> pg.query {
   query: "SELECT * FROM users"
 }
 

@@ -31,24 +31,24 @@ type ImportNode struct {
 	AliasRef StringRef
 }
 
-// ResourceNode represents a resource binding.
-type ResourceNode struct {
-	NameRef StringRef
-	RefRef  NodeRef // Index in FunctionRefNodes
+// ResourceBindingNode represents a resource binding.
+type ResourceBindingNode struct {
+	NameRef     StringRef
+	FunctionRef NodeRef // Index in FunctionRefNodes
 }
 
 // StepBindingNode represents a step binding.
 type StepBindingNode struct {
-	NameRef StringRef
-	RefRef  NodeRef // Index in FunctionRefNodes
+	NameRef     StringRef
+	FunctionRef NodeRef // Index in FunctionRefNodes
 }
 
 // FunctionRefNode represents a module.function reference with optional resource mapping and config.
 type FunctionRefNode struct {
-	ModuleRef    StringRef
-	NameRef      StringRef
-	ResourcesRef NodeRef // Index in ResourceRefNodes
-	ConfigRef    NodeRef // Index in DictNodes
+	ModuleRef       StringRef
+	NameRef         StringRef
+	ResourcesRefRef NodeRef // Index in ResourceRefNodes
+	ConfigRef       NodeRef // Index in DictNodes
 }
 
 // ResourceRefNode represents a list of resource mappings <key=val, ...>.

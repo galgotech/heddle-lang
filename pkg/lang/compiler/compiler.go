@@ -15,11 +15,6 @@ import (
 type Compiler struct {
 }
 
-// New creates a new instance of the Compiler.
-func New() *Compiler {
-	return &Compiler{}
-}
-
 // Compile takes Heddle source code and compiles it into IR.
 func (c *Compiler) Compile(source string) (*ir.ProgramIR, error) {
 	ctx := ast.AcquireASTContext()
@@ -114,4 +109,9 @@ func (c *Compiler) CompileAST(program ast.ProgramNode, ctx *ast.ASTContext) (*ir
 	// 2. Lowering
 	lowerer := NewLowerer(ctx)
 	return lowerer.Lower(program)
+}
+
+// New creates a new instance of the Compiler.
+func New() *Compiler {
+	return &Compiler{}
 }
