@@ -57,14 +57,11 @@ program     = { ( import_stmt | declaration | routine ) { newline } } ;
 import_stmt = "import" ESCAPED_STRING IDENTIFIER ;
 
 // --- Declarations ---
-declaration      = resource_binding
-                 | step_binding ;
+declaration      = resource_binding | step_binding ;
 
 resource_binding = "resource" IDENTIFIER "=" function_ref ;
 
 step_binding     = "step" IDENTIFIER "=" function_ref ;
-
-function_ref     = [ resource_ref ] [ IDENTIFIER "." ] IDENTIFIER [ function_config ] ;
 
 resource_ref     = "<" IDENTIFIER "=" IDENTIFIER { "," IDENTIFIER "=" IDENTIFIER } ">" ;
 
@@ -89,9 +86,13 @@ pipe_chain      = call_expr { pipe_op call_expr } ;
 
 pipe_op         = newline indent "|" ;
 
-call_expr       = ( step_call | query_block ) [ trap_handler ] ;
+call_expr       = ( step_call | anonymous_step_call ) [ trap_handler ] ;
 
 step_call       = IDENTIFIER ;
+
+anonymous_step_call = function_ref | query_block ;
+
+function_ref     = [ resource_ref ] [ IDENTIFIER "." ] IDENTIFIER [ function_config ] ;
 
 trap_handler    = "?" IDENTIFIER ;
 

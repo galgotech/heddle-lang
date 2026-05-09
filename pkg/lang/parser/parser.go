@@ -502,35 +502,37 @@ func (p *Parser) parsePipeChainFromPipe() ast.NodeRef {
 	return p.ctx.AddPipeChainNode(node)
 }
 
-// parseCall parses a single function call or an inline PRQL block.
 func (p *Parser) parseCall() ast.NodeRef {
 	start := p.getPos()
 	node := ast.CallNode{}
+
 	if p.curTokenIs(lexer.PRQL_BLOCK) {
+		// query_block (anonymous_step_call)
 		node.QueryRef = p.ctx.AddString(p.curToken.Literal)
 		node.IsPrql = true
 		p.nextToken()
+	} else if p.curTokenIs(lexer.LANGLE) {
+		// function_ref (anonymous_step_call) starting with resource_ref
+		node.FunctionRef = p.parseFunctionRef()
 	} else if p.curTokenIs(lexer.IDENTIFIER) {
-		ident1 := p.curToken.Literal
-		if p.peekTokenIs(lexer.DOT) {
-			p.nextToken() // Skip '.'
-			if p.peekTokenIs(lexer.IDENTIFIER) {
-				p.nextToken()
-				node.NameRef = p.ctx.AddString(ident1 + "." + p.curToken.Literal)
-				p.nextToken()
-			}
+		// Could be a standard step_call or an anonymous function_ref.
+		// Look ahead to determine if it's a function_ref (module.fn or fn {config}).
+		if p.peekTokenIs(lexer.DOT) || p.peekTokenIs(lexer.LBRACE) {
+			node.FunctionRef = p.parseFunctionRef()
 		} else {
-			node.NameRef = p.ctx.AddString(ident1)
+			// standard step_call
+			node.NameRef = p.ctx.AddString(p.curToken.Literal)
 			p.nextToken()
 		}
 	} else {
-		p.curError("expected call (IDENT or PRQL block)")
+		p.curError("expected call (IDENT, resource_ref, or PRQL block)")
 		// Synchronize: skip until NEWLINE or PIPE to recover parsing.
 		for !p.curTokenIs(lexer.EOF) && !p.curTokenIs(lexer.NEWLINE) && !p.curTokenIs(lexer.PIPE) {
 			p.nextToken()
 		}
 	}
 
+	// Optional trap handler: ?handler
 	if p.curTokenIs(lexer.QUESTION) {
 		if p.expectPeek(lexer.IDENTIFIER) {
 			node.TrapRef = p.ctx.AddString(p.curToken.Literal)
@@ -642,8 +644,12 @@ func (p *Parser) parseLiteral() ast.NodeRef {
 		node.Type = ast.LiteralString
 		node.ValueRef = p.ctx.AddString(p.curToken.Literal)
 		p.nextToken()
-	case lexer.INT, lexer.FLOAT:
-		node.Type = ast.LiteralNumber
+	case lexer.INT:
+		node.Type = ast.LiteralInt
+		node.ValueRef = p.ctx.AddString(p.curToken.Literal)
+		p.nextToken()
+	case lexer.FLOAT:
+		node.Type = ast.LiteralFloat
 		node.ValueRef = p.ctx.AddString(p.curToken.Literal)
 		p.nextToken()
 	case lexer.TRUE:

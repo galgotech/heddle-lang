@@ -103,8 +103,13 @@ workflow main ? on_err {
 
 				call3Ref := ctx.CallRefs[pc.CallRefsStart+2]
 				call3 := ctx.CallNodes[call3Ref]
-				if ctx.GetString(call3.NameRef) != "io.print" {
-					t.Errorf("expected call io.print, got %q", ctx.GetString(call3.NameRef))
+				name3 := ctx.GetString(call3.NameRef)
+				if name3 == "" && call3.FunctionRef != 0 {
+					fn := ctx.FunctionRefNodes[call3.FunctionRef]
+					name3 = ctx.GetString(fn.ModuleRef) + "." + ctx.GetString(fn.NameRef)
+				}
+				if name3 != "io.print" {
+					t.Errorf("expected call io.print, got %q", name3)
 				}
 			},
 		},
@@ -269,6 +274,54 @@ workflow FraudDetection ? alert_on_fail {
 				}
 				if ctx.GetString(wf.TrapRef) != "alert_on_fail" {
 					t.Errorf("expected trap alert_on_fail, got %q", ctx.GetString(wf.TrapRef))
+				}
+			},
+		},
+		{
+			name: "Anonymous Step Call",
+			input: `
+import "db/pg" pg
+import "std/io" io
+
+resource db_res = pg.connection {
+  host: "localhost"
+}
+
+workflow anon_test {
+  data
+    | <connection=db_res> pg.query {
+        query: "SELECT 1"
+    }
+    | io.print
+}
+`,
+			expectedErrs: 0,
+			check: func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+				wfRef := ctx.WorkflowRefs[program.WorkflowRefsStart]
+				wf := ctx.WorkflowNodes[wfRef]
+				stmtRef := ctx.StatementRefs[wf.StatementRefsStart]
+				stmt := ctx.PipelineStatementNodes[stmtRef]
+				pc := ctx.PipeChainNodes[stmt.ExprRef]
+
+				if (pc.CallRefsEnd - pc.CallRefsStart) != 3 {
+					t.Errorf("expected 3 calls, got %d", pc.CallRefsEnd-pc.CallRefsStart)
+				}
+
+				// Check the second call (anonymous)
+				callRef := ctx.CallRefs[pc.CallRefsStart+1]
+				call := ctx.CallNodes[callRef]
+				if call.FunctionRef == 0 {
+					t.Fatalf("expected FunctionRef for anonymous call")
+				}
+				fn := ctx.FunctionRefNodes[call.FunctionRef]
+				if ctx.GetString(fn.ModuleRef) != "pg" || ctx.GetString(fn.NameRef) != "query" {
+					t.Errorf("expected pg.query, got %s.%s", ctx.GetString(fn.ModuleRef), ctx.GetString(fn.NameRef))
+				}
+				if fn.ResourcesRefRef == 0 {
+					t.Errorf("expected resource reference")
+				}
+				if fn.ConfigRef == 0 {
+					t.Errorf("expected config dictionary")
 				}
 			},
 		},
