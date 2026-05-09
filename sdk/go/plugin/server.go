@@ -16,7 +16,6 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
-	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -28,33 +27,59 @@ import (
 // Server is the main Plugin server implementing the Arrow Flight interface.
 type Server struct {
 	flight.BaseFlightServer
-	registry  *Registry
-	resources sync.Map // map[string]any (UUID -> Resource Instance)
+
 	Namespace string
 	Language  string
+
+	registry  *Registry
+	resources sync.Map // map[string]any (UUID -> Resource Instance)
 }
 
-// NewServer creates a new Server with a given registry and namespace.
-func NewServer(registry *Registry, namespace string) *Server {
-	return &Server{
-		registry:  registry,
-		Namespace: namespace,
-		Language:  "go",
+type multiplexListener struct {
+	net.Listener
+	server *Server
+}
+
+func (l *multiplexListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+
+		unixConn := conn.(*net.UnixConn)
+		// We use a small peek to see if it's gRPC (HTTP/2) or our raw UDS protocol.
+		// gRPC preface starts with "PRI "
+		buf := make([]byte, 4)
+		oob := make([]byte, 64)
+		n, oobn, _, _, err := unixConn.ReadMsgUnix(buf, oob)
+		if err != nil {
+			unixConn.Close()
+			continue
+		}
+
+		if string(buf[:n]) == "PRI " {
+			// It's gRPC. We need to "un-read" these bytes.
+			return &peekConn{UnixConn: unixConn, peeked: buf[:n]}, nil
+		}
+
+		// It's our raw UDS protocol. We handle it in a goroutine and keep accepting.
+		go l.server.HandleUDSWithInitialData(unixConn, buf[:n], oob[:oobn])
 	}
 }
 
-// handleExecutionError maps domain errors to protobuf status codes.
-func handleExecutionError(err error) (pb.StatusCode, string) {
-	if err == nil {
-		return pb.StatusCode_SUCCESS, ""
-	}
+type peekConn struct {
+	*net.UnixConn
+	peeked []byte
+}
 
-	var bErr *core.BusinessError
-	if errors.As(err, &bErr) {
-		return pb.StatusCode_BUSINESS_ERROR, bErr.Error()
+func (c *peekConn) Read(b []byte) (int, error) {
+	if len(c.peeked) > 0 {
+		n := copy(b, c.peeked)
+		c.peeked = c.peeked[n:]
+		return n, nil
 	}
-
-	return pb.StatusCode_FATAL_ERROR, err.Error()
+	return c.UnixConn.Read(b)
 }
 
 // InitResource creates and stores a stateful resource.
@@ -84,7 +109,7 @@ func (s *Server) InitResource(ctx context.Context, req *pb.InitResourceRequest) 
 
 	// Create a new instance of the configuration struct
 	var configVal reflect.Value
-	if configType.Kind() == reflect.Ptr {
+	if configType.Kind() == reflect.Pointer {
 		configVal = reflect.New(configType.Elem())
 	} else {
 		configVal = reflect.New(configType)
@@ -100,7 +125,7 @@ func (s *Server) InitResource(ctx context.Context, req *pb.InitResourceRequest) 
 		}
 	}
 
-	if configType.Kind() != reflect.Ptr {
+	if configType.Kind() != reflect.Pointer {
 		configVal = configVal.Elem()
 	}
 
@@ -593,107 +618,6 @@ func (s *Server) executeStepWithTable(ctx context.Context, req *pb.ExecuteStepRe
 	}, nil
 }
 
-// Plugin wraps the registry and server to provide the user-facing API.
-type Plugin struct {
-	registry *Registry
-	server   *Server
-}
-
-// New creates a new SDK Plugin instance with the specified namespace.
-func New(namespace string) *Plugin {
-	registry := NewRegistry()
-	return &Plugin{
-		registry: registry,
-		server:   NewServer(registry, namespace),
-	}
-}
-
-// RegisterResource is a proxy to Registry.RegisterResource.
-func (p *Plugin) RegisterResource(name string, fn any) {
-	p.registry.RegisterResource(name, fn)
-}
-
-// RegisterStep is a proxy to Registry.RegisterStep.
-func (p *Plugin) RegisterStep(name string, fn any, opts ...StepOption) {
-	p.registry.RegisterStep(name, fn, opts...)
-}
-
-// Serve starts the gRPC server on the address specified by the PORT environment variable, defaulting to 50051.
-func (p *Plugin) Serve() error {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "50051"
-	}
-	addr := ":" + port
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
-	}
-	return p.ServeListener(lis)
-}
-
-// ServeListener starts the Arrow Flight server and UDS handler on a specific listener.
-func (p *Plugin) ServeListener(lis net.Listener) error {
-	// If it's a unix socket, we use a multiplexing listener to handle both gRPC and raw UDS.
-	if _, ok := lis.(*net.UnixListener); ok {
-		mux := &multiplexListener{Listener: lis, server: p.server}
-		grpcServer := grpc.NewServer()
-		flight.RegisterFlightServiceServer(grpcServer, p.server)
-		return grpcServer.Serve(mux)
-	}
-
-	grpcServer := grpc.NewServer()
-	flight.RegisterFlightServiceServer(grpcServer, p.server)
-	return grpcServer.Serve(lis)
-}
-
-type multiplexListener struct {
-	net.Listener
-	server *Server
-}
-
-func (l *multiplexListener) Accept() (net.Conn, error) {
-	for {
-		conn, err := l.Listener.Accept()
-		if err != nil {
-			return nil, err
-		}
-
-		unixConn := conn.(*net.UnixConn)
-		// We use a small peek to see if it's gRPC (HTTP/2) or our raw UDS protocol.
-		// gRPC preface starts with "PRI "
-		buf := make([]byte, 4)
-		oob := make([]byte, 64)
-		n, oobn, _, _, err := unixConn.ReadMsgUnix(buf, oob)
-		if err != nil {
-			unixConn.Close()
-			continue
-		}
-
-		if string(buf[:n]) == "PRI " {
-			// It's gRPC. We need to "un-read" these bytes.
-			return &peekConn{UnixConn: unixConn, peeked: buf[:n]}, nil
-		}
-
-		// It's our raw UDS protocol. We handle it in a goroutine and keep accepting.
-		go l.server.HandleUDSWithInitialData(unixConn, buf[:n], oob[:oobn])
-	}
-}
-
-type peekConn struct {
-	*net.UnixConn
-	peeked []byte
-}
-
-func (c *peekConn) Read(b []byte) (int, error) {
-	if len(c.peeked) > 0 {
-		n := copy(b, c.peeked)
-		c.peeked = c.peeked[n:]
-		return n, nil
-	}
-	return c.UnixConn.Read(b)
-}
-
 // HandleUDSWithInitialData is like HandleUDSConnection but with already read data and OOB.
 func (s *Server) HandleUDSWithInitialData(conn *net.UnixConn, initialData []byte, initialOOB []byte) {
 	defer conn.Close()
@@ -802,6 +726,28 @@ func (s *Server) respondUDS(conn *net.UnixConn, resp *pb.ExecuteStepResponse) {
 	defer conn.Close()
 	data, _ := proto.Marshal(resp)
 	_, _ = conn.Write(data)
+}
+
+// handleExecutionError maps domain errors to protobuf status codes.
+func handleExecutionError(err error) (pb.StatusCode, string) {
+	if err == nil {
+		return pb.StatusCode_SUCCESS, ""
+	}
+
+	if bErr, ok := errors.AsType[*core.BusinessError](err); ok {
+		return pb.StatusCode_BUSINESS_ERROR, bErr.Error()
+	}
+
+	return pb.StatusCode_FATAL_ERROR, err.Error()
+}
+
+// NewServer creates a new Server with a given registry and namespace.
+func NewServer(registry *Registry, namespace string) *Server {
+	return &Server{
+		registry:  registry,
+		Namespace: namespace,
+		Language:  "go",
+	}
 }
 
 // RegisterStep is a generic helper to register a step function with strict signature.

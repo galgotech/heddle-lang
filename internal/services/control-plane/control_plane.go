@@ -2,29 +2,20 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow/flight"
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
-	"github.com/galgotech/heddle-lang/sdk/go/proto"
 )
 
 const maxTaskRetries = 3
-
-// Internal request types for the ControlPlaneServer manager goroutine.
-type registerStreamRequest struct {
-	workerID string
-	streamCh chan *execution.Task
-}
-
-type unregisterStreamRequest struct {
-	workerID string
-}
 
 type registerResultRequest struct {
 	taskID string
@@ -45,6 +36,11 @@ type registerOutputRequest struct {
 	outputHandle string
 }
 
+type registerStreamRequest struct {
+	workerID string
+	taskCh   chan *execution.Task
+}
+
 // ControlPlane implements the "Smart Control Plane" (the Brain) in the Heddle architecture.
 // It uses a lock-free design with a central manager goroutine.
 type ControlPlane struct {
@@ -52,17 +48,16 @@ type ControlPlane struct {
 	workQueue      *WorkQueue
 	dataLocality   DataLocalityRegistry
 
-	// Channels for the manager goroutine
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// Manager channels
 	registerStreamCh   chan registerStreamRequest
-	unregisterStreamCh chan unregisterStreamRequest
+	unregisterStreamCh chan string
 	getStreamCh        chan getStreamRequest
 	registerResultCh   chan registerResultRequest
 	unregisterResultCh chan unregisterResultRequest
-	taskUpdateCh       chan execution.TaskUpdate
-	registerOutputCh   chan registerOutputRequest
-
-	ctx    context.Context
-	cancel context.CancelFunc
+	reportUpdateCh     chan execution.TaskUpdate
 }
 
 // RegisterWorker adds a new worker to the registry.
@@ -106,37 +101,6 @@ func (s *ControlPlane) SubmitWorkflow(source string) error {
 	return nil
 }
 
-// RegisterStream adds a task stream for a worker.
-func (s *ControlPlane) RegisterStream(workerID string, streamCh chan *execution.Task) {
-	s.registerStreamCh <- registerStreamRequest{workerID, streamCh}
-}
-
-// UnregisterStream removes a task stream for a worker.
-func (s *ControlPlane) UnregisterStream(workerID string) {
-	s.unregisterStreamCh <- unregisterStreamRequest{workerID}
-}
-
-// ReportTaskUpdate processes a status update from a task.
-func (s *ControlPlane) ReportTaskUpdate(update execution.TaskUpdate, workerID string) {
-	logger.L().Info("Received TaskUpdate",
-		zap.String("taskID", update.TaskID),
-		zap.String("status", string(update.Status)))
-
-	if update.Status == string(execution.TaskStatusDone) {
-		s.registerOutputCh <- registerOutputRequest{update.TaskID, update.OutputHandle}
-		s.dataLocality.RegisterOutput(update.OutputHandle, workerID)
-	}
-	s.taskUpdateCh <- update
-}
-
-// GetTaskStream retrieves the task stream for a specific worker.
-func (s *ControlPlane) GetTaskStream(workerID string) (chan *execution.Task, bool) {
-	respCh := make(chan chan *execution.Task, 1)
-	s.getStreamCh <- getStreamRequest{workerID, respCh}
-	ch := <-respCh
-	return ch, ch != nil
-}
-
 // Start begins the background task processing loops, including the manager and worker loops.
 func (s *ControlPlane) Start() {
 	go s.run()
@@ -151,30 +115,30 @@ func (s *ControlPlane) Stop() {
 
 func (s *ControlPlane) run() {
 	workerStreams := make(map[string]chan *execution.Task)
-	taskResults := make(map[string]chan execution.TaskUpdate)
-	outputs := make(map[string]string)
+	resultWaiters := make(map[string]chan execution.TaskUpdate)
 
 	for {
 		select {
 		case req := <-s.registerStreamCh:
-			workerStreams[req.workerID] = req.streamCh
-		case req := <-s.unregisterStreamCh:
-			if ch, ok := workerStreams[req.workerID]; ok {
-				close(ch)
-				delete(workerStreams, req.workerID)
-			}
+			workerStreams[req.workerID] = req.taskCh
+		case workerID := <-s.unregisterStreamCh:
+			delete(workerStreams, workerID)
 		case req := <-s.getStreamCh:
-			req.respCh <- workerStreams[req.workerID]
-		case req := <-s.registerResultCh:
-			taskResults[req.taskID] = req.respCh
-		case req := <-s.unregisterResultCh:
-			delete(taskResults, req.taskID)
-		case update := <-s.taskUpdateCh:
-			if ch, ok := taskResults[update.TaskID]; ok {
-				ch <- update
+			ch, ok := workerStreams[req.workerID]
+			if !ok {
+				req.respCh <- nil
+			} else {
+				req.respCh <- ch
 			}
-		case req := <-s.registerOutputCh:
-			outputs[req.taskID] = req.outputHandle
+		case req := <-s.registerResultCh:
+			resultWaiters[req.taskID] = req.respCh
+		case req := <-s.unregisterResultCh:
+			delete(resultWaiters, req.taskID)
+		case update := <-s.reportUpdateCh:
+			if ch, ok := resultWaiters[update.TaskID]; ok {
+				ch <- update
+				delete(resultWaiters, update.TaskID)
+			}
 		case <-s.ctx.Done():
 			return
 		}
@@ -241,66 +205,101 @@ func (s *ControlPlane) executor(ctx context.Context, program *ir.Program) error 
 // dispatchTask selects a worker and transmits a single instruction for execution.
 func (s *ControlPlane) dispatchTask(ctx context.Context, task *execution.Task) (execution.TaskUpdate, error) {
 	var worker *Worker
-	var err error
 
 	if len(task.Step.Call) >= 2 {
-		workers, _ := s.workerRegistry.GetWorkersByCapability(task.Step.Call[0], task.Step.Call[1])
+		workers, err := s.workerRegistry.GetWorkersByCapability(task.Step.Call[0], task.Step.Call[1])
+		if err != nil {
+			return execution.TaskUpdate{}, err
+		}
 		if len(workers) > 0 {
 			worker = workers[0]
 		}
 	}
 
 	if worker == nil {
-		worker, err = s.workerRegistry.GetHealthyWorker()
-		if err != nil {
-			return execution.TaskUpdate{}, err
-		}
+		return execution.TaskUpdate{}, fmt.Errorf("no worker found for task %s", task.ID)
 	}
 
-	resCh := make(chan execution.TaskUpdate, 1)
-	s.registerResultCh <- registerResultRequest{task.ID, resCh}
-
-	defer func() {
-		s.unregisterResultCh <- unregisterResultRequest{task.ID}
-	}()
-
-	// Inject tickets for inputs from previous steps
-	for _, ticket := range task.Tickets {
-		if producerID, found := s.dataLocality.GetProducer(ticket.ResourceId); found {
-			if producerID == worker.ID {
-				ticket.RouteType = proto.RouteType_LOCAL
-			} else {
-				ticket.RouteType = proto.RouteType_REMOTE
-				w, _ := s.workerRegistry.GetWorker(producerID)
-				if w != nil {
-					ticket.Address = w.Address
-				}
-			}
-		}
+	// Retrieve the active task channel for the selected worker.
+	respCh := make(chan chan *execution.Task, 1)
+	s.getStreamCh <- getStreamRequest{workerID: worker.ID, respCh: respCh}
+	taskCh := <-respCh
+	if taskCh == nil {
+		return execution.TaskUpdate{}, fmt.Errorf("worker %s stream not available", worker.ID)
 	}
 
-	getRespCh := make(chan chan *execution.Task, 1)
-	s.getStreamCh <- getStreamRequest{worker.ID, getRespCh}
-	stream := <-getRespCh
+	// Register a listener for the task's execution result.
+	updateCh := make(chan execution.TaskUpdate, 1)
+	s.registerResultCh <- registerResultRequest{taskID: task.ID, respCh: updateCh}
 
-	if stream == nil {
-		return execution.TaskUpdate{}, fmt.Errorf("worker %s disconnected", worker.ID)
-	}
-
+	// Transmit the task to the worker's execution stream.
 	select {
-	case stream <- task:
+	case taskCh <- task:
 	case <-ctx.Done():
+		s.unregisterResultCh <- unregisterResultRequest{taskID: task.ID}
 		return execution.TaskUpdate{}, ctx.Err()
 	}
 
+	// Block until an update is received or the context expires.
 	select {
-	case update := <-resCh:
-		if update.Status == string(execution.TaskStatusFailed) {
-			return update, fmt.Errorf("%s", update.Error)
-		}
+	case update := <-updateCh:
 		return update, nil
 	case <-ctx.Done():
+		s.unregisterResultCh <- unregisterResultRequest{taskID: task.ID}
 		return execution.TaskUpdate{}, ctx.Err()
+	}
+}
+
+// Exchange establishes a bidirectional communication channel with a worker for task delegation and state updates.
+func (s *ControlPlane) Exchange(stream flight.FlightService_DoExchangeServer) error {
+	workerID := GetWorkerID(stream.Context())
+	if workerID == "" {
+		return fmt.Errorf("missing worker identifier in exchange context")
+	}
+
+	taskCh := make(chan *execution.Task, 100)
+	s.registerStreamCh <- registerStreamRequest{workerID: workerID, taskCh: taskCh}
+	defer func() {
+		s.unregisterStreamCh <- workerID
+	}()
+
+	logger.L().Info("Exchange stream established", zap.String("workerID", workerID))
+
+	// Handle outbound task transmission.
+	go func() {
+		for {
+			select {
+			case task := <-taskCh:
+				body, err := json.Marshal(task)
+				if err != nil {
+					logger.L().Error("Failed to marshal task", zap.String("workerID", workerID), zap.Error(err))
+					continue
+				}
+				if err := stream.Send(&flight.FlightData{DataBody: body}); err != nil {
+					logger.L().Error("Failed to send task to worker", zap.String("workerID", workerID), zap.Error(err))
+					return
+				}
+			case <-stream.Context().Done():
+				return
+			}
+		}
+	}()
+
+	// Handle inbound task updates.
+	for {
+		data, err := stream.Recv()
+		if err != nil {
+			logger.L().Info("Exchange stream closed by worker", zap.String("workerID", workerID))
+			return nil
+		}
+
+		var update execution.TaskUpdate
+		if err := json.Unmarshal(data.DataBody, &update); err != nil {
+			logger.L().Error("Failed to unmarshal task update", zap.Error(err))
+			continue
+		}
+
+		s.reportUpdateCh <- update
 	}
 }
 
@@ -315,15 +314,14 @@ func NewControlPlane(
 		workerRegistry:     workerRegistry,
 		workQueue:          workQueue,
 		dataLocality:       dataLocality,
+		ctx:                ctx,
+		cancel:             cancel,
 		registerStreamCh:   make(chan registerStreamRequest),
-		unregisterStreamCh: make(chan unregisterStreamRequest),
+		unregisterStreamCh: make(chan string),
 		getStreamCh:        make(chan getStreamRequest),
 		registerResultCh:   make(chan registerResultRequest),
 		unregisterResultCh: make(chan unregisterResultRequest),
-		taskUpdateCh:       make(chan execution.TaskUpdate),
-		registerOutputCh:   make(chan registerOutputRequest),
-		ctx:                ctx,
-		cancel:             cancel,
+		reportUpdateCh:     make(chan execution.TaskUpdate),
 	}
 	return s
 }

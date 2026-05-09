@@ -53,6 +53,10 @@ func (s *FlightServer) DoAction(action *flight.Action, stream flight.FlightServi
 	}
 }
 
+func (s *FlightServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
+	return s.controlPlane.Exchange(stream)
+}
+
 // NewFlightServer creates a new FlightServer wrapping a ControlPlane.
 func NewFlightServer(cp *ControlPlane) *FlightServer {
 	return &FlightServer{controlPlane: cp}

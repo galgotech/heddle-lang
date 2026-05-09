@@ -70,7 +70,7 @@ func (r *Registry) RegisterResource(name string, fn any) {
 	}
 
 	// Optional validation of argument types
-	ctxType := reflect.TypeOf((*context.Context)(nil)).Elem()
+	ctxType := reflect.TypeFor[context.Context]()
 	if !typ.In(0).Implements(ctxType) {
 		panic(fmt.Sprintf("resource %q first argument must implement context.Context", name))
 	}
@@ -79,7 +79,7 @@ func (r *Registry) RegisterResource(name string, fn any) {
 		panic(fmt.Sprintf("resource %q function must return exactly 2 values", name))
 	}
 
-	errType := reflect.TypeOf((*error)(nil)).Elem()
+	errType := reflect.TypeFor[error]()
 	if !typ.Out(1).Implements(errType) {
 		panic(fmt.Sprintf("resource %q second return value must implement error", name))
 	}
@@ -115,12 +115,12 @@ func (r *Registry) RegisterStep(name string, fn any, opts ...StepOption) {
 		panic(fmt.Sprintf("step %q function must take exactly %d arguments (ctx, config, table)", name, expectedArgs))
 	}
 
-	ctxType := reflect.TypeOf((*context.Context)(nil)).Elem()
+	ctxType := reflect.TypeFor[context.Context]()
 	if !typ.In(0).Implements(ctxType) {
 		panic(fmt.Sprintf("step %q first argument must implement context.Context", name))
 	}
 
-	tableType := reflect.TypeOf((*core.Table)(nil)).Elem()
+	tableType := reflect.TypeFor[core.Table]()
 	if !typ.In(expectedArgs - 1).Implements(tableType) {
 		panic(fmt.Sprintf("step %q last argument must implement core.Table", name))
 	}
@@ -133,7 +133,7 @@ func (r *Registry) RegisterStep(name string, fn any, opts ...StepOption) {
 		panic(fmt.Sprintf("step %q first return value must implement core.Table", name))
 	}
 
-	errType := reflect.TypeOf((*error)(nil)).Elem()
+	errType := reflect.TypeFor[error]()
 	if !typ.Out(1).Implements(errType) {
 		panic(fmt.Sprintf("step %q second return value must implement error", name))
 	}

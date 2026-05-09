@@ -2,8 +2,6 @@ package execution
 
 import (
 	"time"
-
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 // WorkerStatus defines the current state of a worker.
@@ -31,11 +29,6 @@ type Heartbeat struct {
 	Load      float64      `json:"load"` // e.g., 0.0 to 1.0
 }
 
-// WarmupRequest tells a worker to pre-load specific steps.
-type WarmupRequest struct {
-	Steps []ir.StepInstruction `json:"steps"`
-}
-
 // TaskUpdate reports the status of a specific instruction execution.
 type TaskUpdate struct {
 	TaskID       string    `json:"task_id"`
@@ -49,6 +42,5 @@ type TaskUpdate struct {
 const (
 	ActionRegisterWorker = "register-worker"
 	ActionHeartbeat      = "heartbeat"
-	ActionWarmup         = "warmup"
 	ActionSubmitWorkflow = "submit-workflow"
 )
