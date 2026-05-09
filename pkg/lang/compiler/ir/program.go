@@ -40,6 +40,8 @@ func (p *ProgramIR) Inflate() error {
 
 		var concrete Instruction
 		switch base.Type {
+		case ImportInst:
+			concrete = &ImportInstruction{}
 		case StepInst:
 			concrete = &StepInstruction{}
 		case FlowInst:

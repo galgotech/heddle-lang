@@ -11,11 +11,11 @@ type StepInstruction struct {
 	// Call represents the implementation mapping: [module, function].
 	Call []string `json:"call"`
 
-	// Config contains key-value pairs for step configuration.
-	Config map[string]any `json:"config"`
-
 	// Resources maps configuration keys to resource instance names.
 	Resources map[string]string `json:"resources"`
+
+	// Config contains key-value pairs for step configuration.
+	Config map[string]any `json:"config"`
 
 	// InputType and OutputType specify the Arrow schema names for data flow.
 	InputType  []string `json:"input_type"`

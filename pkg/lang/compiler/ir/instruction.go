@@ -6,10 +6,11 @@ import "fmt"
 type InstructionType string
 
 const (
+	ProgramInst  InstructionType = "program"
+	ImportInst   InstructionType = "import"
 	ResourceInst InstructionType = "resource"
 	StepInst     InstructionType = "step"
 	FlowInst     InstructionType = "flow"
-	ProgramInst  InstructionType = "program"
 )
 
 // Instruction is the interface that all IR nodes must implement.

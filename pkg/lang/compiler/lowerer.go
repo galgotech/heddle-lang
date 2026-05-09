@@ -3,486 +3,493 @@ package compiler
 import (
 	"fmt"
 	"strconv"
-	"strings"
-
-	"github.com/google/uuid"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
-// Lowerer orchestrates the transformation of the Abstract Syntax Tree (AST) into
-// the Intermediate Representation (IR). It manages symbol resolution and
-// instruction generation across multiple lowering passes.
+// Lowerer is the compiler component responsible for transforming the high-level AST
+// into a flat, serializable Intermediate Representation (IR). It performs symbol
+// resolution, resource injection, and DAG construction.
 type Lowerer struct {
-	ctx     *ast.ASTContext // The source AST context containing all nodes.
-	program *ir.ProgramIR   // The target IR program being constructed.
+	prog *ast.ProgramNode
+	ctx  *ast.ASTContext
 
-	// Symbol resolution maps for cross-referencing declarations.
-	mapImport   map[string]string      // Maps module aliases to their absolute paths.
-	mapResource map[string]ast.NodeRef // Maps resource names to their AST node references.
-	mapStep     map[string]ast.NodeRef // Maps step binding names to their AST node references.
-	mapHandler  map[string]ast.NodeRef // Maps error handler names to their AST node references.
+	// instructions stores all generated IR instructions indexed by their unique IDs.
+	instructions map[string]any
 
-	handlerIDs map[string]string // Maps handler names to their generated IR IDs for trap resolution.
+	// workflows preserves the order of entry-point workflow IDs.
+	workflows []string
+
+	// Maps used for symbol resolution across compilation phases.
+	importMap   map[string]string // alias -> canonical module path
+	aliasMap    map[string]string // workflow-local assignment -> producer instruction ID
+	resourceMap map[string]string // alias -> resource instruction ID
+	stepMap     map[string]string // alias -> base step instruction ID
+	handlerMap  map[string]string // name  -> handler head instruction ID
 }
 
-// Lower translates the provided AST ProgramNode into a ProgramIR.
-// It executes four distinct passes to ensure all cross-references (traps, resources)
-// are correctly resolved across the workflow topology.
-func (l *Lowerer) Lower(astProgram ast.ProgramNode) (*ir.ProgramIR, error) {
-	// Pass 1: Symbol Registration. Populates lookup tables for all top-level definitions.
-	l.mapSymbol(astProgram)
+// Lower executes the multi-pass transformation from AST to ProgramIR.
+// The process follows a strict resolution order: Imports -> Resources -> Steps -> Handlers -> Workflows.
+func (l *Lowerer) Lower(prog ast.ProgramNode) (*ir.ProgramIR, error) {
+	l.prog = &prog
 
-	// Pass 2: Lowering Symbols. Generates IR for top-level definitions.
-	if err := l.lowerSymbols(); err != nil {
+	// Phase 1: Establish module namespaces.
+	if err := l.lowerImports(); err != nil {
 		return nil, err
 	}
 
-	// Pass 3: Workflow Lowering. Translates main workflow blocks into execution entry points.
-	for i := astProgram.WorkflowRefsStart; i < astProgram.WorkflowRefsEnd; i++ {
-		ref := l.ctx.WorkflowRefs[i]
-		node := l.ctx.WorkflowNodes[ref]
-		flow, err := l.lowerWorkflow(node)
-		if err != nil {
-			return nil, err
-		}
-		l.registerInstruction(flow)
-		l.program.Workflows = append(l.program.Workflows, flow.ID)
+	// Phase 2: Register centralized state and connection resources.
+	if err := l.lowerResources(); err != nil {
+		return nil, err
 	}
 
-	return l.program, nil
+	// Phase 3: Prepare bound imperative step definitions for reuse.
+	if err := l.lowerSteps(); err != nil {
+		return nil, err
+	}
+
+	// Phase 4: Construct reusable error handling pipelines.
+	if err := l.lowerHandlers(); err != nil {
+		return nil, err
+	}
+
+	// Phase 5: Assemble the execution DAG for each workflow entry point.
+	if err := l.lowerWorkflows(); err != nil {
+		return nil, err
+	}
+
+	return &ir.ProgramIR{
+		BaseInstruction: ir.BaseInstruction{
+			ID:   "program",
+			Type: ir.ProgramInst,
+		},
+		Instructions: l.instructions,
+		Workflows:    l.workflows,
+	}, nil
 }
 
-func (l *Lowerer) mapSymbol(astProgram ast.ProgramNode) {
-	for i := astProgram.ImportRefsStart; i < astProgram.ImportRefsEnd; i++ {
-		ref := l.ctx.ImportRefs[i]
-		node := l.ctx.ImportNodes[ref]
-		alias := l.ctx.GetString(node.AliasRef)
+// lowerImports processes module import declarations and populates the import namespace map.
+func (l *Lowerer) lowerImports() error {
+	for i := l.prog.ImportRefsStart; i < l.prog.ImportRefsEnd; i++ {
+		nodeRef := l.ctx.ImportRefs[i]
+		node := l.ctx.ImportNodes[nodeRef]
+		path := l.getString(node.PathRef)
+		alias := l.getString(node.AliasRef)
+
+		inst := &ir.ImportInstruction{
+			BaseInstruction: ir.BaseInstruction{
+				ID:   l.nextID("import"),
+				Type: ir.ImportInst,
+			},
+			Path:  path,
+			Alias: alias,
+		}
+
+		// Register the alias for subsequent module-qualified reference resolution.
 		if alias != "" {
-			l.mapImport[alias] = l.ctx.GetString(node.PathRef)
+			l.importMap[alias] = path
 		}
+		l.addInstruction(inst)
 	}
-
-	for i := astProgram.ResourceRefsStart; i < astProgram.ResourceRefsEnd; i++ {
-		ref := l.ctx.ResourceRefs[i]
-		node := l.ctx.ResourceNodes[ref]
-		l.mapResource[l.ctx.GetString(node.NameRef)] = ref
-	}
-
-	for i := astProgram.StepRefsStart; i < astProgram.StepRefsEnd; i++ {
-		ref := l.ctx.StepRefs[i]
-		node := l.ctx.StepBindingNodes[ref]
-		l.mapStep[l.ctx.GetString(node.NameRef)] = ref
-	}
-
-	for i := astProgram.HandlerRefsStart; i < astProgram.HandlerRefsEnd; i++ {
-		ref := l.ctx.HandlerRefs[i]
-		node := l.ctx.HandlerNodes[ref]
-		l.mapHandler[l.ctx.GetString(node.NameRef)] = ref
-	}
-}
-
-func (l *Lowerer) lowerSymbols() error {
-	for _, ref := range l.mapResource {
-		node := l.ctx.ResourceNodes[ref]
-		res, err := l.lowerResource(node)
-		if err != nil {
-			return err
-		}
-		l.registerInstruction(res)
-	}
-
-	for _, ref := range l.mapStep {
-		node := l.ctx.StepBindingNodes[ref]
-		res, err := l.lowerStep(node)
-		if err != nil {
-			return err
-		}
-		l.registerInstruction(res)
-	}
-
-	for name, ref := range l.mapHandler {
-		node := l.ctx.HandlerNodes[ref]
-		l.handlerIDs[name] = uuid.New().String()
-
-		flow, err := l.lowerHandler(node)
-		if err != nil {
-			return err
-		}
-		l.registerInstruction(flow)
-	}
-
 	return nil
 }
 
-// lowerResource transforms an AST resource node into a ResourceInstruction.
-func (l *Lowerer) lowerResource(astResource ast.ResourceBindingNode) (*ir.ResourceInstruction, error) {
-	res := &ir.ResourceInstruction{
-		BaseInstruction: l.newBase(ir.ResourceInst),
-		Name:            l.ctx.GetString(astResource.NameRef),
-		Config:          make(map[string]any),
+// lowerResources transforms resource bindings into IR instructions, resolving provider paths.
+func (l *Lowerer) lowerResources() error {
+	for i := l.prog.ResourceRefsStart; i < l.prog.ResourceRefsEnd; i++ {
+		nodeRef := l.ctx.ResourceRefs[i]
+		node := l.ctx.ResourceNodes[nodeRef]
+		name := l.getString(node.NameRef)
+		fnRef := l.ctx.FunctionRefNodes[node.FunctionRef]
+
+		config, err := l.lowerDict(fnRef.ConfigRef)
+		if err != nil {
+			return err
+		}
+
+		// Resolve the provider module through the established import map.
+		module := l.getString(fnRef.ModuleRef)
+		if path, ok := l.importMap[module]; ok {
+			module = path
+		}
+
+		inst := &ir.ResourceInstruction{
+			BaseInstruction: ir.BaseInstruction{
+				ID:   l.nextID("resource"),
+				Type: ir.ResourceInst,
+			},
+			Name:     name,
+			Provider: []string{module, l.getString(fnRef.NameRef)},
+			Config:   config,
+		}
+
+		l.resourceMap[name] = inst.ID
+		l.addInstruction(inst)
+	}
+	return nil
+}
+
+// lowerSteps transforms named step definitions into base instructions for later instantiation.
+func (l *Lowerer) lowerSteps() error {
+	for i := l.prog.StepRefsStart; i < l.prog.StepRefsEnd; i++ {
+		nodeRef := l.ctx.StepRefs[i]
+		node := l.ctx.StepBindingNodes[nodeRef]
+		name := l.getString(node.NameRef)
+		fnRef := l.ctx.FunctionRefNodes[node.FunctionRef]
+
+		config, err := l.lowerDict(fnRef.ConfigRef)
+		if err != nil {
+			return err
+		}
+
+		module := l.getString(fnRef.ModuleRef)
+		if path, ok := l.importMap[module]; ok {
+			module = path
+		}
+
+		inst := &ir.StepInstruction{
+			BaseInstruction: ir.BaseInstruction{
+				ID:   l.nextID("step"),
+				Type: ir.StepInst,
+			},
+			DefinitionName: name,
+			Call:           []string{module, l.getString(fnRef.NameRef)},
+			Resources:      l.lowerResourceRefs(fnRef.ResourcesRefRef),
+			Config:         config,
+		}
+
+		l.stepMap[name] = inst.ID
+		l.addInstruction(inst)
+	}
+	return nil
+}
+
+// lowerResourceRefs extracts and maps resource key-value pairs from the AST.
+func (l *Lowerer) lowerResourceRefs(ref ast.NodeRef) map[string]string {
+	if ref == ast.NilNode {
+		return make(map[string]string)
 	}
 
-	// Resolve the resource provider (e.g. pg.connection).
-	fnRef := l.ctx.FunctionRefNodes[astResource.FunctionRef]
-	res.Provider = []string{
-		l.ctx.GetString(fnRef.ModuleRef),
-		l.ctx.GetString(fnRef.NameRef),
+	resRef := l.ctx.ResourceRefNodes[ref]
+	result := make(map[string]string)
+
+	for i := resRef.MappingsRefStart; i < resRef.MappingsRefEnd; i++ {
+		mappingRef := l.ctx.MappingRefs[i]
+		mapping := l.ctx.ResourceMappingNodes[mappingRef]
+		key := l.getString(mapping.KeyRef)
+		val := l.getString(mapping.ValueRef)
+		result[key] = val
 	}
 
-	// Copy configuration from the resource definition.
-	if fnRef.ConfigRef != 0 {
-		dict := l.ctx.DictNodes[fnRef.ConfigRef]
-		for j := dict.PairRefsStart; j < dict.PairRefsEnd; j++ {
-			pairRef := l.ctx.PairRefs[j]
-			pair := l.ctx.PairNodes[pairRef]
-			key := l.ctx.GetString(pair.KeyRef)
-			val, err := l.lowerLiteral(l.ctx.LiteralNodes[pair.ValueRef])
+	return result
+}
+
+// lowerHandlers transforms handler declarations into isolated sub-pipelines.
+func (l *Lowerer) lowerHandlers() error {
+	for i := l.prog.HandlerRefsStart; i < l.prog.HandlerRefsEnd; i++ {
+		nodeRef := l.ctx.HandlerRefs[i]
+		node := l.ctx.HandlerNodes[nodeRef]
+		name := l.getString(node.NameRef)
+
+		// A handler head represents the first instruction in its execution chain.
+		headID, err := l.lowerHandlerStatements(node)
+		if err != nil {
+			return err
+		}
+
+		l.handlerMap[name] = headID
+	}
+	return nil
+}
+
+// lowerHandlerStatements chains multiple statements within a handler into a single pipeline.
+func (l *Lowerer) lowerHandlerStatements(node ast.HandlerNode) (string, error) {
+	var headID, prevTailID string
+	for i := node.HandlerStatementRefsStart; i < node.HandlerStatementRefsEnd; i++ {
+		stmtRef := l.ctx.HandlerStatementRefs[i]
+		stmtNode := l.ctx.HandlerStatementNodes[stmtRef]
+
+		hStmt, tailID, err := l.lowerPipelineStatement(l.ctx.PipelineStatementNodes[stmtNode.StmtRef])
+		if err != nil {
+			return "", err
+		}
+
+		if headID == "" {
+			headID = hStmt
+		}
+		if prevTailID != "" {
+			// Join the previous statement's tail to the current statement's head.
+			if prevStep, ok := l.instructions[prevTailID].(*ir.StepInstruction); ok {
+				prevStep.Next = hStmt
+			}
+		}
+		prevTailID = tailID
+	}
+	return headID, nil
+}
+
+// lowerWorkflows constructs the main execution DAGs, linking pipelines and traps.
+func (l *Lowerer) lowerWorkflows() error {
+	for i := l.prog.WorkflowRefsStart; i < l.prog.WorkflowRefsEnd; i++ {
+		nodeRef := l.ctx.WorkflowRefs[i]
+		node := l.ctx.WorkflowNodes[nodeRef]
+		name := l.getString(node.NameRef)
+
+		flow := &ir.FlowInstruction{
+			BaseInstruction: ir.BaseInstruction{
+				ID:   l.nextID("workflow"),
+				Type: ir.FlowInst,
+			},
+			Name:  name,
+			Heads: make([]string, 0),
+		}
+
+		// Resolve and bind the global error trap if specified.
+		if node.TrapRef.End > 0 {
+			trapName := l.getString(node.TrapRef)
+			flow.Handler = l.handlerMap[trapName]
+		}
+
+		// Assemble statements and establish cross-statement execution order.
+		var prevStepID string
+		for j := node.StatementRefsStart; j < node.StatementRefsEnd; j++ {
+			stmtRef := l.ctx.StatementRefs[j]
+			stmt := l.ctx.PipelineStatementNodes[stmtRef]
+
+			headID, tailID, err := l.lowerPipelineStatement(stmt)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			res.Config[key] = val
-		}
-	}
 
-	return res, nil
-}
+			if len(flow.Heads) == 0 {
+				flow.Heads = append(flow.Heads, headID)
+			}
 
-func (l *Lowerer) lowerStep(astStep ast.StepBindingNode) (*ir.StepInstruction, error) {
-	return nil, nil
-}
-
-// lowerHandler lowers a handler block into a FlowInstruction (DAG).
-func (l *Lowerer) lowerHandler(astHandler ast.HandlerNode) (*ir.FlowInstruction, error) {
-	name := l.ctx.GetString(astHandler.NameRef)
-	flow := &ir.FlowInstruction{
-		BaseInstruction: ir.BaseInstruction{
-			ID:   l.handlerIDs[name],
-			Type: ir.FlowInst,
-		},
-		Name: name,
-	}
-
-	for i := astHandler.HandlerStatementRefsStart; i < astHandler.HandlerStatementRefsEnd; i++ {
-		handlerStatementRefs := l.ctx.HandlerStatementRefs[i]
-		handlerStatement := l.ctx.HandlerStatementNodes[handlerStatementRefs]
-		pipelineStatement := l.ctx.PipelineStatementNodes[handlerStatement.StmtRef]
-		headID, _, err := l.lowerPipeline(pipelineStatement)
-		if err != nil {
-			return nil, err
-		}
-		flow.Heads = append(flow.Heads, headID)
-	}
-
-	return flow, nil
-}
-
-// lowerWorkflow lowers a main workflow block into a FlowInstruction.
-func (l *Lowerer) lowerWorkflow(astWorkflow ast.WorkflowNode) (*ir.FlowInstruction, error) {
-	flow := &ir.FlowInstruction{
-		BaseInstruction: l.newBase(ir.FlowInst),
-		Name:            l.ctx.GetString(astWorkflow.NameRef),
-	}
-
-	// Resolve the workflow-level error handler if specified via the trap operator '?'.
-	if astWorkflow.TrapRef.Start != astWorkflow.TrapRef.End {
-		handlerName := l.ctx.GetString(astWorkflow.TrapRef)
-		if id, ok := l.handlerIDs[handlerName]; ok {
-			flow.Handler = id
-		}
-	}
-
-	vars := make(map[string]string) // Maps variable names to the ID of the step that produced them.
-
-	for i := astWorkflow.StatementRefsStart; i < astWorkflow.StatementRefsEnd; i++ {
-		psRef := l.ctx.StatementRefs[i]
-		ps := l.ctx.PipelineStatementNodes[psRef]
-
-		// Determine if this pipeline starts with a variable reference.
-		pc := l.ctx.PipeChainNodes[ps.ExprRef]
-		firstCallRef := l.ctx.CallRefs[pc.CallRefsStart]
-		firstCall := l.ctx.CallNodes[firstCallRef]
-
-		if !firstCall.IsPrql && firstCall.NameRef.Start != firstCall.NameRef.End {
-			name := l.ctx.GetString(firstCall.NameRef)
-			if producerID, ok := vars[name]; ok {
-				// This pipeline consumes a variable.
-				callCount := pc.CallRefsEnd - pc.CallRefsStart
-				if callCount > 1 {
-					// Create a sub-chain from the remaining steps.
-					subPC := pc
-					subPC.CallRefsStart++
-
-					// Optimization: If the next call is identical to the producer, skip it.
-					// This handles the redundant `output | io.print` pattern when `print` is aliased to `io.print`.
-					nextCallRef := l.ctx.CallRefs[subPC.CallRefsStart]
-					nextCall := l.ctx.CallNodes[nextCallRef]
-					producer := l.program.Instructions[producerID].(*ir.StepInstruction)
-
-					if !nextCall.IsPrql && l.ctx.GetString(nextCall.NameRef) == producer.DefinitionName {
-						// Skip this call and move to the next.
-						subPC.CallRefsStart++
-						if subPC.CallRefsStart == subPC.CallRefsEnd {
-							// Nothing left.
-							if ps.AssignmentRef.Start != ps.AssignmentRef.End {
-								vars[l.ctx.GetString(ps.AssignmentRef)] = producerID
-							}
-							continue
-						}
-					}
-
-					headID, tailID, err := l.lowerPipeChain(subPC, l.ctx.GetString(ps.AssignmentRef))
-					if err != nil {
-						return nil, err
-					}
-
-					// Link the producer step to the new chain's head.
-					if producer, exists := l.program.Instructions[producerID].(*ir.StepInstruction); exists {
-						producer.Next = headID
-					}
-
-					if ps.AssignmentRef.Start != ps.AssignmentRef.End {
-						vars[l.ctx.GetString(ps.AssignmentRef)] = tailID
-					}
-					continue
-				} else {
-					// Edge case: pipeline is just a variable reference with no following steps.
-					if ps.AssignmentRef.Start != ps.AssignmentRef.End {
-						vars[l.ctx.GetString(ps.AssignmentRef)] = producerID
-					}
-					continue
+			if prevStepID != "" {
+				// Connect the exit of the previous pipeline to the entry of the current one.
+				if prevStep, ok := l.instructions[prevStepID].(*ir.StepInstruction); ok {
+					prevStep.Next = headID
 				}
 			}
+			prevStepID = tailID
 		}
 
-		// Standard pipeline or one that doesn't start with a known variable.
-		headID, tailID, err := l.lowerPipeline(ps)
-		if err != nil {
-			return nil, err
-		}
-		flow.Heads = append(flow.Heads, headID)
-
-		if ps.AssignmentRef.Start != ps.AssignmentRef.End {
-			vars[l.ctx.GetString(ps.AssignmentRef)] = tailID
-		}
+		l.workflows = append(l.workflows, flow.ID)
+		l.addInstruction(flow)
 	}
-
-	return flow, nil
+	return nil
 }
 
-// lowerPipeline dispatches a pipeline statement to its specific lowering logic.
-func (l *Lowerer) lowerPipeline(pipelineStatement ast.PipelineStatementNode) (string, string, error) {
-	ref := pipelineStatement.ExprRef
-	if ref == 0 {
-		return "", "", nil
-	}
+// lowerPipelineStatement converts a pipeline of calls into a linked chain of IR instructions.
+func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID, tailID string, err error) {
+	// A statement represents either a PipeChain or a specialized Dataframe operation.
+	chain := l.ctx.PipeChainNodes[stmt.ExprRef]
 
-	if int(ref) < len(l.ctx.PipeChainNodes) {
-		pipeChain := l.ctx.PipeChainNodes[ref]
-		return l.lowerPipeChain(pipeChain, l.ctx.GetString(pipelineStatement.AssignmentRef))
-	}
-
-	return "", "", nil
-}
-
-// lowerPipeChain connects a sequence of calls into a linked list of IR instructions.
-func (l *Lowerer) lowerPipeChain(pc ast.PipeChainNode, assignment string) (string, string, error) {
-	var prevStep *ir.StepInstruction
-	var firstStepID string
 	var lastStepID string
-
-	callCount := pc.CallRefsEnd - pc.CallRefsStart
-
-	for i := range uint32(callCount) {
-		callRef := l.ctx.CallRefs[pc.CallRefsStart+i]
+	for i := chain.CallRefsStart; i < chain.CallRefsEnd; i++ {
+		callRef := l.ctx.CallRefs[i]
 		call := l.ctx.CallNodes[callRef]
-		step, err := l.lowerCall(call)
-		if err != nil {
-			return "", "", err
+
+		// Skip structural placeholders used for input data representation.
+		if call.NameRef.End == 0 && call.FunctionRef == ast.NilNode && !call.IsPrql {
+			continue
 		}
 
-		if i == 0 {
-			firstStepID = step.ID
-		}
-		if i == callCount-1 {
-			lastStepID = step.ID
-		}
-
-		// Connect steps in a pipeline to form an execution chain.
-		if prevStep != nil {
-			prevStep.Next = step.ID
-		}
-
-		// Apply variable assignment to the final step in the pipeline.
-		if i == callCount-1 && assignment != "" {
-			step.Assignment = assignment
-		}
-
-		l.registerInstruction(step)
-		prevStep = step
-	}
-
-	return firstStepID, lastStepID, nil
-}
-
-// lowerCall transforms an AST call (standard or PRQL) into a StepInstruction.
-func (l *Lowerer) lowerCall(call ast.CallNode) (*ir.StepInstruction, error) {
-	step := &ir.StepInstruction{
-		BaseInstruction: l.newBase(ir.StepInst),
-		Resources:       make(map[string]string),
-		Config:          make(map[string]any),
-	}
-
-	if call.IsPrql {
-		step.DefinitionName = "prql"
-		step.Config["query"] = l.ctx.GetString(call.QueryRef)
-	} else {
-		name := l.ctx.GetString(call.NameRef)
-		step.DefinitionName = name
-
-		// Resolve function binding and module mapping.
-		if stepRef, ok := l.mapStep[name]; ok {
-			binding := l.ctx.StepBindingNodes[stepRef]
-			fn := l.ctx.FunctionRefNodes[binding.FunctionRef]
-
-			step.Call = []string{
-				l.ctx.GetString(fn.ModuleRef),
-				l.ctx.GetString(fn.NameRef),
+		stepID := ""
+		if call.IsPrql {
+			// Handle inline relational transformations via the standard query step.
+			stepID = l.nextID("query")
+			inst := &ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{
+					ID:   stepID,
+					Type: ir.StepInst,
+				},
+				DefinitionName: "query",
+				Call:           []string{"std", "query"},
+				Config:         map[string]any{"query": l.getString(call.QueryRef)},
 			}
+			if call.TrapRef.End > 0 {
+				trapName := l.getString(call.TrapRef)
+				inst.Handler = l.handlerMap[trapName]
+			}
+			l.addInstruction(inst)
+		} else if call.NameRef.End > 0 {
+			name := l.getString(call.NameRef)
 
-			// Copy configuration from the binding definition.
-			if fn.ConfigRef != 0 {
-				dict := l.ctx.DictNodes[fn.ConfigRef]
-				for j := dict.PairRefsStart; j < dict.PairRefsEnd; j++ {
-					pairRef := l.ctx.PairRefs[j]
-					pair := l.ctx.PairNodes[pairRef]
-					key := l.ctx.GetString(pair.KeyRef)
-					val, err := l.lowerLiteral(l.ctx.LiteralNodes[pair.ValueRef])
-					if err != nil {
-						return nil, err
-					}
-					step.Config[key] = val
+			// Logic Pattern: Variable Resolution -> Step Instantiation.
+			// 1. Resolve workflow-local aliases from previous assignments.
+			if aliasID, ok := l.aliasMap[name]; ok {
+				if headID == "" {
+					lastStepID = aliasID
+					continue
 				}
+				continue
 			}
 
-			// Map resource requirements to the step configuration.
-			if fn.ResourcesRefRef != 0 {
-				rr := l.ctx.ResourceRefNodes[fn.ResourcesRefRef]
-				for i := rr.MappingsRefStart; i < rr.MappingsRefEnd; i++ {
-					mappingRef := l.ctx.MappingRefs[i]
-					mapping := l.ctx.ResourceMappingNodes[mappingRef]
-					step.Resources[l.ctx.GetString(mapping.KeyRef)] = l.ctx.GetString(mapping.ValueRef)
-				}
+			// 2. Resolve bound step definitions and create a unique execution instance.
+			origID, ok := l.stepMap[name]
+			if !ok {
+				return "", "", fmt.Errorf("undefined step: %s", name)
 			}
+
+			stepID = l.nextID("call")
+			orig := l.instructions[origID].(*ir.StepInstruction)
+
+			// Clone the base definition to ensure call-specific state isolation.
+			inst := *orig
+			inst.ID = stepID
+			if call.TrapRef.End > 0 {
+				trapName := l.getString(call.TrapRef)
+				inst.Handler = l.handlerMap[trapName]
+			}
+			l.addInstruction(&inst)
 		} else {
-			// Resolve via module-qualified name used directly.
-			if before, after, ok0 := strings.Cut(name, "."); ok0 {
-				module := before
-				fn := after
-				step.Call = []string{module, fn}
+			// Handle anonymous calls by resolving modules and generating fresh instructions.
+			fnRef := l.ctx.FunctionRefNodes[call.FunctionRef]
+			stepID = l.nextID("step")
+
+			config, err := l.lowerDict(fnRef.ConfigRef)
+			if err != nil {
+				return "", "", err
+			}
+
+			module := l.getString(fnRef.ModuleRef)
+			if path, ok := l.importMap[module]; ok {
+				module = path
+			}
+
+			inst := &ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{
+					ID:   stepID,
+					Type: ir.StepInst,
+				},
+				Call:      []string{module, l.getString(fnRef.NameRef)},
+				Resources: l.lowerResourceRefs(fnRef.ResourcesRefRef),
+				Config:    config,
+			}
+			if call.TrapRef.End > 0 {
+				trapName := l.getString(call.TrapRef)
+				inst.Handler = l.handlerMap[trapName]
+			}
+			l.addInstruction(inst)
+		}
+
+		if headID == "" {
+			headID = stepID
+		}
+		if lastStepID != "" {
+			// Link current step as the successor to the previous one.
+			if prevStep, ok := l.instructions[lastStepID].(*ir.StepInstruction); ok {
+				prevStep.Next = stepID
 			}
 		}
+		lastStepID = stepID
 	}
 
-	// Resolve the step-level error handler if specified via the trap operator '?'.
-	if call.TrapRef.Start != call.TrapRef.End {
-		handlerName := l.ctx.GetString(call.TrapRef)
-		if id, ok := l.handlerIDs[handlerName]; ok {
-			step.Handler = id
+	// Record assignment targets to enable later variable reference resolution.
+	if stmt.AssignmentRef.End > 0 {
+		aliasName := l.getString(stmt.AssignmentRef)
+		if lastStep, ok := l.instructions[lastStepID].(*ir.StepInstruction); ok {
+			lastStep.Assignment = aliasName
+			l.aliasMap[aliasName] = lastStepID
 		}
 	}
 
-	return step, nil
+	return headID, lastStepID, nil
 }
 
-// registerInstruction adds a generated instruction to the IR program's registry.
-func (l *Lowerer) registerInstruction(inst ir.Instruction) {
-	l.program.Instructions[inst.GetID()] = inst
-}
-
-// newBase generates a new BaseInstruction with a unique ID and specified type.
-func (l *Lowerer) newBase(t ir.InstructionType) ir.BaseInstruction {
-	return ir.BaseInstruction{
-		ID:   uuid.New().String(),
-		Type: t,
+// lowerLiteral recursively transforms AST literal nodes into corresponding Go types for IR configuration.
+func (l *Lowerer) lowerLiteral(ref ast.NodeRef) (any, error) {
+	if ref == ast.NilNode {
+		return nil, nil
 	}
-}
 
-// lowerLiteral recursively transforms an AST literal node into a native Go value.
-func (l *Lowerer) lowerLiteral(lit ast.LiteralNode) (any, error) {
-	switch lit.Type {
+	node := l.ctx.LiteralNodes[ref]
+	switch node.Type {
 	case ast.LiteralString:
-		return l.ctx.GetString(lit.ValueRef), nil
-
+		return l.getString(node.ValueRef), nil
 	case ast.LiteralInt:
-		val, err := strconv.ParseInt(l.ctx.GetString(lit.ValueRef), 10, 64)
+		val, err := strconv.ParseInt(l.getString(node.ValueRef), 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse integer literal: %w", err)
+			return nil, fmt.Errorf("failed to parse int: %w", err)
 		}
 		return val, nil
-
 	case ast.LiteralFloat:
-		val, err := strconv.ParseFloat(l.ctx.GetString(lit.ValueRef), 64)
+		val, err := strconv.ParseFloat(l.getString(node.ValueRef), 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse float literal: %w", err)
+			return nil, fmt.Errorf("failed to parse float: %w", err)
 		}
 		return val, nil
-
 	case ast.LiteralBool:
-		return l.ctx.GetString(lit.ValueRef) == "true", nil
-
+		return l.getString(node.ValueRef) == "true", nil
 	case ast.LiteralNull:
 		return nil, nil
-
 	case ast.LiteralDict:
-		dict := l.ctx.DictNodes[lit.Ref]
-		res := make(map[string]any)
-		for i := dict.PairRefsStart; i < dict.PairRefsEnd; i++ {
-			pairRef := l.ctx.PairRefs[i]
-			pair := l.ctx.PairNodes[pairRef]
-			key := l.ctx.GetString(pair.KeyRef)
-			val, err := l.lowerLiteral(l.ctx.LiteralNodes[pair.ValueRef])
-			if err != nil {
-				return nil, err
-			}
-			res[key] = val
-		}
-		return res, nil
-
+		return l.lowerDict(node.Ref)
 	case ast.LiteralList:
-		list := l.ctx.ListNodes[lit.Ref]
-		res := make([]any, 0)
-		for i := list.LiteralRefsStart; i < list.LiteralRefsEnd; i++ {
-			litRef := l.ctx.LiteralRefs[i]
-			val, err := l.lowerLiteral(l.ctx.LiteralNodes[litRef])
+		listNode := l.ctx.ListNodes[node.Ref]
+		result := make([]any, 0)
+		for i := listNode.LiteralRefsStart; i < listNode.LiteralRefsEnd; i++ {
+			val, err := l.lowerLiteral(l.ctx.LiteralRefs[i])
 			if err != nil {
 				return nil, err
 			}
-			res = append(res, val)
+			result = append(result, val)
 		}
-		return res, nil
+		return result, nil
+	default:
+		return nil, nil
 	}
-
-	return nil, nil
 }
 
-// NewLowerer creates a new instance of the Lowerer with a clean IR program state.
+func (l *Lowerer) getString(ref ast.StringRef) string {
+	return l.ctx.GetString(ref)
+}
+
+// lowerDict transforms AST dictionary nodes into Go maps.
+func (l *Lowerer) lowerDict(ref ast.NodeRef) (map[string]any, error) {
+	if ref == ast.NilNode {
+		return make(map[string]any), nil
+	}
+
+	dictNode := l.ctx.DictNodes[ref]
+	result := make(map[string]any)
+
+	for i := dictNode.PairRefsStart; i < dictNode.PairRefsEnd; i++ {
+		pairRef := l.ctx.PairRefs[i]
+		pair := l.ctx.PairNodes[pairRef]
+		key := l.getString(pair.KeyRef)
+		val, err := l.lowerLiteral(pair.ValueRef)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = val
+	}
+
+	return result, nil
+}
+
+// addInstruction registers a new instruction in the program's global instruction map.
+func (l *Lowerer) addInstruction(inst ir.Instruction) {
+	l.instructions[inst.GetID()] = inst
+}
+
+// nextID generates a unique identifier for an IR instruction based on the given prefix.
+func (l *Lowerer) nextID(prefix string) string {
+	return fmt.Sprintf("%s_%d", prefix, len(l.instructions))
+}
+
+// NewLowerer creates a new Lowerer instance.
 func NewLowerer(ctx *ast.ASTContext) *Lowerer {
 	return &Lowerer{
-		ctx: ctx,
-		program: &ir.ProgramIR{
-			BaseInstruction: ir.BaseInstruction{
-				ID:   uuid.New().String(),
-				Type: ir.ProgramInst,
-			},
-			Instructions: make(map[string]any),
-			Workflows:    []string{},
-		},
-		mapImport:   make(map[string]string),
-		mapResource: make(map[string]ast.NodeRef),
-		mapStep:     make(map[string]ast.NodeRef),
-		mapHandler:  make(map[string]ast.NodeRef),
-		handlerIDs:  make(map[string]string),
+		ctx:          ctx,
+		instructions: make(map[string]any),
+		workflows:    make([]string, 0),
+		importMap:    make(map[string]string),
+		aliasMap:     make(map[string]string),
+		resourceMap:  make(map[string]string),
+		stepMap:      make(map[string]string),
+		handlerMap:   make(map[string]string),
 	}
 }
