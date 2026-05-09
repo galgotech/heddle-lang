@@ -61,7 +61,7 @@ func (d *Dispatcher) NextTasks() []Task {
 		flow := d.program.Instructions[flowID].(*ir.FlowInstruction)
 		for _, headID := range flow.Heads {
 			if d.isReady(headID) {
-				tasks = append(tasks, d.createTask(headID, ""))
+				tasks = append(tasks, d.createTask(headID))
 			}
 		}
 	}
@@ -69,13 +69,15 @@ func (d *Dispatcher) NextTasks() []Task {
 	// 2. Traverse the DAG to identify follow-up tasks from recently completed or failed steps.
 	for id, state := range d.states {
 		if state.Status == TaskStatusDone {
-			// Successful completion triggers the next node in the sequence.
+			// Successful completion triggers the next nodes in the DAG.
 			inst, ok := d.program.Instructions[id].(*ir.StepInstruction)
 			if !ok {
 				continue
 			}
-			if inst.Next != "" && d.isReady(inst.Next) {
-				tasks = append(tasks, d.createTask(inst.Next, state.OutputHandle))
+			for _, nextID := range inst.Next {
+				if d.isReady(nextID) {
+					tasks = append(tasks, d.createTask(nextID))
+				}
 			}
 		} else if state.Status == TaskStatusFailed {
 			// Failure triggers recovery logic if an error handler (Handler) is defined.
@@ -87,7 +89,6 @@ func (d *Dispatcher) NextTasks() []Task {
 			handlerID := inst.Handler
 			if handlerID == "" {
 				// Fallback to global workflow trap if step-level handler is missing.
-				// For now, we use the first workflow's handler as a simple global fallback.
 				for _, flowID := range d.program.Workflows {
 					if flow, ok := d.program.Instructions[flowID].(*ir.FlowInstruction); ok && flow.Handler != "" {
 						handlerID = flow.Handler
@@ -102,13 +103,13 @@ func (d *Dispatcher) NextTasks() []Task {
 					// If the handler is a Flow, dispatch all its entry points with the failure context.
 					for _, headID := range flow.Heads {
 						if d.isReady(headID) {
-							tasks = append(tasks, d.createTask(headID, state.OutputHandle))
+							tasks = append(tasks, d.createTask(headID))
 						}
 					}
 					d.states[handlerID] = &TaskState{Status: TaskStatusInFlight}
 				} else {
-					// Dispatch the single recovery step with the failure context.
-					tasks = append(tasks, d.createTask(handlerID, state.OutputHandle))
+					// Dispatch the single recovery step.
+					tasks = append(tasks, d.createTask(handlerID))
 				}
 			}
 		}
@@ -120,24 +121,49 @@ func (d *Dispatcher) NextTasks() []Task {
 // isReady determines if an instruction is eligible for execution based on its current state.
 func (d *Dispatcher) isReady(id string) bool {
 	state, exists := d.states[id]
-	if !exists {
-		return true // New instructions are ready by default
+	if exists && state.Status != TaskStatusPending {
+		return false // Already in-flight or completed
 	}
-	return state.Status == TaskStatusPending
+
+	// An instruction is ready only if all its parents have completed successfully.
+	inst, ok := d.program.Instructions[id].(*ir.StepInstruction)
+	if !ok {
+		return true // Flow instructions or others don't have parents in the same way
+	}
+
+	for _, parentID := range inst.Parents {
+		pState, pExists := d.states[parentID]
+		if !pExists || pState.Status != TaskStatusDone {
+			return false
+		}
+	}
+
+	return true
 }
 
 // createTask initializes a new Task object for an IR instruction, configuring
 // Apache Arrow Flight tickets for data locality.
-func (d *Dispatcher) createTask(id string, inputHandle string) Task {
+func (d *Dispatcher) createTask(id string) Task {
 	inst := d.program.Instructions[id].(*ir.StepInstruction)
 	d.states[id] = &TaskState{Status: TaskStatusInFlight}
 
 	tickets := make(map[string]*proto.FlightTicket)
-	if inputHandle != "" {
-		// Default to LOCAL routing for single-node execution.
-		// Cluster dispatchers should override this with REMOTE tickets if necessary.
-		tickets["default"] = &proto.FlightTicket{
-			ResourceId: inputHandle,
+
+	// Resolve data locality for all incoming dependencies.
+	for _, parentID := range inst.Parents {
+		pState, exists := d.states[parentID]
+		if !exists || pState.OutputHandle == "" {
+			continue
+		}
+
+		pInst := d.program.Instructions[parentID].(*ir.StepInstruction)
+		key := pInst.Assignment
+		if key == "" {
+			key = parentID
+		}
+
+		tickets[key] = &proto.FlightTicket{
+			ResourceId: pState.OutputHandle,
 			RouteType:  proto.RouteType_LOCAL,
 		}
 	}

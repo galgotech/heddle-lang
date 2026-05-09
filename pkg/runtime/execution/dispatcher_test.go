@@ -1,10 +1,12 @@
 package execution
 
 import (
-	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 func TestDispatcher_BasicFlow(t *testing.T) {
@@ -176,66 +178,154 @@ workflow main ? recover {
 
 	d := NewDispatcher(program)
 
-	// In the current implementation, the lowerer linearizes all statements in a workflow.
-	// This results in a single entry point (the first step of the first statement).
+	// With DAG support, multiple statements can start in parallel if they don't have dependencies.
 	tasks := d.NextTasks()
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 initial task (due to linearization), got %d", len(tasks))
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 initial tasks (s1, s3's query, s4), got %d", len(tasks))
 	}
 
-	// Sequence of steps expected (matching TestLowerer_ComplexWorkflowAssignment):
-	// 1. s1 (with local handler)
-	// 2. s2 (assignment: pipe_assignment)
-	// 3. s1
-	// 4. s2 (assignment: pipe_assignment_2)
-	// 5. query (Join)
-	// 6. s3
-	// 7. s4
-	// 8. query (Join)
-	// 9. r1
+	// We'll complete them one by one and check how it unfolds.
 
-	expectedSteps := []struct {
-		Name       string
-		Assignment string
-	}{
-		{Name: "s1"},
-		{Name: "s2", Assignment: "pipe_assignment"},
-		{Name: "s1"},
-		{Name: "s2", Assignment: "pipe_assignment_2"},
-		{Name: "query"}, // Join
-		{Name: "s3"},
-		{Name: "s4"},
-		{Name: "query"}, // Join
-		{Name: "r1"},
-	}
-
-	for i, exp := range expectedSteps {
-		if len(tasks) != 1 {
-			t.Fatalf("Step %d: expected 1 task, got %d", i, len(tasks))
-		}
-		task := tasks[0]
-		if task.Step.DefinitionName != exp.Name {
-			t.Errorf("Step %d: expected %s, got %s", i, exp.Name, task.Step.DefinitionName)
-		}
-		
-		// Report completion to move to the next task
-		d.ReportUpdate(TaskUpdate{
-			TaskID:       task.ID,
-			Status:       "completed",
-			OutputHandle: fmt.Sprintf("handle_%d", i),
-		})
-
-		// Check assignment recording if applicable
-		if exp.Assignment != "" {
-			if d.results[exp.Assignment] != fmt.Sprintf("handle_%d", i) {
-				t.Errorf("Step %d: assignment %s not correctly recorded", i, exp.Assignment)
+	// Helper to find task by step name
+	findTask := func(tasks []Task, name string) *Task {
+		for _, t := range tasks {
+			if t.Step.DefinitionName == name {
+				return &t
 			}
 		}
-
-		tasks = d.NextTasks()
+		return nil
 	}
 
+	// Helper to verify task properties
+	checkTask := func(task *Task, name string, call []string) {
+		if task == nil {
+			t.Fatalf("task %s not found", name)
+		}
+		assert.Equal(t, name, task.Step.DefinitionName)
+		assert.Equal(t, call, task.Step.Call)
+	}
+
+	// 1. Complete s1 (starts chain 1)
+	s1Task := findTask(tasks, "s1")
+	checkTask(s1Task, "s1", []string{"std/m", "extract"})
+	d.ReportUpdate(TaskUpdate{TaskID: s1Task.ID, Status: "completed", OutputHandle: "h1"})
+
+	// 2. Complete query (stmt 3 head)
+	q1Task := findTask(tasks, "query")
+	checkTask(q1Task, "query", []string{"std", "query"})
+	d.ReportUpdate(TaskUpdate{TaskID: q1Task.ID, Status: "completed", OutputHandle: "hq1"})
+
+	// 3. Complete s4 (stmt 4 head)
+	s4Task := findTask(tasks, "s4")
+	checkTask(s4Task, "s4", []string{"std/m", "search"})
+	d.ReportUpdate(TaskUpdate{TaskID: s4Task.ID, Status: "completed", OutputHandle: "h4"})
+
+	// Wave 2:
+	tasks = d.NextTasks()
+	// Should have:
+	// - s2 (from chain 1, after s1)
+	// - s3 (from chain 3, after query)
+	// - query (from chain 4, after s4)
+	assert.Len(t, tasks, 3)
+
+	s2Task := findTask(tasks, "s2")
+	checkTask(s2Task, "s2", []string{"std/m", "filter"})
+
+	s3Task := findTask(tasks, "s3")
+	checkTask(s3Task, "s3", []string{"std/m", "output"})
+
+	q2Task := findTask(tasks, "query")
+	checkTask(q2Task, "query", []string{"std", "query"})
+
+	// Complete Wave 2
+	d.ReportUpdate(TaskUpdate{TaskID: s2Task.ID, Status: "completed", OutputHandle: "h2"})
+	d.ReportUpdate(TaskUpdate{TaskID: s3Task.ID, Status: "completed", OutputHandle: "h3"})
+	d.ReportUpdate(TaskUpdate{TaskID: q2Task.ID, Status: "completed", OutputHandle: "hq2"})
+
+	// Wave 3:
+	tasks = d.NextTasks()
+	// - s1 (from chain 2, after s2 completed and produced pipe_assignment)
+	// - r1 (from chain 4, after query)
+	assert.Len(t, tasks, 2)
+
+	s1_2Task := findTask(tasks, "s1")
+	checkTask(s1_2Task, "s1", []string{"std/m", "extract"})
+	// Verify that the ticket from the previous assignment is present
+	assert.Contains(t, s1_2Task.Tickets, "pipe_assignment")
+	assert.Equal(t, "h2", s1_2Task.Tickets["pipe_assignment"].ResourceId)
+
+	r1Task := findTask(tasks, "r1")
+	checkTask(r1Task, "r1", []string{"std/m", "retry"})
+	// r1 depends on the join query in stmt 4
+	assert.Contains(t, r1Task.Tickets, "query_17") // query_17 is the auto-generated ID for the join
+}
+
+func TestDispatcher_Join(t *testing.T) {
+	// Manually construct a DAG with a JOIN:
+	// s1 \
+	//      > s3
+	// s2 /
+	program := &ir.Program{
+		Instructions: make(map[string]any),
+		Workflows:    []string{"flow_0"},
+	}
+
+	s1 := &ir.StepInstruction{
+		BaseInstruction: ir.BaseInstruction{ID: "s1", Type: ir.StepInst},
+		DefinitionName:  "s1",
+		Next:            []string{"s3"},
+	}
+	s2 := &ir.StepInstruction{
+		BaseInstruction: ir.BaseInstruction{ID: "s2", Type: ir.StepInst},
+		DefinitionName:  "s2",
+		Next:            []string{"s3"},
+	}
+	s3 := &ir.StepInstruction{
+		BaseInstruction: ir.BaseInstruction{ID: "s3", Type: ir.StepInst},
+		DefinitionName:  "s3",
+		Parents:         []string{"s1", "s2"},
+	}
+	flow := &ir.FlowInstruction{
+		BaseInstruction: ir.BaseInstruction{ID: "flow_0", Type: ir.FlowInst},
+		Heads:           []string{"s1", "s2"},
+	}
+
+	program.Instructions["s1"] = s1
+	program.Instructions["s2"] = s2
+	program.Instructions["s3"] = s3
+	program.Instructions["flow_0"] = flow
+
+	d := NewDispatcher(program)
+
+	// Wave 1: s1 and s2 should be ready
+	tasks := d.NextTasks()
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+
+	// Complete s1
+	d.ReportUpdate(TaskUpdate{TaskID: "s1", Status: "completed", OutputHandle: "h1"})
+
+	// Only s2 should be in flight (s3 not ready yet)
+	tasks = d.NextTasks()
 	if len(tasks) != 0 {
-		t.Errorf("expected no more tasks at the end, got %d", len(tasks))
+		t.Fatalf("expected 0 new tasks, got %d", len(tasks))
+	}
+
+	// Complete s2
+	d.ReportUpdate(TaskUpdate{TaskID: "s2", Status: "completed", OutputHandle: "h2"})
+
+	// Now s3 should be ready
+	tasks = d.NextTasks()
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task (s3), got %d", len(tasks))
+	}
+	if tasks[0].ID != "s3" {
+		t.Errorf("expected task s3, got %s", tasks[0].ID)
+	}
+
+	// Verify tickets
+	if len(tasks[0].Tickets) != 2 {
+		t.Errorf("expected 2 tickets for s3, got %d", len(tasks[0].Tickets))
 	}
 }

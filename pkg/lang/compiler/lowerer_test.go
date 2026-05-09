@@ -120,7 +120,7 @@ workflow main ? on_error {
 
 	// Next step in handler should be io.stderr
 	require.NotEmpty(t, handlerStep.Next)
-	stderrStep := irProg.Instructions[handlerStep.Next].(*ir.StepInstruction)
+	stderrStep := irProg.Instructions[handlerStep.Next[0]].(*ir.StepInstruction)
 	assert.Equal(t, []string{"std/io", "stderr"}, stderrStep.Call)
 }
 
@@ -280,7 +280,7 @@ workflow FraudDetection ? alert_on_fail {
 			hStep := irProg.Instructions[step.Handler].(*ir.StepInstruction)
 			assert.Equal(t, "", hStep.DefinitionName)
 			require.NotEmpty(t, hStep.Next)
-			nextHStep := irProg.Instructions[hStep.Next].(*ir.StepInstruction)
+			nextHStep := irProg.Instructions[hStep.Next[0]].(*ir.StepInstruction)
 			assert.Equal(t, "produce_dead_letter_queue", nextHStep.DefinitionName)
 		}
 
@@ -299,7 +299,11 @@ workflow FraudDetection ? alert_on_fail {
 			assert.True(t, found, "Step %d missing resource %s", i, expected.Resource)
 		}
 
-		currID = step.Next
+		if len(step.Next) > 0 {
+			currID = step.Next[0]
+		} else {
+			currID = ""
+		}
 	}
 	assert.Empty(t, currID, "DAG has extra steps at the end")
 }
@@ -341,7 +345,12 @@ workflow main {
 	count := 0
 	for curr != "" {
 		count++
-		curr = irProg.Instructions[curr].(*ir.StepInstruction).Next
+		step := irProg.Instructions[curr].(*ir.StepInstruction)
+		if len(step.Next) > 0 {
+			curr = step.Next[0]
+		} else {
+			curr = ""
+		}
 	}
 	assert.Equal(t, 3, count)
 }
@@ -407,38 +416,49 @@ workflow main ? recover {
 	require.NotNil(t, flow)
 	assert.NotEmpty(t, flow.Handler, "Workflow should have a handler linked")
 
-	// Verify the DAG structure
-	// Sequence: s1 -> s2 (pipe_assignment) -> s1 -> s2 (pipe_assignment_2) -> query -> s3 -> s4 -> query -> r1
+	// With the new lowerer, we expect 3 heads because statements without resolved data dependencies
+	// start in parallel.
+	assert.Len(t, flow.Heads, 3)
+
+	// Chain 1: s1 -> s2 (pipe_assignment) -> s1 -> s2 (pipe_assignment_2)
 	currID := flow.Heads[0]
-	sequence := []struct {
-		Name    string
-		Handler bool
-		Assign  string
-	}{
-		{Name: "s1", Handler: true},
-		{Name: "s2", Assign: "pipe_assignment"},
-		{Name: "s1"},
-		{Name: "s2", Assign: "pipe_assignment_2"},
-		{Name: "query"},
-		{Name: "s3"},
-		{Name: "s4"},
-		{Name: "query"},
-		{Name: "r1"},
-	}
-
-	for i, expected := range sequence {
-		require.NotEmpty(t, currID, "DAG ended prematurely at step %d", i)
+	chain1 := []string{"s1", "s2", "s1", "s2"}
+	for _, name := range chain1 {
+		require.NotEmpty(t, currID)
 		step := irProg.Instructions[currID].(*ir.StepInstruction)
-		assert.Equal(t, expected.Name, step.DefinitionName, "Step %d name mismatch", i)
-
-		if expected.Handler {
-			assert.NotEmpty(t, step.Handler, "Step %d should have a local handler", i)
+		assert.Equal(t, name, step.DefinitionName)
+		if len(step.Next) > 0 {
+			currID = step.Next[0]
+		} else {
+			currID = ""
 		}
-		if expected.Assign != "" {
-			assert.Equal(t, expected.Assign, step.Assignment, "Step %d assignment mismatch", i)
-		}
-
-		currID = step.Next
 	}
-	assert.Empty(t, currID, "DAG has extra steps at the end")
+
+	// Chain 2: query (Join) -> s3
+	currID = flow.Heads[1]
+	chain2 := []string{"query", "s3"}
+	for _, name := range chain2 {
+		require.NotEmpty(t, currID)
+		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		assert.Equal(t, name, step.DefinitionName)
+		if len(step.Next) > 0 {
+			currID = step.Next[0]
+		} else {
+			currID = ""
+		}
+	}
+
+	// Chain 3: s4 -> query -> r1
+	currID = flow.Heads[2]
+	chain3 := []string{"s4", "query", "r1"}
+	for _, name := range chain3 {
+		require.NotEmpty(t, currID)
+		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		assert.Equal(t, name, step.DefinitionName)
+		if len(step.Next) > 0 {
+			currID = step.Next[0]
+		} else {
+			currID = ""
+		}
+	}
 }

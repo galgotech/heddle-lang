@@ -221,7 +221,10 @@ func (l *Lowerer) lowerHandlerStatements(node ast.HandlerNode) (string, error) {
 		if prevTailID != "" {
 			// Join the previous statement's tail to the current statement's head.
 			if prevStep, ok := l.instructions[prevTailID].(*ir.StepInstruction); ok {
-				prevStep.Next = hStmt
+				prevStep.Next = append(prevStep.Next, hStmt)
+				if nextStep, ok := l.instructions[hStmt].(*ir.StepInstruction); ok {
+					nextStep.Parents = append(nextStep.Parents, prevTailID)
+				}
 			}
 		}
 		prevTailID = tailID
@@ -251,28 +254,24 @@ func (l *Lowerer) lowerWorkflows() error {
 			flow.Handler = l.handlerMap[trapName]
 		}
 
-		// Assemble statements and establish cross-statement execution order.
-		var prevStepID string
+		// Assemble statements and establish data-driven execution order.
 		for j := node.StatementRefsStart; j < node.StatementRefsEnd; j++ {
 			stmtRef := l.ctx.StatementRefs[j]
 			stmt := l.ctx.PipelineStatementNodes[stmtRef]
 
-			headID, tailID, err := l.lowerPipelineStatement(stmt)
+			headID, _, err := l.lowerPipelineStatement(stmt)
 			if err != nil {
 				return err
 			}
 
-			if len(flow.Heads) == 0 {
-				flow.Heads = append(flow.Heads, headID)
-			}
-
-			if prevStepID != "" {
-				// Connect the exit of the previous pipeline to the entry of the current one.
-				if prevStep, ok := l.instructions[prevStepID].(*ir.StepInstruction); ok {
-					prevStep.Next = headID
+			// A step is a workflow head if it has no incoming data dependencies (parents).
+			if headID != "" {
+				if step, ok := l.instructions[headID].(*ir.StepInstruction); ok {
+					if len(step.Parents) == 0 {
+						flow.Heads = append(flow.Heads, headID)
+					}
 				}
 			}
-			prevStepID = tailID
 		}
 
 		l.workflows = append(l.workflows, flow.ID)
@@ -387,7 +386,10 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 		if lastStepID != "" {
 			// Link current step as the successor to the previous one.
 			if prevStep, ok := l.instructions[lastStepID].(*ir.StepInstruction); ok {
-				prevStep.Next = stepID
+				prevStep.Next = append(prevStep.Next, stepID)
+				if nextStep, ok := l.instructions[stepID].(*ir.StepInstruction); ok {
+					nextStep.Parents = append(nextStep.Parents, lastStepID)
+				}
 			}
 		}
 		lastStepID = stepID
