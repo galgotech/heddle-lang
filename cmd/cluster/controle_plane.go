@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"github.com/galgotech/heddle-lang/internal/services/control-plane/server"
+	controlplane "github.com/galgotech/heddle-lang/internal/services/control-plane"
 	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
@@ -29,7 +29,7 @@ var cpCmd = &cobra.Command{
 			zap.Int("port", port),
 			zap.String("standard", "Apache Arrow Flight"))
 
-		server.ListenAndServe(port)
+		controlplane.ListenAndServe(port)
 	},
 }
 

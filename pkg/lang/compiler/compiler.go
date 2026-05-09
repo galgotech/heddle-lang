@@ -16,7 +16,7 @@ type Compiler struct {
 }
 
 // Compile takes Heddle source code and compiles it into IR.
-func (c *Compiler) Compile(source string) (*ir.ProgramIR, error) {
+func (c *Compiler) Compile(source string) (*ir.Program, error) {
 	ctx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(ctx)
 
@@ -40,7 +40,7 @@ func (c *Compiler) Compile(source string) (*ir.ProgramIR, error) {
 }
 
 // CompileFiles takes multiple Heddle source files and compiles them into a single IR.
-func (c *Compiler) CompileFiles(paths []string) (*ir.ProgramIR, error) {
+func (c *Compiler) CompileFiles(paths []string) (*ir.Program, error) {
 	ctx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(ctx)
 
@@ -99,7 +99,7 @@ func (c *Compiler) CompileFiles(paths []string) (*ir.ProgramIR, error) {
 }
 
 // CompileAST takes an AST and lowers it into IR.
-func (c *Compiler) CompileAST(program ast.ProgramNode, ctx *ast.ASTContext) (*ir.ProgramIR, error) {
+func (c *Compiler) CompileAST(program ast.ProgramNode, ctx *ast.ASTContext) (*ir.Program, error) {
 	// 1. Semantic Validation
 	v := NewValidator(program, ctx)
 	if err := v.Validate(); err != nil {

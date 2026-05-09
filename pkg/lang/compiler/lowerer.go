@@ -29,9 +29,9 @@ type Lowerer struct {
 	handlerMap  map[string]string // name  -> handler head instruction ID
 }
 
-// Lower executes the multi-pass transformation from AST to ProgramIR.
+// Lower executes the multi-pass transformation from AST to Program.
 // The process follows a strict resolution order: Imports -> Resources -> Steps -> Handlers -> Workflows.
-func (l *Lowerer) Lower(prog ast.ProgramNode) (*ir.ProgramIR, error) {
+func (l *Lowerer) Lower(prog ast.ProgramNode) (*ir.Program, error) {
 	l.prog = &prog
 
 	// Phase 1: Establish module namespaces.
@@ -59,7 +59,7 @@ func (l *Lowerer) Lower(prog ast.ProgramNode) (*ir.ProgramIR, error) {
 		return nil, err
 	}
 
-	return &ir.ProgramIR{
+	return &ir.Program{
 		BaseInstruction: ir.BaseInstruction{
 			ID:   "program",
 			Type: ir.ProgramInst,
@@ -291,8 +291,14 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 		callRef := l.ctx.CallRefs[i]
 		call := l.ctx.CallNodes[callRef]
 
-		// Skip structural placeholders used for input data representation.
-		if call.NameRef.End == 0 && call.FunctionRef == ast.NilNode && !call.IsPrql {
+		// Structural placeholders (empty calls) are only skipped if they are not the
+		// initial node of a pipeline. In handlers, an empty call (represented by '*')
+		// is preserved as an identity step to facilitate DAG visualization.
+		if i > chain.CallRefsStart &&
+			call.NameRef.End == 0 &&
+			call.FunctionRef == ast.NilNode &&
+			!call.IsPrql &&
+			call.DataframeRef == ast.NilNode {
 			continue
 		}
 

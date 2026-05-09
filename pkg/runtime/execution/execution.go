@@ -18,7 +18,6 @@ const (
 
 // WorkerRegistration contains metadata sent by a worker when it first joins the cluster.
 type WorkerRegistration struct {
-	WorkerID   string            `json:"worker_id"`
 	Address    string            `json:"address"`
 	UDSAddress string            `json:"uds_address,omitempty"`
 	Tags       map[string]string `json:"tags"`
@@ -27,7 +26,6 @@ type WorkerRegistration struct {
 
 // Heartbeat is sent periodically by workers to the control plane.
 type Heartbeat struct {
-	WorkerID  string       `json:"worker_id"`
 	Timestamp time.Time    `json:"timestamp"`
 	Status    WorkerStatus `json:"status"`
 	Load      float64      `json:"load"` // e.g., 0.0 to 1.0
@@ -53,5 +51,4 @@ const (
 	ActionHeartbeat      = "heartbeat"
 	ActionWarmup         = "warmup"
 	ActionSubmitWorkflow = "submit-workflow"
-	ActionGetHistory     = "get-history"
 )

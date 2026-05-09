@@ -112,10 +112,16 @@ workflow main ? on_error {
 	require.NotNil(t, flow)
 	require.NotEmpty(t, flow.Handler, "Workflow handler ID should not be empty")
 
-	// Find handler step
+	// Find handler step (should be the implicit identity step from '*')
 	handlerStepID := flow.Handler
 	handlerStep := irProg.Instructions[handlerStepID].(*ir.StepInstruction)
-	assert.Equal(t, []string{"std/io", "stderr"}, handlerStep.Call)
+	assert.Equal(t, "", handlerStep.DefinitionName)
+	assert.Equal(t, []string{"", ""}, handlerStep.Call)
+
+	// Next step in handler should be io.stderr
+	require.NotEmpty(t, handlerStep.Next)
+	stderrStep := irProg.Instructions[handlerStep.Next].(*ir.StepInstruction)
+	assert.Equal(t, []string{"std/io", "stderr"}, stderrStep.Call)
 }
 
 func TestLowerer_FraudDetection(t *testing.T) {
@@ -270,9 +276,12 @@ workflow FraudDetection ? alert_on_fail {
 
 		if expected.Handler {
 			assert.NotEmpty(t, step.Handler, "Step %d should have a handler", i)
-			// Verify handler content
+			// Verify handler content (starts with identity step '*')
 			hStep := irProg.Instructions[step.Handler].(*ir.StepInstruction)
-			assert.Equal(t, "produce_dead_letter_queue", hStep.DefinitionName)
+			assert.Equal(t, "", hStep.DefinitionName)
+			require.NotEmpty(t, hStep.Next)
+			nextHStep := irProg.Instructions[hStep.Next].(*ir.StepInstruction)
+			assert.Equal(t, "produce_dead_letter_queue", nextHStep.DefinitionName)
 		}
 
 		if expected.Assign != "" {
@@ -335,4 +344,101 @@ workflow main {
 		curr = irProg.Instructions[curr].(*ir.StepInstruction).Next
 	}
 	assert.Equal(t, 3, count)
+}
+
+func TestLowerer_ComplexWorkflowAssignment(t *testing.T) {
+	input := `
+import "std/m" m
+
+step s1 = m.extract
+step s2 = m.filter
+step s3 = m.output
+step s4 = m.search
+step r1 = m.retry
+
+handler recover {
+  *
+    | r1
+}
+
+handler recover_local {
+  *
+    | r1
+}
+
+workflow main ? recover {
+  s1 ? recover_local
+    | s2
+  > pipe_assignment
+
+  pipe_assignment
+    | s1
+    | s2
+  > pipe_assignment_2
+
+  (from pipe_assignment join pipe_assignment_2 select o1)
+    | s3
+
+  s4
+    | (from input join pipe_assignment_2 select o1)
+    | r1
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	progNode := p.Parse()
+	require.Empty(t, p.Errors())
+
+	low := NewLowerer(ctx)
+	irProg, err := low.Lower(progNode)
+	require.NoError(t, err)
+
+	// Find workflow
+	var flow *ir.FlowInstruction
+	for _, inst := range irProg.Instructions {
+		if f, ok := inst.(*ir.FlowInstruction); ok && f.Name == "main" {
+			flow = f
+			break
+		}
+	}
+	require.NotNil(t, flow)
+	assert.NotEmpty(t, flow.Handler, "Workflow should have a handler linked")
+
+	// Verify the DAG structure
+	// Sequence: s1 -> s2 (pipe_assignment) -> s1 -> s2 (pipe_assignment_2) -> query -> s3 -> s4 -> query -> r1
+	currID := flow.Heads[0]
+	sequence := []struct {
+		Name    string
+		Handler bool
+		Assign  string
+	}{
+		{Name: "s1", Handler: true},
+		{Name: "s2", Assign: "pipe_assignment"},
+		{Name: "s1"},
+		{Name: "s2", Assign: "pipe_assignment_2"},
+		{Name: "query"},
+		{Name: "s3"},
+		{Name: "s4"},
+		{Name: "query"},
+		{Name: "r1"},
+	}
+
+	for i, expected := range sequence {
+		require.NotEmpty(t, currID, "DAG ended prematurely at step %d", i)
+		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		assert.Equal(t, expected.Name, step.DefinitionName, "Step %d name mismatch", i)
+
+		if expected.Handler {
+			assert.NotEmpty(t, step.Handler, "Step %d should have a local handler", i)
+		}
+		if expected.Assign != "" {
+			assert.Equal(t, expected.Assign, step.Assignment, "Step %d assignment mismatch", i)
+		}
+
+		currID = step.Next
+	}
+	assert.Empty(t, currID, "DAG has extra steps at the end")
 }

@@ -77,7 +77,6 @@ func (w *Worker) DiscoverPlugins(ctx context.Context) error {
 // Register notifies the Control Plane of the worker's availability.
 func (w *Worker) Register(ctx context.Context) error {
 	reg := WorkerRegistration{
-		WorkerID:   w.ID,
 		Address:    "localhost:0",
 		UDSAddress: w.udsAddr,
 		Runtime:    "go",
@@ -113,7 +112,6 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			hb := Heartbeat{
-				WorkerID:  w.ID,
 				Timestamp: time.Now(),
 				Status:    WorkerStatusIdle,
 			}

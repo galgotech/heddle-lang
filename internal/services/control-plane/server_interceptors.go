@@ -1,4 +1,4 @@
-package server
+package controlplane
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/galgotech/heddle-lang/internal/services/control-plane/state"
+	"github.com/galgotech/heddle-lang/pkg/runtime/state"
 )
 
 const (
@@ -66,7 +66,7 @@ func contextWithHeddleMetadata(ctx context.Context) context.Context {
 	}
 
 	// Initialize the HeddleContext which acts as the primary carrier for execution-scoped state.
-	hCtx := state.NewHeddleContext(ctx, creds, state.Lineage{}, meta)
+	hCtx := state.NewHeddleContext(ctx, creds, meta)
 	return hCtx
 }
 

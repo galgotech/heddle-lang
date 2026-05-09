@@ -2,7 +2,6 @@ package heddlesdk
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
@@ -95,30 +94,6 @@ func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, workflow []byte
 	}
 
 	return string(result.Body), nil
-}
-
-// GetHistory retrieves the execution history for the active workflow.
-func (c *ControlPlaneClient) GetHistory(ctx context.Context) ([]execution.TaskUpdate, error) {
-	action := &flight.Action{
-		Type: execution.ActionGetHistory,
-	}
-
-	stream, err := c.Client.DoAction(ctx, action)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch history: %w", err)
-	}
-
-	result, err := stream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to receive history result: %w", err)
-	}
-
-	var history []execution.TaskUpdate
-	if err := json.Unmarshal(result.Body, &history); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal history: %w", err)
-	}
-
-	return history, nil
 }
 
 // GetHeddleFramePreview fetches a JSON representation of the first few rows of a Table (HeddleFrame).

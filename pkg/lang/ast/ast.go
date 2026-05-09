@@ -110,11 +110,12 @@ type PipeChainNode struct {
 
 // CallNode represents a step call (bound or anonymous) or a query block.
 type CallNode struct {
-	NameRef     StringRef // For bound steps: name of the step.
-	FunctionRef NodeRef   // For anonymous steps: reference to FunctionRefNode.
-	QueryRef    StringRef // For PRQL blocks: the query string.
-	TrapRef     StringRef // Optional ?handler name.
-	IsPrql      bool      // True if this is a PRQL query block.
+	NameRef      StringRef // For bound steps: name of the step.
+	FunctionRef  NodeRef   // For anonymous steps: reference to FunctionRefNode.
+	DataframeRef NodeRef   // For dataframe literals in pipelines.
+	QueryRef     StringRef // For PRQL blocks: the query string.
+	TrapRef      StringRef // Optional ?handler name.
+	IsPrql       bool      // True if this is a PRQL query block.
 }
 
 // DataframeNode represents a constant dataframe [ { ... }, { ... } ].
