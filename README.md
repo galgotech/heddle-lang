@@ -52,11 +52,11 @@ resource kf_broker = kafka.connection {
 }
 
 // 2. Bound Imperative Steps with Resource Injection
-step fetch_user_data = pg.query <connection=pg_db> {
+step fetch_user_data = <connection=pg_db> pg.query {
   query: "SELECT id AS user_id, country FROM users WHERE id = @user_id"
 }
 
-step fetch_risk_profile = ch.query <connection=ch_db> {
+step fetch_risk_profile = <connection=ch_db> ch.query {
   query: "SELECT user_id, velocity_score FROM risk_metrics WHERE user_id = @user_id"
 }
 

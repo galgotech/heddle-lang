@@ -103,7 +103,7 @@ resource resource_pg = pg.connection {
 }
 
 // Step with automatic type inference based on SQL schema
-step fetch_users = pg.query <connection=resource_pg> {
+step fetch_users = <connection=resource_pg> pg.query {
   query: "SELECT id, name, email FROM users WHERE status = 'active' and last_login > @timestamp"
 }
 
@@ -150,7 +150,7 @@ resource resource_pg = pg.connection {
   port: 5432
 }
 
-step fetch_users = pg.query <connection=resource_pg> {
+step fetch_users = <connection=resource_pg> pg.query {
   query: "SELECT id, name, email FROM users WHERE status = 'active' and last_login > @timestamp"
 }
 

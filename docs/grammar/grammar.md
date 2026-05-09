@@ -64,7 +64,7 @@ resource_binding = "resource" IDENTIFIER "=" function_ref ;
 
 step_binding     = "step" IDENTIFIER "=" function_ref ;
 
-function_ref     = [ IDENTIFIER "." ] IDENTIFIER [ resource_ref ] [ function_config ] ;
+function_ref     = [ resource_ref ] [ IDENTIFIER "." ] IDENTIFIER [ function_config ] ;
 
 resource_ref     = "<" IDENTIFIER "=" IDENTIFIER { "," IDENTIFIER "=" IDENTIFIER } ">" ;
 

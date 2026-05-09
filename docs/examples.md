@@ -35,11 +35,11 @@ resource kf_broker = kafka.connection {
 }
 
 // 2. Bound Imperative Steps with Resource Injection
-step fetch_user_data = pg.query <connection=pg_db> {
+step fetch_user_data = <connection=pg_db> pg.query {
   query: "SELECT id AS user_id, country FROM users WHERE id = @id"
 }
 
-step fetch_risk_profile = ch.query <connection=ch_db> {
+step fetch_risk_profile = <connection=ch_db> ch.query {
   query: "SELECT user_id, velocity_score FROM risk_metrics WHERE user_id = @user_id"
 }
 
@@ -50,20 +50,20 @@ step generate_audit = openai.prompt {
 // Global error catcher
 handler alert_on_fail {
   *
-    | kafka.produce <broker=kf_broker> { topic: "dlq_alerts" }
+    | <broker=kf_broker> kafka.produce { topic: "dlq_alerts" }
 }
 
 // Step error catcher
 handler alert_step_fail {
   *
-    | kafka.produce <broker=kf_broker> { topic: "dlq_alerts" }
+    | <broker=kf_broker> kafka.produce { topic: "dlq_alerts" }
 }
 
 
 // 3. Strict DAG Workflow
 workflow FraudDetection ? alert_on_fail {
 
-  kafka.consume <broker=kf_broker> { topic: "live_transactions" }
+  <broker=kf_broker> kafka.consume { topic: "live_transactions" }
   > tx_stream
 
   // 1. Filter: High-value txns isolated via native PRQL
@@ -83,6 +83,6 @@ workflow FraudDetection ? alert_on_fail {
         join fetch_risk_profile (==user_id)
       )
     | generate_audit
-    | kafka.produce <broker=kf_broker> { topic: "fraud_audits" }
+    | <broker=kf_broker> kafka.produce { topic: "fraud_audits" }
 }
 ```
