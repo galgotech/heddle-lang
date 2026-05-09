@@ -1,5 +1,17 @@
 package ast
 
+type LiteralType uint8
+
+const (
+	LiteralString LiteralType = iota
+	LiteralInt
+	LiteralFloat
+	LiteralBool
+	LiteralNull
+	LiteralDict
+	LiteralList
+)
+
 // NodeRef represents an index into the respective slice in ASTContext.
 type NodeRef uint32
 
@@ -134,17 +146,6 @@ type LiteralNode struct {
 	ValueRef StringRef // For primitive types
 	Ref      NodeRef   // For Dict or List
 }
-
-type LiteralType uint8
-
-const (
-	LiteralString LiteralType = iota
-	LiteralNumber
-	LiteralBool
-	LiteralNull
-	LiteralDict
-	LiteralList
-)
 
 // ProgramNode is the root of the AST.
 type ProgramNode struct {
