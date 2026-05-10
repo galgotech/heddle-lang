@@ -3,24 +3,16 @@
 # Variables
 BINARY_DIR=bin
 GO=go
-PROTOC=protoc
-PROTO_DIR=sdk/go/proto
-PROTO_FILES=$(PROTO_DIR)/worker.proto $(PROTO_DIR)/locality.proto
 
 # Services (Main build target)
 SERVICES=heddle heddle-plugin-go
 RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
-.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit proto docs-serve docs-build
+.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit docs-serve docs-build
 
 # Default target
 all: build
-
-proto:
-	$(PROTOC) --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		$(PROTO_FILES)
 
 # Create bin directory
 $(BINARY_DIR):

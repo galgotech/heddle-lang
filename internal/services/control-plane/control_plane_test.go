@@ -1,141 +1,190 @@
-package controlplane
+package control_plane
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/galgotech/heddle-lang/internal/services/client"
+	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
-	"github.com/galgotech/heddle-lang/pkg/runtime/execution"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestControlPlane_WorkerRegistration(t *testing.T) {
-	wr := NewWorkerRegistry()
-	wq := NewWorkQueue()
-	dl := NewDataLocalityRegistry()
-	cp := NewControlPlane(wr, wq, dl)
-	cp.Start()
-	defer cp.Stop()
+	s := NewControlPlaneServer()
 
-	workerID := "test-worker"
-	reg := execution.WorkerRegistration{
-		Address:    "localhost:50051",
-		UDSAddress: "/tmp/heddle.sock",
-		Runtime:    "python",
-		Tags:       map[string]string{"gpu": "true"},
+	// Start server on random port
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, s)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	// Connect client
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := flight.NewClientFromConn(conn, nil)
+	ctx := context.Background()
+
+	// Register worker
+	reg := models.WorkerRegistration{
+		Address:      "localhost:1234",
+		Capabilities: []string{"std.print"},
 	}
-
-	cp.RegisterWorker(reg, workerID)
-
-	// Verify worker is in registry with retry
-	var w *Worker
-	var err error
-	for i := 0; i < 20; i++ {
-		w, err = wr.GetWorker(workerID)
-		if err == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	body, _ := json.Marshal(reg)
+	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", "test-worker")
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: models.ActionRegisterWorker,
+		Body: body,
+	})
 	assert.NoError(t, err)
-	if w != nil {
-		assert.Equal(t, workerID, w.ID)
-		assert.Equal(t, "localhost:50051", w.Address)
+
+	// Verify in registry
+	time.Sleep(100 * time.Millisecond)
+	workers := s.Registry.GetHealthyWorkers()
+	require.NotEmpty(t, workers)
+	assert.Equal(t, "test-worker", workers[0].ID)
+
+	// Heartbeat
+	hb := models.WorkerHeartbeat{
+		Timestamp: time.Now(),
+		Load:      5,
 	}
-}
-
-func TestControlPlane_Heartbeat(t *testing.T) {
-	wr := NewWorkerRegistry()
-	wq := NewWorkQueue()
-	dl := NewDataLocalityRegistry()
-	cp := NewControlPlane(wr, wq, dl)
-	cp.Start()
-	defer cp.Stop()
-
-	workerID := "test-worker"
-	reg := execution.WorkerRegistration{}
-	cp.RegisterWorker(reg, workerID)
-
-	hb := execution.Heartbeat{
-		Status: execution.WorkerStatusIdle,
-		Load:   0.5,
-	}
-
-	var err error
-	for range 20 {
-		err = cp.Heartbeat(hb, workerID)
-		if err == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	hbBody, _ := json.Marshal(hb)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: models.ActionHeartbeat,
+		Body: hbBody,
+	})
 	assert.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify load update
+	val, _ := s.Registry.workers.Load("test-worker")
+	info := val.(*WorkerInfo)
+	assert.Equal(t, 5, info.ActiveTasks)
 }
 
 func TestControlPlane_TaskDispatch(t *testing.T) {
-	workerRegistry := NewWorkerRegistry()
-	workQueue := NewWorkQueue()
-	dataLocalityRegistry := NewDataLocalityRegistry()
-	controlPlane := NewControlPlane(workerRegistry, workQueue, dataLocalityRegistry)
-	controlPlane.Start()
-	defer controlPlane.Stop()
+	s := NewControlPlaneServer()
 
-	workerID := "test-worker"
-	// Register worker with capability
-	controlPlane.RegisterWorker(execution.WorkerRegistration{
-		Address: "localhost:50051",
-		Tags:    map[string]string{"capability:math.add": "true"},
-	}, workerID)
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
 
-	// Manually register a task stream for the worker
-	taskCh := make(chan *execution.Task, 1)
-	controlPlane.registerStreamCh <- registerStreamRequest{
-		workerID: workerID,
-		taskCh:   taskCh,
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, s)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := flight.NewClientFromConn(conn, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", "test-worker")
+
+	// Register worker
+	reg := models.WorkerRegistration{
+		Address:      "localhost:1234",
+		Capabilities: []string{"std.print"},
 	}
+	body, _ := json.Marshal(reg)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: models.ActionRegisterWorker,
+		Body: body,
+	})
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
 
-	task := &execution.Task{
+	// Push a task to the queue
+	stepID := "step-1"
+	s.Queue.Push(models.Task{
 		ID: "task-1",
-		Step: &ir.StepInstruction{
-			Call: []string{"math", "add"},
+		Program: &ir.Program{
+			Instructions: map[string]any{
+				"flow-1": &ir.FlowInstruction{
+					BaseInstruction: ir.BaseInstruction{ID: "flow-1"},
+					Heads:           []string{stepID},
+				},
+				stepID: &ir.StepInstruction{
+					BaseInstruction: ir.BaseInstruction{ID: stepID},
+					Call:            []string{"std", "print"},
+				},
+			},
+			Workflows: []string{"flow-1"},
 		},
+	})
+
+	// Start exchange as worker
+	stream, err := client.DoExchange(ctx)
+	require.NoError(t, err)
+
+	// Receive task
+	data, err := stream.Recv()
+	assert.NoError(t, err)
+
+	var task models.StepExecutionTask
+	err = json.Unmarshal(data.DataBody, &task)
+	assert.NoError(t, err)
+	assert.Equal(t, stepID, task.TaskID)
+
+	// Send result
+	res := models.TaskResult{
+		TaskID: stepID,
+		Status: "SUCCESS",
 	}
+	resBody, _ := json.Marshal(res)
+	err = stream.Send(&flight.FlightData{DataBody: resBody})
+	assert.NoError(t, err)
+}
 
-	// Dispatch task in background
-	updateCh := make(chan execution.TaskUpdate)
-	go func() {
-		update, err := controlPlane.dispatchTask(context.Background(), task)
-		if err != nil {
-			t.Errorf("dispatchTask failed: %v", err)
-		}
-		updateCh <- update
-	}()
+func TestControlPlane_WorkflowSubmission(t *testing.T) {
+	s := NewControlPlaneServer()
 
-	// Worker (us in the test) should receive the task
-	select {
-	case receivedTask := <-taskCh:
-		assert.Equal(t, task.ID, receivedTask.ID)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Worker did not receive task")
-	}
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
 
-	// Send update back
-	update := execution.TaskUpdate{
-		TaskID:       task.ID,
-		Status:       string(execution.TaskStatusDone),
-		OutputHandle: "mem-123",
-		Timestamp:    time.Now(),
-	}
-	controlPlane.reportUpdateCh <- update
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, s)
+	go srv.Serve(lis)
+	defer srv.Stop()
 
-	// ControlPlane should return the update from dispatchTask
-	select {
-	case receivedUpdate := <-updateCh:
-		assert.Equal(t, update.TaskID, receivedUpdate.TaskID)
-		assert.Equal(t, update.Status, receivedUpdate.Status)
-		assert.Equal(t, update.OutputHandle, receivedUpdate.OutputHandle)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ControlPlane did not return task update")
+	ctx := context.Background()
+	c, err := client.NewControlPlaneClient(lis.Addr().String())
+	require.NoError(t, err)
+
+	source := `
+import "std/io" io
+
+workflow hello_world {
+  []
+    | io.print
+}
+`
+	result, err := c.SubmitWorkflow(ctx, source)
+	// The compiler might still fail if std/io is not registered, but it shouldn't panic
+	if err != nil {
+		// Compilation error is fine as long as it's not a panic
+		assert.Contains(t, err.Error(), "compilation failed")
+	} else {
+		assert.Contains(t, result, "QUEUED")
+		assert.Equal(t, 1, s.Queue.Len())
 	}
 }

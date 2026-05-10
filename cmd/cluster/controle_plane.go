@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -29,7 +31,11 @@ var cpCmd = &cobra.Command{
 			zap.Int("port", port),
 			zap.String("standard", "Apache Arrow Flight"))
 
-		controlplane.ListenAndServe(port)
+		cp := controlplane.NewControlPlaneServer()
+		err := cp.Listen(fmt.Sprintf(":%d", port))
+		if err != nil {
+			logger.L().Fatal("failed to start control plane", zap.Error(err))
+		}
 	},
 }
 

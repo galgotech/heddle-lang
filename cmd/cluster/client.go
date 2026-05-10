@@ -3,17 +3,14 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"io"
+	"log"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
-	heddleclient "github.com/galgotech/heddle-lang/pkg/client"
+	"github.com/galgotech/heddle-lang/internal/services/client"
 	"github.com/galgotech/heddle-lang/pkg/config"
-	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var clientCfgFile string
@@ -31,41 +28,25 @@ var submitCmd = &cobra.Command{
 	Short: "Submit a heddle file for processing",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := logger.Init(logger.Config{Development: true}); err != nil {
-			panic(err)
+		filePath := args[0]
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Fatalf("Failed to read file: %v", err)
 		}
-		defer logger.Sync()
 
 		serverAddr := viper.GetString("server")
-		filePath := args[0]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		client, err := heddleclient.NewControlPlaneClient(serverAddr)
+		c, err := client.NewControlPlaneClient(serverAddr)
 		if err != nil {
-			logger.L().Fatal("Failed to create client", zap.Error(err))
-		}
-		defer client.Close()
-
-		file, err := os.Open(filePath)
-		if err != nil {
-			logger.L().Fatal("Failed to open file", zap.Error(err), zap.String("path", filePath))
-		}
-		defer file.Close()
-
-		content, err := io.ReadAll(file)
-		if err != nil {
-			logger.L().Fatal("Failed to read file", zap.Error(err), zap.String("path", filePath))
+			log.Fatalf("Failed to connect to control plane: %v", err)
 		}
 
-		logger.L().Info("Submitting workflow", zap.String("path", filePath))
-		result, err := client.SubmitWorkflow(ctx, content)
+		ctx := context.Background()
+		result, err := c.SubmitWorkflow(ctx, string(content))
 		if err != nil {
-			logger.L().Fatal("Submission failed", zap.Error(err))
+			log.Fatalf("Submission failed: %v", err)
 		}
 
-		fmt.Printf("Success: %s\n", result)
+		fmt.Printf("Workflow submitted successfully: %s\n", result)
 	},
 }
 

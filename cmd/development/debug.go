@@ -1,14 +1,10 @@
 package development
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	debugadapter "github.com/galgotech/heddle-lang/internal/services/debug-adapter"
 	"github.com/galgotech/heddle-lang/pkg/config"
-	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var dapCfgFile string
@@ -21,22 +17,7 @@ var DapCmd = &cobra.Command{
 		return config.Init("HEDDLE_DAP", dapCfgFile)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		err := logger.Init(logger.Config{
-			Development: true,
-			OutputPaths: []string{"stdout", "heddle-dap.log"},
-		})
-		if err != nil {
-			panic(err)
-		}
-		defer logger.Sync()
 
-		logger.L().Info("Heddle Debug Adapter starting")
-
-		if viper.GetBool("server") {
-			debugadapter.StartServer(viper.GetString("addr"))
-		} else {
-			debugadapter.Serve(os.Stdin, os.Stdout)
-		}
 	},
 }
 

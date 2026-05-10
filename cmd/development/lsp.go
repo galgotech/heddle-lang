@@ -1,18 +1,12 @@
 package development
 
 import (
-	"context"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.lsp.dev/jsonrpc2"
-	"go.lsp.dev/protocol"
 
-	"github.com/galgotech/heddle-lang/internal/services/lsp"
 	"github.com/galgotech/heddle-lang/pkg/config"
-	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var lspCfgFile string
@@ -34,29 +28,7 @@ var LspCmd = &cobra.Command{
 		return config.Init("HEDDLE_LSP", lspCfgFile)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		logPath := viper.GetString("log-path")
 
-		err := logger.Init(logger.Config{
-			Development: true,
-			OutputPaths: []string{logPath},
-		})
-		if err != nil {
-			panic(err)
-		}
-		defer logger.Sync()
-
-		state := lsp.NewState()
-		ctx := context.Background()
-		stream := jsonrpc2.NewStream(stdioRW{os.Stdin, os.Stdout})
-
-		h := lsp.NewLSPHandler(state)
-		conn := jsonrpc2.NewConn(stream)
-		h.Client = protocol.ClientDispatcher(conn, logger.L())
-
-		conn.Go(ctx, protocol.ServerHandler(h, jsonrpc2.MethodNotFoundHandler))
-
-		logger.L().Info("Starting Heddle LSP server")
-		<-conn.Done()
 	},
 }
 

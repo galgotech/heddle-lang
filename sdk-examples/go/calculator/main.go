@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
+	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
@@ -123,15 +124,15 @@ func Divide(ctx context.Context, cfg Config, input *core.Table) (*core.Table, er
 }
 
 func main() {
-	p := plugin.New()
+	p := plugin.New("calculator")
 
-	plugin.RegisterStep(p, "add", Add)
-	plugin.RegisterStep(p, "subtract", Subtract)
-	plugin.RegisterStep(p, "multiply", Multiply)
-	plugin.RegisterStep(p, "divide", Divide)
+	p.RegisterStep("add", Add)
+	p.RegisterStep("subtract", Subtract)
+	p.RegisterStep("multiply", Multiply)
+	p.RegisterStep("divide", Divide)
 
-	log.Println("Calculator plugin starting...")
-	if err := p.Serve(); err != nil {
-		log.Fatal(err)
+	logger.L().Info("Calculator plugin starting...")
+	if err := p.Start(); err != nil {
+		logger.L().Fatal("Plugin failed", zap.Error(err))
 	}
 }
