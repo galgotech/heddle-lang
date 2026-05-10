@@ -6,14 +6,16 @@ import (
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // Lowerer is the compiler component responsible for transforming the high-level AST
 // into a flat, serializable Intermediate Representation (IR). It performs symbol
 // resolution, resource injection, and DAG construction.
 type Lowerer struct {
-	prog *ast.ProgramNode
-	ctx  *ast.ASTContext
+	program *ast.ProgramNode
+	ctx     *ast.ASTContext
 
 	// instructions stores all generated IR instructions indexed by their unique IDs.
 	instructions map[string]any
@@ -31,8 +33,8 @@ type Lowerer struct {
 
 // Lower executes the multi-pass transformation from AST to Program.
 // The process follows a strict resolution order: Imports -> Resources -> Steps -> Handlers -> Workflows.
-func (l *Lowerer) Lower(prog ast.ProgramNode) (*ir.Program, error) {
-	l.prog = &prog
+func (l *Lowerer) Lower(program ast.ProgramNode) (*ir.Program, error) {
+	l.program = &program
 
 	// Phase 1: Establish module namespaces.
 	if err := l.lowerImports(); err != nil {
@@ -71,7 +73,7 @@ func (l *Lowerer) Lower(prog ast.ProgramNode) (*ir.Program, error) {
 
 // lowerImports processes module import declarations and populates the import namespace map.
 func (l *Lowerer) lowerImports() error {
-	for i := l.prog.ImportRefsStart; i < l.prog.ImportRefsEnd; i++ {
+	for i := l.program.ImportRefsStart; i < l.program.ImportRefsEnd; i++ {
 		nodeRef := l.ctx.ImportRefs[i]
 		node := l.ctx.ImportNodes[nodeRef]
 		path := l.getString(node.PathRef)
@@ -87,9 +89,7 @@ func (l *Lowerer) lowerImports() error {
 		}
 
 		// Register the alias for subsequent module-qualified reference resolution.
-		if alias != "" {
-			l.importMap[alias] = path
-		}
+		l.importMap[alias] = path
 		l.addInstruction(inst)
 	}
 	return nil
@@ -97,7 +97,7 @@ func (l *Lowerer) lowerImports() error {
 
 // lowerResources transforms resource bindings into IR instructions, resolving provider paths.
 func (l *Lowerer) lowerResources() error {
-	for i := l.prog.ResourceRefsStart; i < l.prog.ResourceRefsEnd; i++ {
+	for i := l.program.ResourceRefsStart; i < l.program.ResourceRefsEnd; i++ {
 		nodeRef := l.ctx.ResourceRefs[i]
 		node := l.ctx.ResourceNodes[nodeRef]
 		name := l.getString(node.NameRef)
@@ -132,7 +132,7 @@ func (l *Lowerer) lowerResources() error {
 
 // lowerSteps transforms named step definitions into base instructions for later instantiation.
 func (l *Lowerer) lowerSteps() error {
-	for i := l.prog.StepRefsStart; i < l.prog.StepRefsEnd; i++ {
+	for i := l.program.StepRefsStart; i < l.program.StepRefsEnd; i++ {
 		nodeRef := l.ctx.StepRefs[i]
 		node := l.ctx.StepBindingNodes[nodeRef]
 		name := l.getString(node.NameRef)
@@ -187,7 +187,7 @@ func (l *Lowerer) lowerResourceRefs(ref ast.NodeRef) map[string]string {
 
 // lowerHandlers transforms handler declarations into isolated sub-pipelines.
 func (l *Lowerer) lowerHandlers() error {
-	for i := l.prog.HandlerRefsStart; i < l.prog.HandlerRefsEnd; i++ {
+	for i := l.program.HandlerRefsStart; i < l.program.HandlerRefsEnd; i++ {
 		nodeRef := l.ctx.HandlerRefs[i]
 		node := l.ctx.HandlerNodes[nodeRef]
 		name := l.getString(node.NameRef)
@@ -210,7 +210,7 @@ func (l *Lowerer) lowerHandlerStatements(node ast.HandlerNode) (string, error) {
 		stmtRef := l.ctx.HandlerStatementRefs[i]
 		stmtNode := l.ctx.HandlerStatementNodes[stmtRef]
 
-		hStmt, tailID, err := l.lowerPipelineStatement(l.ctx.PipelineStatementNodes[stmtNode.StmtRef])
+		hStmt, tailID, err := l.lowerPipelineStatement(l.ctx.PipelineStatementNodes[stmtNode.StmtRef], stmtNode.IsCatchAll)
 		if err != nil {
 			return "", err
 		}
@@ -234,7 +234,7 @@ func (l *Lowerer) lowerHandlerStatements(node ast.HandlerNode) (string, error) {
 
 // lowerWorkflows constructs the main execution DAGs, linking pipelines and traps.
 func (l *Lowerer) lowerWorkflows() error {
-	for i := l.prog.WorkflowRefsStart; i < l.prog.WorkflowRefsEnd; i++ {
+	for i := l.program.WorkflowRefsStart; i < l.program.WorkflowRefsEnd; i++ {
 		nodeRef := l.ctx.WorkflowRefs[i]
 		node := l.ctx.WorkflowNodes[nodeRef]
 		name := l.getString(node.NameRef)
@@ -259,7 +259,7 @@ func (l *Lowerer) lowerWorkflows() error {
 			stmtRef := l.ctx.StatementRefs[j]
 			stmt := l.ctx.PipelineStatementNodes[stmtRef]
 
-			headID, _, err := l.lowerPipelineStatement(stmt)
+			headID, _, err := l.lowerPipelineStatement(stmt, false)
 			if err != nil {
 				return err
 			}
@@ -281,7 +281,7 @@ func (l *Lowerer) lowerWorkflows() error {
 }
 
 // lowerPipelineStatement converts a pipeline of calls into a linked chain of IR instructions.
-func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID, tailID string, err error) {
+func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatchAll bool) (headID, tailID string, err error) {
 	// A statement represents either a PipeChain or a specialized Dataframe operation.
 	chain := l.ctx.PipeChainNodes[stmt.ExprRef]
 
@@ -298,11 +298,34 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 			call.FunctionRef == ast.NilNode &&
 			!call.IsPrql &&
 			call.DataframeRef == ast.NilNode {
+			logger.L().Warn("Skipping structural placeholder call", zap.Any("call", call))
 			continue
 		}
 
 		stepID := ""
-		if call.IsPrql {
+		isEmpty := call.NameRef.End == 0 &&
+			call.FunctionRef == ast.NilNode &&
+			!call.IsPrql &&
+			call.DataframeRef == ast.NilNode
+
+		if isEmpty {
+			// Identity step representing '*' or implicit input redirection.
+			stepID = l.nextID("identity")
+			inst := &ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{
+					ID:   stepID,
+					Type: ir.StepInst,
+				},
+				DefinitionName: "identity",
+				Call:           []string{"std", "identity"},
+				Config:         make(map[string]any),
+			}
+			if isCatchAll {
+				inst.Config["is_catch_all"] = true
+			}
+			l.addInstruction(inst)
+
+		} else if call.IsPrql {
 			// Handle inline relational transformations via the standard query step.
 			stepID = l.nextID("query")
 			inst := &ir.StepInstruction{
@@ -319,6 +342,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 				inst.Handler = l.handlerMap[trapName]
 			}
 			l.addInstruction(inst)
+
 		} else if call.NameRef.End > 0 {
 			name := l.getString(call.NameRef)
 
@@ -349,6 +373,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 				inst.Handler = l.handlerMap[trapName]
 			}
 			l.addInstruction(&inst)
+
 		} else if call.DataframeRef != ast.NilNode {
 			// Handle dataframe literals in pipelines by creating a specialized data step.
 			stepID = l.nextID("data")
@@ -371,6 +396,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 				inst.Handler = l.handlerMap[trapName]
 			}
 			l.addInstruction(inst)
+
 		} else {
 			// Handle anonymous calls by resolving modules and generating fresh instructions.
 			fnRef := l.ctx.FunctionRefNodes[call.FunctionRef]

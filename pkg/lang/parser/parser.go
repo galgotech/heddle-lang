@@ -291,22 +291,26 @@ func (p *Parser) parseHandler() ast.NodeRef {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
-	p.expectPeek(lexer.LBRACE)
-	p.expectPeek(lexer.NEWLINE)
-	p.expectPeek(lexer.INDENT)
-	p.nextToken()
+	if p.peekTokenIs(lexer.QUESTION) {
+		p.nextToken() // Move to '?'
+		p.curError("handlers cannot have error traps")
+		if p.peekTokenIs(lexer.IDENTIFIER) {
+			p.nextToken() // Move past trap name
+		}
+	}
+	if !p.expectPeek(lexer.LBRACE) {
+		return 0
+	}
+	p.nextToken() // Move past '{'
 
-	for !p.curTokenIs(lexer.DEDENT) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) {
+	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
+		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}
 		p.ctx.AddHandlerStatementRef(p.parseHandlerStatement())
 	}
 
-	for p.curTokenIs(lexer.DEDENT) || p.curTokenIs(lexer.NEWLINE) {
-		p.nextToken()
-	}
 	if p.curTokenIs(lexer.RBRACE) {
 		p.nextToken()
 	}
@@ -356,21 +360,16 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 		p.nextToken()
 	}
 	p.expectCur(lexer.LBRACE)
-	p.expectPeek(lexer.NEWLINE)
-	p.expectPeek(lexer.INDENT)
 	p.nextToken()
 
-	for !p.curTokenIs(lexer.DEDENT) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) {
+	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
+		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}
 		p.ctx.AddStatementRef(p.parsePipelineStatement())
 	}
 
-	for p.curTokenIs(lexer.DEDENT) || p.curTokenIs(lexer.NEWLINE) {
-		p.nextToken()
-	}
 	if p.curTokenIs(lexer.RBRACE) {
 		p.nextToken()
 	}
@@ -608,12 +607,10 @@ func (p *Parser) parseDict() ast.NodeRef {
 		PairRefsStart: uint32(len(p.ctx.PairRefs)),
 	}
 	p.expectCur(lexer.LBRACE)
-	p.expectPeek(lexer.NEWLINE)
-	p.expectPeek(lexer.INDENT)
 	p.nextToken()
 
-	for !p.curTokenIs(lexer.DEDENT) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) {
+	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
+		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}
@@ -638,9 +635,6 @@ func (p *Parser) parseDict() ast.NodeRef {
 		p.nextToken()
 	}
 
-	for p.curTokenIs(lexer.DEDENT) || p.curTokenIs(lexer.NEWLINE) {
-		p.nextToken()
-	}
 	if p.curTokenIs(lexer.RBRACE) {
 		p.nextToken()
 	}
@@ -656,7 +650,7 @@ func (p *Parser) parseList() ast.NodeRef {
 	}
 	p.nextToken() // Skip '['
 	for !p.curTokenIs(lexer.RBRACKET) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.COMMA) {
+		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.COMMA) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}

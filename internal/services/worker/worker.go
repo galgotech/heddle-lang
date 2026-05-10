@@ -111,7 +111,7 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 			var result models.TaskResult
 			var err error
 			// Retry dispatch for up to 3 seconds to allow plugins to connect
-			for i := 0; i < 30; i++ {
+			for range 30 {
 				result, err = w.PluginServer.DispatchTask(ctx, t)
 				if err == nil {
 					break

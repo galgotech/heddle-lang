@@ -115,8 +115,9 @@ workflow main ? on_error {
 	// Find handler step (should be the implicit identity step from '*')
 	handlerStepID := flow.Handler
 	handlerStep := irProg.Instructions[handlerStepID].(*ir.StepInstruction)
-	assert.Equal(t, "", handlerStep.DefinitionName)
-	assert.Equal(t, []string{"", ""}, handlerStep.Call)
+	assert.Equal(t, "identity", handlerStep.DefinitionName)
+	assert.Equal(t, []string{"std", "identity"}, handlerStep.Call)
+	assert.True(t, handlerStep.Config["is_catch_all"].(bool))
 
 	// Next step in handler should be io.stderr
 	require.NotEmpty(t, handlerStep.Next)
@@ -278,7 +279,7 @@ workflow FraudDetection ? alert_on_fail {
 			assert.NotEmpty(t, step.Handler, "Step %d should have a handler", i)
 			// Verify handler content (starts with identity step '*')
 			hStep := irProg.Instructions[step.Handler].(*ir.StepInstruction)
-			assert.Equal(t, "", hStep.DefinitionName)
+			assert.Equal(t, "identity", hStep.DefinitionName)
 			require.NotEmpty(t, hStep.Next)
 			nextHStep := irProg.Instructions[hStep.Next[0]].(*ir.StepInstruction)
 			assert.Equal(t, "produce_dead_letter_queue", nextHStep.DefinitionName)
@@ -516,4 +517,57 @@ workflow main {
 	printStepID := dataStep.Next[0]
 	printStep := irProg.Instructions[printStepID].(*ir.StepInstruction)
 	assert.Equal(t, []string{"std/io", "print"}, printStep.Call)
+}
+
+func TestLowerer_IdentityStep(t *testing.T) {
+	input := `
+import "std/io" io
+
+step a = io.print
+step b = io.print
+
+handler test {
+  *
+    | io.print
+}
+
+workflow main ? test {
+  a
+    | b
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	progNode := p.Parse()
+	require.Empty(t, p.Errors())
+
+	low := NewLowerer(ctx)
+	irProg, err := low.Lower(progNode)
+	require.NoError(t, err)
+
+	// Verify handler has an identity step at the head
+	var handlerStep *ir.StepInstruction
+	for _, inst := range irProg.Instructions {
+		if s, ok := inst.(*ir.StepInstruction); ok && s.DefinitionName == "identity" {
+			handlerStep = s
+			break
+		}
+	}
+	require.NotNil(t, handlerStep, "Identity step '*' not found in IR")
+	assert.Equal(t, []string{"std", "identity"}, handlerStep.Call)
+
+	// Verify identity step links to io.print
+	require.NotEmpty(t, handlerStep.Next)
+	nextStep := irProg.Instructions[handlerStep.Next[0]].(*ir.StepInstruction)
+	assert.Equal(t, []string{"std/io", "print"}, nextStep.Call)
+
+	// Verify main workflow is still linked correctly
+	flowID := irProg.Workflows[0]
+	flow := irProg.Instructions[flowID].(*ir.FlowInstruction)
+	aID := flow.Heads[0]
+	aStep := irProg.Instructions[aID].(*ir.StepInstruction)
+	assert.Equal(t, "a", aStep.DefinitionName)
 }

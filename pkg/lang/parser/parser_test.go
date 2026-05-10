@@ -549,3 +549,195 @@ workflow main ? recover {
 		}
 	})
 }
+
+func TestWorkflowWithHandlerAndPRQL(t *testing.T) {
+	input := `
+import "std/io" io
+
+handler on_error {
+  *
+    | io.stderr
+}
+
+workflow main ? on_error {
+  (from input)
+}
+`
+	runParserTest(t, input, 0, func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+		// Verify Import
+		if (program.ImportRefsEnd - program.ImportRefsStart) != 1 {
+			t.Errorf("expected 1 import, got %d", program.ImportRefsEnd-program.ImportRefsStart)
+		}
+
+		// Verify Handler
+		if (program.HandlerRefsEnd - program.HandlerRefsStart) != 1 {
+			t.Errorf("expected 1 handler, got %d", program.HandlerRefsEnd-program.HandlerRefsStart)
+		}
+		handlerRef := ctx.HandlerRefs[program.HandlerRefsStart]
+		handler := ctx.HandlerNodes[handlerRef]
+		if ctx.GetString(handler.NameRef) != "on_error" {
+			t.Errorf("expected handler on_error, got %q", ctx.GetString(handler.NameRef))
+		}
+
+		handlerStmtCount := handler.HandlerStatementRefsEnd - handler.HandlerStatementRefsStart
+		if handlerStmtCount != 1 {
+			t.Fatalf("expected 1 handler statement, got %d", handlerStmtCount)
+		}
+		hStmtRef := ctx.HandlerStatementRefs[handler.HandlerStatementRefsStart]
+		hStmt := ctx.HandlerStatementNodes[hStmtRef]
+		if !hStmt.IsCatchAll {
+			t.Errorf("expected catch-all (*) in handler")
+		}
+		// In handler, * | io.stderr results in a pipe chain with an implicit empty call first
+		ps := ctx.PipelineStatementNodes[hStmt.StmtRef]
+		pc := ctx.PipeChainNodes[ps.ExprRef]
+		if (pc.CallRefsEnd - pc.CallRefsStart) != 2 {
+			t.Errorf("expected 2 calls in handler pipe chain (implicit + stderr), got %d", pc.CallRefsEnd-pc.CallRefsStart)
+		}
+
+		// Verify Workflow
+		if (program.WorkflowRefsEnd - program.WorkflowRefsStart) != 1 {
+			t.Errorf("expected 1 workflow, got %d", program.WorkflowRefsEnd-program.WorkflowRefsStart)
+		}
+		wfRef := ctx.WorkflowRefs[program.WorkflowRefsStart]
+		wf := ctx.WorkflowNodes[wfRef]
+		if ctx.GetString(wf.NameRef) != "main" {
+			t.Errorf("expected workflow main, got %q", ctx.GetString(wf.NameRef))
+		}
+		if ctx.GetString(wf.TrapRef) != "on_error" {
+			t.Errorf("expected trap on_error, got %q", ctx.GetString(wf.TrapRef))
+		}
+
+		wfStmtCount := wf.StatementRefsEnd - wf.StatementRefsStart
+		if wfStmtCount != 1 {
+			t.Fatalf("expected 1 workflow statement, got %d", wfStmtCount)
+		}
+		wfStmtRef := ctx.StatementRefs[wf.StatementRefsStart]
+		wfStmt := ctx.PipelineStatementNodes[wfStmtRef]
+		wfPc := ctx.PipeChainNodes[wfStmt.ExprRef]
+		if (wfPc.CallRefsEnd - wfPc.CallRefsStart) != 1 {
+			t.Errorf("expected 1 call in workflow pipe chain, got %d", wfPc.CallRefsEnd-wfPc.CallRefsStart)
+		}
+		callRef := ctx.CallRefs[wfPc.CallRefsStart]
+		call := ctx.CallNodes[callRef]
+		if !call.IsPrql {
+			t.Errorf("expected PRQL call")
+		}
+		if ctx.GetString(call.QueryRef) != "(from input)" {
+			t.Errorf("expected PRQL query '(from input)', got %q", ctx.GetString(call.QueryRef))
+		}
+	})
+}
+
+func TestInvalidSyntax(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		expectedErrs int
+	}{
+		{
+			name: "invalid splat in workflow",
+			input: `
+import "std/io" io
+
+workflow main {
+  *
+    | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid handler trap",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+handler error2 ? error {
+  *
+    | io.print
+}
+
+workflow main {
+  fetch_users
+    | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runParserTest(t, tt.input, tt.expectedErrs, nil)
+		})
+	}
+}
+
+func TestFlexibleSyntax(t *testing.T) {
+	input := `
+import "test/test" test
+
+step test = test.test { config: "..."}
+
+handler test1 {}
+
+handler test2 {
+}
+
+handler test3 {
+
+}
+
+workflow data_test {
+  [{ "id": 1, "val": "a"}, { "id": 2, "val": "b"}]
+    | test ? test1
+    | test.test { config: "..."}
+    | test.test { config: "..."} ? test1
+  > my_data
+
+  my_data
+    | io.print
+}
+
+workflow data_test2 {}
+
+workflow data_test3 {
+
+}
+
+workflow data_test4 {
+}
+`
+	runParserTest(t, input, 0, func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+		wfRef := ctx.WorkflowRefs[program.WorkflowRefsStart]
+		wf := ctx.WorkflowNodes[wfRef]
+
+		// Check data_test workflow (first workflow)
+		stmtRef := ctx.StatementRefs[wf.StatementRefsStart]
+		stmt := ctx.PipelineStatementNodes[stmtRef]
+		pc := ctx.PipeChainNodes[stmt.ExprRef]
+
+		// Call 1: dataframe
+		// Call 2: test.test { config: "..." }
+		// Call 3: test.test { config: "..." } ? test1
+
+		if (pc.CallRefsEnd - pc.CallRefsStart) != 4 {
+			t.Errorf("expected 4 calls in data_test statement 1, got %d", pc.CallRefsEnd-pc.CallRefsStart)
+		}
+
+		call4Ref := ctx.CallRefs[pc.CallRefsStart+3]
+		call4 := ctx.CallNodes[call4Ref]
+
+		if call4.FunctionRef == 0 {
+			t.Errorf("expected FunctionRef on call 3")
+		}
+		if ctx.GetString(call4.TrapRef) != "test1" {
+			t.Errorf("expected trap test1 on call 3, got %q", ctx.GetString(call4.TrapRef))
+		}
+	})
+}

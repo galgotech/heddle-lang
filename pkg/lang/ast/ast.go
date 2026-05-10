@@ -84,7 +84,7 @@ type HandlerNode struct {
 
 // HandlerStatementNode represents a statement in a handler, which may have a catch-all '*'.
 type HandlerStatementNode struct {
-	IsCatchAll bool
+	IsCatchAll bool    // '*' was used, meaning catch errors, exceptions, dataframe and other failures.
 	StmtRef    NodeRef // Index in PipelineStatementNodes
 }
 
