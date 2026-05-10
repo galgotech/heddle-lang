@@ -349,6 +349,28 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode) (headID
 				inst.Handler = l.handlerMap[trapName]
 			}
 			l.addInstruction(&inst)
+		} else if call.DataframeRef != ast.NilNode {
+			// Handle dataframe literals in pipelines by creating a specialized data step.
+			stepID = l.nextID("data")
+			data, err := l.lowerDataframe(call.DataframeRef)
+			if err != nil {
+				return "", "", err
+			}
+
+			inst := &ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{
+					ID:   stepID,
+					Type: ir.StepInst,
+				},
+				DefinitionName: "data",
+				Call:           []string{"std", "data"},
+				Config:         map[string]any{"data": data},
+			}
+			if call.TrapRef.End > 0 {
+				trapName := l.getString(call.TrapRef)
+				inst.Handler = l.handlerMap[trapName]
+			}
+			l.addInstruction(inst)
 		} else {
 			// Handle anonymous calls by resolving modules and generating fresh instructions.
 			fnRef := l.ctx.FunctionRefNodes[call.FunctionRef]
@@ -473,6 +495,27 @@ func (l *Lowerer) lowerDict(ref ast.NodeRef) (map[string]any, error) {
 			return nil, err
 		}
 		result[key] = val
+	}
+
+	return result, nil
+}
+
+// lowerDataframe transforms an AST dataframe node into a Go slice of maps for IR configuration.
+func (l *Lowerer) lowerDataframe(ref ast.NodeRef) ([]map[string]any, error) {
+	if ref == ast.NilNode {
+		return nil, nil
+	}
+
+	node := l.ctx.DataframeNodes[ref]
+	result := make([]map[string]any, 0)
+
+	for i := node.DictRefsStart; i < node.DictRefsEnd; i++ {
+		dictRef := l.ctx.DictRefs[i]
+		dict, err := l.lowerDict(dictRef)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, dict)
 	}
 
 	return result, nil

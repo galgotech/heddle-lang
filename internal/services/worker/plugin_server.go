@@ -10,11 +10,13 @@ import (
 	"sync"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -27,6 +29,9 @@ type PluginServer struct {
 type PluginInfo struct {
 	Registration plugin.PluginRegistration
 	Namespace    string
+	Stream       flight.FlightService_DoExchangeServer
+	ResponseCh   map[string]chan plugin.ExecuteStepResponse
+	mu           sync.Mutex
 }
 
 func (s *PluginServer) Start(ctx context.Context) error {
@@ -86,17 +91,87 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 
 func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
 	// Handle bidirectional communication with plugin
-	logger.L().Info("Plugin connected to exchange stream")
+	md, _ := metadata.FromIncomingContext(stream.Context())
+	namespaces := md.Get("x-heddle-plugin-namespace")
+	if len(namespaces) == 0 {
+		return status.Error(codes.Unauthenticated, "missing plugin namespace")
+	}
+	namespace := namespaces[0]
+
+	val, ok := s.Plugins.Load(namespace)
+	if !ok {
+		return status.Errorf(codes.NotFound, "plugin %s not registered", namespace)
+	}
+	info := val.(*PluginInfo)
+	info.Stream = stream
+	info.ResponseCh = make(map[string]chan plugin.ExecuteStepResponse)
+
+	logger.L().Info("Plugin connected to exchange stream", zap.String("namespace", namespace))
 
 	for {
 		data, err := stream.Recv()
 		if err != nil {
-			logger.L().Error("Plugin stream closed", zap.Error(err))
+			logger.L().Error("Plugin stream closed", zap.Error(err), zap.String("namespace", namespace))
 			return err
 		}
 
-		// For now, just echo or log
-		_ = data
+		var resp plugin.ExecuteStepResponse
+		if err := json.Unmarshal(data.DataBody, &resp); err != nil {
+			logger.L().Error("Failed to unmarshal plugin response", zap.Error(err))
+			continue
+		}
+
+		info.mu.Lock()
+		if ch, ok := info.ResponseCh[resp.TaskID]; ok {
+			ch <- resp
+		}
+		info.mu.Unlock()
+	}
+}
+
+func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecutionTask) (models.TaskResult, error) {
+	namespace := task.Step.Call[0]
+	val, ok := s.Plugins.Load(namespace)
+	if !ok {
+		return models.TaskResult{}, fmt.Errorf("plugin %s not found", namespace)
+	}
+	info := val.(*PluginInfo)
+
+	if info.Stream == nil {
+		return models.TaskResult{}, fmt.Errorf("plugin %s not connected", namespace)
+	}
+
+	configJSON, _ := json.Marshal(task.Step.Config)
+	req := plugin.ExecuteStepRequest{
+		TaskID:     task.TaskID,
+		StepName:   task.Step.Call[1],
+		ConfigJSON: string(configJSON),
+	}
+	body, _ := json.Marshal(req)
+
+	resCh := make(chan plugin.ExecuteStepResponse, 1)
+	info.mu.Lock()
+	info.ResponseCh[task.TaskID] = resCh
+	info.mu.Unlock()
+	defer func() {
+		info.mu.Lock()
+		delete(info.ResponseCh, task.TaskID)
+		info.mu.Unlock()
+	}()
+
+	if err := info.Stream.Send(&flight.FlightData{DataBody: body}); err != nil {
+		return models.TaskResult{}, fmt.Errorf("failed to send task to plugin: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return models.TaskResult{}, ctx.Err()
+	case resp := <-resCh:
+		return models.TaskResult{
+			TaskID:       resp.TaskID,
+			Status:       resp.Status,
+			ErrorMessage: resp.ErrorMessage,
+		}, nil
 	}
 }
 

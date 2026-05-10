@@ -63,10 +63,11 @@ func (r *WorkerRegistry) FindWorkerForStep(capability string) *WorkerInfo {
 		info := value.(*WorkerInfo)
 		if info.LastSeen.After(threshold) {
 			for _, cap := range info.Registration.Capabilities {
-				if cap == capability {
+				if cap == capability || cap == "*" {
 					if best == nil || info.ActiveTasks < best.ActiveTasks {
 						best = info
 					}
+					break
 				}
 			}
 		}

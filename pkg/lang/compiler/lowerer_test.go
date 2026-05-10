@@ -462,3 +462,58 @@ workflow main ? recover {
 		}
 	}
 }
+
+func TestLowerer_Dataframe(t *testing.T) {
+	input := `
+import "std/io" io
+
+workflow main {
+  [
+    {
+      "id": 1,
+      "name": "Alice"
+    },
+    {
+      "id": 2,
+      "name": "Bob"
+    }
+  ]
+    | io.print
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	progNode := p.Parse()
+	require.Empty(t, p.Errors())
+
+	low := NewLowerer(ctx)
+	irProg, err := low.Lower(progNode)
+	require.NoError(t, err)
+
+	// Verify workflow head is std.data
+	flowID := irProg.Workflows[0]
+	flow := irProg.Instructions[flowID].(*ir.FlowInstruction)
+	require.Len(t, flow.Heads, 1)
+
+	dataStepID := flow.Heads[0]
+	dataStep := irProg.Instructions[dataStepID].(*ir.StepInstruction)
+	assert.Equal(t, "data", dataStep.DefinitionName)
+	assert.Equal(t, []string{"std", "data"}, dataStep.Call)
+
+	// Verify data content
+	data := dataStep.Config["data"].([]map[string]any)
+	require.Len(t, data, 2)
+	assert.Equal(t, int64(1), data[0]["id"])
+	assert.Equal(t, "Alice", data[0]["name"])
+	assert.Equal(t, int64(2), data[1]["id"])
+	assert.Equal(t, "Bob", data[1]["name"])
+
+	// Verify link to io.print
+	require.Len(t, dataStep.Next, 1)
+	printStepID := dataStep.Next[0]
+	printStep := irProg.Instructions[printStepID].(*ir.StepInstruction)
+	assert.Equal(t, []string{"std/io", "print"}, printStep.Call)
+}

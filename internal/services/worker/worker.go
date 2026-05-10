@@ -21,6 +21,7 @@ type Worker struct {
 	ControlPlane flight.Client
 	Status       string
 	SocketPath   string
+	Capabilities []string
 	PluginServer *PluginServer
 }
 
@@ -29,7 +30,8 @@ func (w *Worker) Start(ctx context.Context) error {
 
 	// 1. Register with Control Plane
 	reg := models.WorkerRegistration{
-		Address: "localhost", // Should be actual address
+		Address:      "localhost", // Should be actual address
+		Capabilities: w.Capabilities,
 	}
 	body, _ := json.Marshal(reg)
 	_, err := w.ControlPlane.DoAction(ctx, &flight.Action{
@@ -97,18 +99,20 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 			return fmt.Errorf("task stream closed: %w", err)
 		}
 
-		var task models.Task
+		var task models.StepExecutionTask
 		if err := json.Unmarshal(data.DataBody, &task); err != nil {
 			logger.L().Error("Failed to unmarshal task", zap.Error(err))
 			continue
 		}
 
-		logger.L().Info("Received task", zap.String("id", task.ID))
+		logger.L().Info("Received task", zap.String("id", task.TaskID), zap.String("step", task.Step.Call[1]))
 
-		// Forward task to plugin server or execute it
-		// For now, let's just simulate execution or forward to the plugin server
-		go func(t models.Task) {
-			result := w.executeTask(ctx, t)
+		go func(t models.StepExecutionTask) {
+			result, err := w.PluginServer.DispatchTask(ctx, t)
+			if err != nil {
+				logger.L().Error("Failed to dispatch task", zap.Error(err))
+				return
+			}
 			respBody, _ := json.Marshal(result)
 			if err := stream.Send(&flight.FlightData{DataBody: respBody}); err != nil {
 				logger.L().Error("Failed to send task result", zap.Error(err))

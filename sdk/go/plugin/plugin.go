@@ -30,11 +30,16 @@ type StepRegistration struct {
 	Func         reflect.Value
 }
 
+// PlanningDataHandler is a callback function that receives data from a 'std.data' step.
+type PlanningDataHandler func(data []map[string]any) error
+
 type Plugin struct {
 	Namespace string
 	Language  string
 	resources map[string]ResourceRegistration
 	steps     map[string]StepRegistration
+	// onPlanningData is called when a 'std.data' step is executed.
+	onPlanningData PlanningDataHandler
 }
 
 // RegisterResource adds a new resource initializer to the registry.
@@ -72,6 +77,12 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 	p.steps[name] = reg
 
 	return nil
+}
+
+// RegisterPlanningDataHandler registers a callback that will be invoked when
+// the plugin receives data from a dataframe literal (std.data step).
+func (p *Plugin) RegisterPlanningDataHandler(fn PlanningDataHandler) {
+	p.onPlanningData = fn
 }
 
 // Serve starts the plugin and connects to the specified worker.
@@ -193,6 +204,31 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 	}
 
 	if targetStep == nil {
+		// Special handling for built-in std.data step
+		if req.StepName == "std.data" && p.onPlanningData != nil {
+			var config struct {
+				Data []map[string]any `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(req.ConfigJSON), &config); err != nil {
+				return ExecuteStepResponse{
+					TaskID:       req.TaskID,
+					Status:       "FAILED",
+					ErrorMessage: fmt.Sprintf("failed to unmarshal planning data: %v", err),
+				}
+			}
+			if err := p.onPlanningData(config.Data); err != nil {
+				return ExecuteStepResponse{
+					TaskID:       req.TaskID,
+					Status:       "FAILED",
+					ErrorMessage: fmt.Sprintf("planning data handler failed: %v", err),
+				}
+			}
+			return ExecuteStepResponse{
+				TaskID: req.TaskID,
+				Status: "SUCCESS",
+			}
+		}
+
 		return ExecuteStepResponse{
 			TaskID:       req.TaskID,
 			Status:       "FAILED",
