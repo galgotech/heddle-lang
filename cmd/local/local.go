@@ -3,6 +3,7 @@ package local
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -56,6 +57,9 @@ func runStandalone(cmd *cobra.Command, args []string) {
 	// 3. Start Standard Library Plugins (std and std/io)
 	<-stdplugin.Register()
 
+	// wait a little for plugins to register and update capabilities
+	time.Sleep(1 * time.Second)
+
 	// 4. Submit file if provided
 	if len(args) > 0 {
 		filePath := args[0]
@@ -76,8 +80,18 @@ func runStandalone(cmd *cobra.Command, args []string) {
 
 		logger.L().Info("Workflow submitted", zap.String("result", res))
 
-		// Wait for execution (simulated for now since we don't have a wait endpoint)
-		time.Sleep(2 * time.Second)
+		taskID := strings.TrimPrefix(res, "QUEUED: ")
+
+		// Wait for execution
+		select {
+		case err := <-cp.WaitForWorkflow(taskID):
+			if err != nil {
+				logger.L().Fatal("Workflow failed", zap.Error(err))
+			}
+			logger.L().Info("Workflow completed successfully")
+		case <-ctx.Done():
+			logger.L().Info("Shutdown requested")
+		}
 	} else {
 		logger.L().Info("Heddle is running in local mode. Press Ctrl+C to exit.")
 		select {}

@@ -33,7 +33,19 @@ func (r *WorkerRegistry) UpdateCapabilities(id string, capabilities []string) bo
 		return false
 	}
 	info := val.(*WorkerInfo)
-	info.Capabilities = capabilities
+
+	// Merge unique capabilities
+	capsMap := make(map[string]bool)
+	for _, c := range info.Capabilities {
+		capsMap[c] = true
+	}
+	for _, c := range capabilities {
+		if !capsMap[c] {
+			info.Capabilities = append(info.Capabilities, c)
+			capsMap[c] = true
+		}
+	}
+
 	info.LastSeen = time.Now()
 	return true
 }

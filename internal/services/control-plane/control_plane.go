@@ -27,20 +27,31 @@ import (
 
 type ControlPlaneServer struct {
 	flight.BaseFlightServer
-	Registry       *WorkerRegistry
-	Queue          *TaskQueue
-	ActiveStreams  sync.Map // map[string]flight.FlightService_DoExchangeServer
-	pendingResults sync.Map // map[string]chan models.TaskResult
-	Ready          chan struct{}
+	Registry        *WorkerRegistry
+	Queue           *TaskQueue
+	ActiveStreams   sync.Map // map[string]flight.FlightService_DoExchangeServer
+	pendingResults  sync.Map // map[string]chan models.TaskResult
+	workflowResults sync.Map // map[string]error
+	workflowWaiters sync.Map // map[string]chan error
+	mu              sync.Mutex
+	Ready           chan struct{}
 }
 
 func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
 	ctx := stream.Context()
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok || len(md.Get("worker-id")) == 0 {
-		return status.Error(codes.Unauthenticated, "missing worker-id")
+	metaData, _ := metadata.FromIncomingContext(ctx)
+
+	workerID := ""
+	if ids := metaData.Get("worker-id"); len(ids) > 0 {
+		workerID = ids[0]
 	}
-	workerID := md.Get("worker-id")[0]
+
+	// Actions that require worker-id
+	if action.Type != models.ActionSubmitWorkflow {
+		if workerID == "" {
+			return status.Error(codes.Unauthenticated, "missing worker-id")
+		}
+	}
 
 	switch action.Type {
 	case models.ActionRegisterWorker:
@@ -157,11 +168,45 @@ func (s *ControlPlaneServer) orchestrateTask(ctx context.Context, task models.Ta
 		for _, headID := range flow.Heads {
 			if err := s.executeStepRecursive(ctx, task.ID, program, headID); err != nil {
 				logger.L().Error("Task failed", zap.Error(err))
+				s.signalWorkflow(task.ID, err)
 				return
 			}
 		}
 	}
 	logger.L().Info("Task completed successfully", zap.String("id", task.ID))
+	s.signalWorkflow(task.ID, nil)
+}
+
+func (s *ControlPlaneServer) signalWorkflow(id string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if chVal, ok := s.workflowWaiters.Load(id); ok {
+		ch := chVal.(chan error)
+		ch <- err
+		s.workflowWaiters.Delete(id)
+	} else {
+		s.workflowResults.Store(id, err)
+	}
+}
+
+func (s *ControlPlaneServer) WaitForWorkflow(taskID string) chan error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ch := make(chan error, 1)
+	if errVal, ok := s.workflowResults.Load(taskID); ok {
+		if errVal == nil {
+			ch <- nil
+		} else {
+			ch <- errVal.(error)
+		}
+		s.workflowResults.Delete(taskID)
+		return ch
+	}
+
+	s.workflowWaiters.Store(taskID, ch)
+	return ch
 }
 
 func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string) error {
@@ -260,10 +305,12 @@ func (s *ControlPlaneServer) Listen(addr string) error {
 
 func NewControlPlaneServer() *ControlPlaneServer {
 	return &ControlPlaneServer{
-		Registry:       NewWorkerRegistry(),
-		Queue:          NewTaskQueue(),
-		ActiveStreams:  sync.Map{},
-		pendingResults: sync.Map{},
-		Ready:          make(chan struct{}),
+		Registry:        NewWorkerRegistry(),
+		Queue:           NewTaskQueue(),
+		ActiveStreams:   sync.Map{},
+		pendingResults:  sync.Map{},
+		workflowResults: sync.Map{},
+		workflowWaiters: sync.Map{},
+		Ready:           make(chan struct{}),
 	}
 }

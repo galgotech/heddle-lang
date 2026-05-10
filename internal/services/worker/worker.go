@@ -29,21 +29,24 @@ type Worker struct {
 }
 
 func (w *Worker) Start(ctx context.Context) error {
-	go w.run(ctx)
-
 	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", w.ID)
+
+	go w.run(ctx)
 
 	// 1. Register with Control Plane
 	reg := models.WorkerRegistration{
 		Address: "localhost", // Should be actual address
 	}
 	body, _ := json.Marshal(reg)
-	_, err := w.ControlPlane.DoAction(ctx, &flight.Action{
+	res, err := w.ControlPlane.DoAction(ctx, &flight.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to register: %w", err)
+	}
+	if _, err := res.Recv(); err != nil {
+		return fmt.Errorf("failed to receive registration result: %w", err)
 	}
 	logger.L().Info("Worker registered with control plane", zap.String("id", w.ID))
 
@@ -51,13 +54,16 @@ func (w *Worker) Start(ctx context.Context) error {
 	go w.startHeartbeat(ctx)
 
 	// 3. Start Plugin Server (UDS)
-	w.PluginServer = NewPluginServer(w.SocketPath)
+	if w.PluginServer == nil {
+		w.PluginServer = NewPluginServer(w.SocketPath)
+	}
 	w.PluginServer.OnCapabilitiesUpdate = w.UpdateCapabilities
 	go func() {
 		if err := w.PluginServer.Start(ctx); err != nil {
 			logger.L().Error("Plugin server error", zap.Error(err))
 		}
 	}()
+	<-w.PluginServer.Ready
 
 	// 4. Start Task Loop
 	return w.startTaskLoop(ctx)
@@ -171,12 +177,16 @@ func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) 
 			Capabilities: w.Capabilities,
 		}
 		body, _ := json.Marshal(update)
-		_, err := w.ControlPlane.DoAction(ctx, &flight.Action{
+		res, err := w.ControlPlane.DoAction(mctx, &flight.Action{
 			Type: models.ActionUpdateCapabilities,
 			Body: body,
 		})
 		if err != nil {
 			errCh <- fmt.Errorf("failed to update capabilities: %w", err)
+			return
+		}
+		if _, err := res.Recv(); err != nil {
+			errCh <- fmt.Errorf("failed to receive update result: %w", err)
 			return
 		}
 

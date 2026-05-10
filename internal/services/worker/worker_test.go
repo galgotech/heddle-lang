@@ -123,9 +123,7 @@ func TestWorker_PluginServer(t *testing.T) {
 	defer cancel()
 
 	go ps.Start(ctx)
-
-	// Wait for socket
-	time.Sleep(100 * time.Millisecond)
+	<-ps.Ready
 
 	// Connect as a plugin
 	conn, err := grpc.NewClient("unix://"+socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))

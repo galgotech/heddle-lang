@@ -26,6 +26,7 @@ type PluginServer struct {
 	SocketPath           string
 	Plugins              sync.Map // map[string]*PluginInfo
 	OnCapabilitiesUpdate func(ctx context.Context, capabilities []string) error
+	Ready                chan struct{}
 }
 
 type PluginInfo struct {
@@ -58,6 +59,10 @@ func (s *PluginServer) Start(ctx context.Context) error {
 			logger.L().Error("Plugin server failed", zap.Error(err))
 		}
 	}()
+
+	if s.Ready != nil {
+		close(s.Ready)
+	}
 
 	<-ctx.Done()
 	srv.GracefulStop()
@@ -188,5 +193,6 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 func NewPluginServer(socketPath string) *PluginServer {
 	return &PluginServer{
 		SocketPath: socketPath,
+		Ready:      make(chan struct{}),
 	}
 }

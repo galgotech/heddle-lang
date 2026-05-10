@@ -116,12 +116,17 @@ func (p *Plugin) Start() error {
 		Capabilities: capabilities,
 	}
 	regBody, _ := json.Marshal(reg)
-	_, err = client.DoAction(ctx, &flight.Action{
+	res, err := client.DoAction(ctx, &flight.Action{
 		Type: ActionRegisterPlugin,
 		Body: regBody,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to register plugin: %w", err)
+	}
+
+	// Wait for registration result
+	if _, err := res.Recv(); err != nil {
+		return fmt.Errorf("failed to receive registration result: %w", err)
 	}
 
 	logger.L().Info("Plugin registered", zap.String("namespace", p.Namespace))
