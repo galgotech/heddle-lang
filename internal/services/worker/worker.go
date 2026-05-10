@@ -25,6 +25,7 @@ type Worker struct {
 	Capabilities         []string
 	PluginServer         *PluginServer
 	updateCapabilitiesCh chan func(context.Context)
+	Ready                chan struct{}
 }
 
 func (w *Worker) Start(ctx context.Context) error {
@@ -106,6 +107,11 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 		return fmt.Errorf("failed to start exchange stream: %w", err)
 	}
 
+	if w.Ready != nil {
+		close(w.Ready)
+		w.Ready = nil // Ensure we don't close it twice if the loop restarts
+	}
+
 	logger.L().Info("Worker task loop started", zap.String("id", w.ID))
 
 	for {
@@ -125,16 +131,9 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 		go func(t models.StepExecutionTask) {
 			var result models.TaskResult
 			var err error
-			// Retry dispatch for up to 3 seconds to allow plugins to connect
-			for range 30 {
-				result, err = w.PluginServer.DispatchTask(ctx, t)
-				if err == nil {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
+			result, err = w.PluginServer.DispatchTask(ctx, t)
 			if err != nil {
-				logger.L().Error("Failed to dispatch task after retries", zap.Error(err))
+				logger.L().Error("Failed to dispatch task", zap.Error(err))
 				return
 			}
 			respBody, _ := json.Marshal(result)
@@ -205,5 +204,6 @@ func NewWorker(cpAddr string, socketPath string) (*Worker, error) {
 		Status:               "starting",
 		SocketPath:           socketPath,
 		updateCapabilitiesCh: make(chan func(context.Context), 100),
+		Ready:                make(chan struct{}),
 	}, nil
 }

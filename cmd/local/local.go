@@ -12,8 +12,7 @@ import (
 	controlplane "github.com/galgotech/heddle-lang/internal/services/control-plane"
 	"github.com/galgotech/heddle-lang/internal/services/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
-	sdk "github.com/galgotech/heddle-lang/sdk/go/plugin"
-	std "github.com/galgotech/heddle-lang/sdk/go/std"
+	"github.com/galgotech/heddle-lang/sdk/go/stdplugin"
 )
 
 // LocalCmd is the root command for running Heddle in local standalone mode.
@@ -40,47 +39,22 @@ func runStandalone(cmd *cobra.Command, args []string) {
 			logger.L().Fatal("Control Plane failed", zap.Error(err))
 		}
 	}()
+	<-cp.Ready
 
 	// 2. Start Worker
 	w, err := worker.NewWorker(cpSocket, workerSocket)
 	if err != nil {
 		logger.L().Fatal("Failed to create worker", zap.Error(err))
 	}
-
 	go func() {
 		if err := w.Start(ctx); err != nil {
 			logger.L().Fatal("Worker failed", zap.Error(err))
 		}
 	}()
+	<-w.Ready
 
 	// 3. Start Standard Library Plugins (std and std/io)
-	go func() {
-		// First, start the "std" plugin for core data operations
-		pStd := sdk.New("std")
-		pStd.RegisterStep("data", std.DataStep)
-		pStd.RegisterPlanningDataHandler(std.DefaultPlanningHandler)
-
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			if err := pStd.Start(); err != nil {
-				logger.L().Info("Standard library plugin (core) failed: %v", zap.Error(err))
-			}
-		}()
-
-		// Then, start the "std/io" plugin
-		pIo := sdk.New("std/io")
-		pIo.RegisterStep("print", std.PrintStep)
-
-		go func() {
-			time.Sleep(1000 * time.Millisecond)
-			if err := pIo.Start(); err != nil {
-				logger.L().Info("Standard library plugin (io) failed: %v", zap.Error(err))
-			}
-		}()
-	}()
-
-	// Give some time for everything to connect
-	time.Sleep(1 * time.Second)
+	<-stdplugin.Register()
 
 	// 4. Submit file if provided
 	if len(args) > 0 {

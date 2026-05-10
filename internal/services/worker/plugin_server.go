@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"time"
 
 	"sync"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/galgotech/heddle-lang/internal/services/models"
-	"github.com/galgotech/heddle-lang/pkg/logger"
-	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	"github.com/galgotech/heddle-lang/internal/services/models"
+	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
 type PluginServer struct {
@@ -107,19 +107,12 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 	}
 	namespace := namespaces[0]
 
-	var info *PluginInfo
-	for i := 0; i < 5; i++ {
-		val, ok := s.Plugins.Load(namespace)
-		if ok {
-			info = val.(*PluginInfo)
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if info == nil {
+	val, ok := s.Plugins.Load(namespace)
+	if !ok {
 		return status.Errorf(codes.NotFound, "plugin %s not registered", namespace)
 	}
+
+	info := val.(*PluginInfo)
 	info.Stream = stream
 	info.ResponseCh = make(map[string]chan plugin.ExecuteStepResponse)
 

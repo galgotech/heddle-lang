@@ -40,6 +40,7 @@ type Plugin struct {
 	steps     map[string]StepRegistration
 	// onPlanningData is called when a 'std.data' step is executed.
 	onPlanningData PlanningDataHandler
+	Ready          chan struct{}
 }
 
 // RegisterResource adds a new resource initializer to the registry.
@@ -94,7 +95,6 @@ func (p *Plugin) Start() error {
 
 	// 1. Connect to Worker (handle UDS if path starts with / or unix:)
 	target := "unix:///tmp/heddle-worker.sock"
-
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to worker: %w", err)
@@ -130,6 +130,9 @@ func (p *Plugin) Start() error {
 	go p.startHeartbeat(ctx, client)
 
 	// 4. Start Execution Loop
+	if p.Ready != nil {
+		close(p.Ready)
+	}
 	return p.startExecutionLoop(ctx, client)
 }
 
@@ -185,7 +188,11 @@ func (p *Plugin) startExecutionLoop(ctx context.Context, client flight.Client) e
 		// Execute task in a goroutine
 		go func(r ExecuteStepRequest) {
 			resp := p.executeTask(ctx, r)
-			respBody, _ := json.Marshal(resp)
+			respBody, err := json.Marshal(resp)
+			if err != nil {
+				logger.L().Error("Failed to unmarshal response", zap.Error(err))
+				return
+			}
 			if err := stream.Send(&flight.FlightData{DataBody: respBody}); err != nil {
 				logger.L().Error("Failed to send response", zap.Error(err))
 			}
@@ -228,7 +235,7 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 				ErrorMessage: fmt.Sprintf("planning data handler failed: %v", err),
 			}
 		}
-		// We still allow the execution to continue if there's a target step, 
+		// We still allow the execution to continue if there's a target step,
 		// but for std.data we usually just want the handler to run.
 		if targetStep == nil {
 			return ExecuteStepResponse{
@@ -249,8 +256,8 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 	// 2. Prepare arguments
 	// func(ctx, config, input) (output, error)
 	configType := targetStep.ConfigType
-	isPtr := configType.Kind() == reflect.Ptr
-	
+	isPtr := configType.Kind() == reflect.Pointer
+
 	var configVal reflect.Value
 	if isPtr {
 		configVal = reflect.New(configType.Elem())
@@ -310,23 +317,24 @@ func New(namespace string) *Plugin {
 		Language:  "go",
 		resources: make(map[string]ResourceRegistration),
 		steps:     make(map[string]StepRegistration),
+		Ready:     make(chan struct{}),
 	}
 }
 
 // generateJSONSchema performs type introspection to derive a basic JSON schema for Step/Resource configurations.
 // This schema is used by the Heddle DSL to validate user-provided parameters at compile-time.
 func generateJSONSchema(t reflect.Type) string {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
 		return fmt.Sprintf(`{"type": "%s"}`, t.Kind().String())
 	}
 
-	schema := `{"type": "object", "properties": {`
+	var schema strings.Builder
+	schema.WriteString(`{"type": "object", "properties": {`)
 	first := true
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		jsonTag := field.Tag.Get("json")
 		if jsonTag == "-" {
 			continue
@@ -344,11 +352,11 @@ func generateJSONSchema(t reflect.Type) string {
 		}
 
 		if !first {
-			schema += ", "
+			schema.WriteString(", ")
 		}
-		schema += fmt.Sprintf(`"%s": {"type": "%s"}`, name, field.Type.Kind().String())
+		fmt.Fprintf(&schema, `"%s": {"type": "%s"}`, name, field.Type.Kind().String())
 		first = false
 	}
-	schema += `}}`
-	return schema
+	schema.WriteString(`}}`)
+	return schema.String()
 }

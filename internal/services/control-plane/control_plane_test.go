@@ -45,10 +45,12 @@ func TestControlPlane_WorkerRegistration(t *testing.T) {
 	}
 	body, _ := json.Marshal(reg)
 	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", "test-worker")
-	_, err = client.DoAction(ctx, &flight.Action{
+	resp, err := client.DoAction(ctx, &flight.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
 	})
+	require.NoError(t, err)
+	_, err = resp.Recv()
 	assert.NoError(t, err)
 
 	// Verify in registry
@@ -63,10 +65,12 @@ func TestControlPlane_WorkerRegistration(t *testing.T) {
 		Load:      5,
 	}
 	hbBody, _ := json.Marshal(hb)
-	_, err = client.DoAction(ctx, &flight.Action{
+	resp, err = client.DoAction(ctx, &flight.Action{
 		Type: models.ActionHeartbeat,
 		Body: hbBody,
 	})
+	require.NoError(t, err)
+	_, err = resp.Recv()
 	assert.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
 
@@ -103,10 +107,12 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 		Address: "localhost:1234",
 	}
 	body, _ := json.Marshal(reg)
-	_, err = client.DoAction(ctx, &flight.Action{
+	resp, err := client.DoAction(ctx, &flight.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
 	})
+	require.NoError(t, err)
+	_, err = resp.Recv()
 	require.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
 
@@ -115,10 +121,12 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 		Capabilities: []string{"std.print"},
 	}
 	upBody, _ := json.Marshal(update)
-	_, err = client.DoAction(ctx, &flight.Action{
+	resp, err = client.DoAction(ctx, &flight.Action{
 		Type: models.ActionUpdateCapabilities,
 		Body: upBody,
 	})
+	require.NoError(t, err)
+	_, err = resp.Recv()
 	require.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
 
@@ -189,10 +197,12 @@ func TestControlPlane_UpdateCapabilities(t *testing.T) {
 		Address: "localhost:1234",
 	}
 	body, _ := json.Marshal(reg)
-	_, err = client.DoAction(ctx, &flight.Action{
+	resp, err := client.DoAction(ctx, &flight.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
 	})
+	require.NoError(t, err)
+	_, err = resp.Recv()
 	require.NoError(t, err)
 
 	// 2. Update capabilities
@@ -200,10 +210,12 @@ func TestControlPlane_UpdateCapabilities(t *testing.T) {
 		Capabilities: []string{"std.print", "std.log"},
 	}
 	upBody, _ := json.Marshal(update)
-	_, err = client.DoAction(ctx, &flight.Action{
+	resp, err = client.DoAction(ctx, &flight.Action{
 		Type: models.ActionUpdateCapabilities,
 		Body: upBody,
 	})
+	assert.NoError(t, err)
+	_, err = resp.Recv()
 	assert.NoError(t, err)
 
 	// 3. Verify in registry

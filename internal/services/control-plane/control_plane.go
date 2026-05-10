@@ -31,6 +31,7 @@ type ControlPlaneServer struct {
 	Queue          *TaskQueue
 	ActiveStreams  sync.Map // map[string]flight.FlightService_DoExchangeServer
 	pendingResults sync.Map // map[string]chan models.TaskResult
+	Ready          chan struct{}
 }
 
 func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
@@ -243,7 +244,18 @@ func (s *ControlPlaneServer) Listen(addr string) error {
 	flight.RegisterFlightServiceServer(srv, s)
 
 	logger.L().Info("Control Plane listening", zap.String("address", addr))
-	return srv.Serve(lis)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(lis)
+	}()
+
+	if s.Ready != nil {
+		close(s.Ready)
+		s.Ready = nil
+	}
+
+	return <-errCh
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
@@ -252,5 +264,6 @@ func NewControlPlaneServer() *ControlPlaneServer {
 		Queue:          NewTaskQueue(),
 		ActiveStreams:  sync.Map{},
 		pendingResults: sync.Map{},
+		Ready:          make(chan struct{}),
 	}
 }

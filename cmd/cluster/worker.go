@@ -27,13 +27,12 @@ var workerCmd = &cobra.Command{
 		socket := viper.GetString("socket")
 		id := viper.GetString("id")
 
-		w, err := worker.NewWorker(cpAddr)
+		w, err := worker.NewWorker(cpAddr, socket)
 		if err != nil {
 			logger.L().Fatal("Failed to initialize worker", zap.Error(err))
 		}
 
 		w.ID = id
-		w.SocketPath = socket
 		logger.L().Info("Starting worker", zap.String("id", id), zap.String("cp", cpAddr))
 		if err := w.Start(ctx); err != nil {
 			logger.L().Fatal("Worker exited with error", zap.Error(err))
