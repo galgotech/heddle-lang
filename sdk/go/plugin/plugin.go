@@ -104,10 +104,16 @@ func (p *Plugin) Start() error {
 	client := flight.NewClientFromConn(conn, nil)
 
 	// 2. Register Plugin
+	capabilities := make([]string, 0, len(p.steps))
+	for name := range p.steps {
+		capabilities = append(capabilities, fmt.Sprintf("%s.%s", p.Namespace, name))
+	}
+
 	reg := PluginRegistration{
-		Namespace: p.Namespace,
-		Language:  p.Language,
-		Version:   "0.1.0",
+		Namespace:    p.Namespace,
+		Language:     p.Language,
+		Version:      "0.1.0",
+		Capabilities: capabilities,
 	}
 	regBody, _ := json.Marshal(reg)
 	_, err = client.DoAction(ctx, &flight.Action{

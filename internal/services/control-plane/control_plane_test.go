@@ -41,8 +41,7 @@ func TestControlPlane_WorkerRegistration(t *testing.T) {
 
 	// Register worker
 	reg := models.WorkerRegistration{
-		Address:      "localhost:1234",
-		Capabilities: []string{"std.print"},
+		Address: "localhost:1234",
 	}
 	body, _ := json.Marshal(reg)
 	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", "test-worker")
@@ -101,13 +100,24 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 
 	// Register worker
 	reg := models.WorkerRegistration{
-		Address:      "localhost:1234",
-		Capabilities: []string{"std.print"},
+		Address: "localhost:1234",
 	}
 	body, _ := json.Marshal(reg)
 	_, err = client.DoAction(ctx, &flight.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
+	})
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	// Update capabilities
+	update := models.WorkerCapabilitiesUpdate{
+		Capabilities: []string{"std.print"},
+	}
+	upBody, _ := json.Marshal(update)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: models.ActionUpdateCapabilities,
+		Body: upBody,
 	})
 	require.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
@@ -154,6 +164,56 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestControlPlane_UpdateCapabilities(t *testing.T) {
+	s := NewControlPlaneServer()
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, s)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := flight.NewClientFromConn(conn, nil)
+	ctx := context.Background()
+	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", "test-worker")
+
+	// 1. Register worker
+	reg := models.WorkerRegistration{
+		Address: "localhost:1234",
+	}
+	body, _ := json.Marshal(reg)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: models.ActionRegisterWorker,
+		Body: body,
+	})
+	require.NoError(t, err)
+
+	// 2. Update capabilities
+	update := models.WorkerCapabilitiesUpdate{
+		Capabilities: []string{"std.print", "std.log"},
+	}
+	upBody, _ := json.Marshal(update)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: models.ActionUpdateCapabilities,
+		Body: upBody,
+	})
+	assert.NoError(t, err)
+
+	// 3. Verify in registry
+	time.Sleep(100 * time.Millisecond)
+	val, ok := s.Registry.workers.Load("test-worker")
+	require.True(t, ok)
+	info := val.(*WorkerInfo)
+	assert.ElementsMatch(t, []string{"std.print", "std.log"}, info.Capabilities)
+}
+
 func TestControlPlane_WorkflowSubmission(t *testing.T) {
 	s := NewControlPlaneServer()
 
@@ -166,7 +226,7 @@ func TestControlPlane_WorkflowSubmission(t *testing.T) {
 	go srv.Serve(lis)
 	defer srv.Stop()
 
-	ctx := context.Background()
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "worker-id", "test-client")
 	c, err := client.NewControlPlaneClient(lis.Addr().String())
 	require.NoError(t, err)
 

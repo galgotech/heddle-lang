@@ -35,7 +35,11 @@ type ControlPlaneServer struct {
 
 func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
 	ctx := stream.Context()
-	md, _ := metadata.FromIncomingContext(ctx)
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok || len(md.Get("worker-id")) == 0 {
+		return status.Error(codes.Unauthenticated, "missing worker-id")
+	}
+	workerID := md.Get("worker-id")[0]
 
 	switch action.Type {
 	case models.ActionRegisterWorker:
@@ -43,13 +47,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if err := json.Unmarshal(action.Body, &reg); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal registration: %v", err)
 		}
-		workerID := ""
-		if ids := md.Get("worker-id"); len(ids) > 0 {
-			workerID = ids[0]
-		}
-		if workerID == "" {
-			return status.Error(codes.Unauthenticated, "missing worker-id")
-		}
+
 		s.Registry.Register(workerID, reg)
 		logger.L().Info("Worker registered", zap.String("id", workerID), zap.String("address", reg.Address))
 		return stream.Send(&flight.Result{Body: []byte("OK")})
@@ -59,16 +57,20 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if err := json.Unmarshal(action.Body, &hb); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal heartbeat: %v", err)
 		}
-		workerID := ""
-		if ids := md.Get("worker-id"); len(ids) > 0 {
-			workerID = ids[0]
-		}
-		if workerID == "" {
-			return status.Error(codes.Unauthenticated, "missing worker-id")
-		}
 		if ok := s.Registry.Heartbeat(workerID, hb.Load); !ok {
 			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
 		}
+		return stream.Send(&flight.Result{Body: []byte("OK")})
+
+	case models.ActionUpdateCapabilities:
+		var update models.WorkerCapabilitiesUpdate
+		if err := json.Unmarshal(action.Body, &update); err != nil {
+			return status.Errorf(codes.InvalidArgument, "failed to unmarshal capabilities update: %v", err)
+		}
+		if ok := s.Registry.UpdateCapabilities(workerID, update.Capabilities); !ok {
+			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
+		}
+		logger.L().Info("Worker capabilities updated", zap.String("id", workerID), zap.Strings("capabilities", update.Capabilities))
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case models.ActionSubmitWorkflow:
@@ -148,11 +150,11 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 }
 
 func (s *ControlPlaneServer) orchestrateTask(ctx context.Context, task models.Task) {
-	prog := task.Program
-	for _, flowID := range prog.Workflows {
-		flow := prog.Instructions[flowID].(*ir.FlowInstruction)
+	program := task.Program
+	for _, flowID := range program.Workflows {
+		flow := program.Instructions[flowID].(*ir.FlowInstruction)
 		for _, headID := range flow.Heads {
-			if err := s.executeStepRecursive(ctx, task.ID, prog, headID); err != nil {
+			if err := s.executeStepRecursive(ctx, task.ID, program, headID); err != nil {
 				logger.L().Error("Task failed", zap.Error(err))
 				return
 			}

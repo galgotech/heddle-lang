@@ -19,9 +19,10 @@ type FlightTicket struct {
 
 // PluginRegistration contains metadata sent by a plugin when it registers with a worker.
 type PluginRegistration struct {
-	Namespace string `json:"namespace"`
-	Language  string `json:"language"`
-	Version   string `json:"version"`
+	Namespace    string   `json:"namespace"`
+	Language     string   `json:"language"`
+	Version      string   `json:"version"`
+	Capabilities []string `json:"capabilities"`
 }
 
 // Heartbeat is sent periodically by plugins to the worker.

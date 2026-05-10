@@ -10,6 +10,7 @@ import (
 type WorkerInfo struct {
 	ID           string
 	Registration models.WorkerRegistration
+	Capabilities []string
 	LastSeen     time.Time
 	ActiveTasks  int
 }
@@ -18,16 +19,23 @@ type WorkerRegistry struct {
 	workers sync.Map // map[string]*WorkerInfo
 }
 
-func NewWorkerRegistry() *WorkerRegistry {
-	return &WorkerRegistry{}
-}
-
 func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 	r.workers.Store(id, &WorkerInfo{
 		ID:           id,
 		Registration: reg,
 		LastSeen:     time.Now(),
 	})
+}
+
+func (r *WorkerRegistry) UpdateCapabilities(id string, capabilities []string) bool {
+	val, ok := r.workers.Load(id)
+	if !ok {
+		return false
+	}
+	info := val.(*WorkerInfo)
+	info.Capabilities = capabilities
+	info.LastSeen = time.Now()
+	return true
 }
 
 func (r *WorkerRegistry) Heartbeat(id string, load int) bool {
@@ -62,8 +70,8 @@ func (r *WorkerRegistry) FindWorkerForStep(capability string) *WorkerInfo {
 	r.workers.Range(func(key, value interface{}) bool {
 		info := value.(*WorkerInfo)
 		if info.LastSeen.After(threshold) {
-			for _, cap := range info.Registration.Capabilities {
-				if cap == capability || cap == "*" {
+			for _, cap := range info.Capabilities {
+				if cap == capability {
 					if best == nil || info.ActiveTasks < best.ActiveTasks {
 						best = info
 					}
@@ -74,4 +82,8 @@ func (r *WorkerRegistry) FindWorkerForStep(capability string) *WorkerInfo {
 		return true
 	})
 	return best
+}
+
+func NewWorkerRegistry() *WorkerRegistry {
+	return &WorkerRegistry{}
 }

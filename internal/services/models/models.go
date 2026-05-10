@@ -8,15 +8,20 @@ import (
 
 // Action types for Control Plane Arrow Flight
 const (
-	ActionRegisterWorker = "register-worker"
-	ActionHeartbeat      = "heartbeat"
-	ActionSubmitWorkflow = "submit-workflow"
+	ActionRegisterWorker     = "register-worker"
+	ActionHeartbeat          = "heartbeat"
+	ActionSubmitWorkflow     = "submit-workflow"
+	ActionUpdateCapabilities = "update-capabilities"
 )
 
 // WorkerRegistration contains metadata sent by a worker when it registers with the Control Plane.
 type WorkerRegistration struct {
-	Address      string   `json:"address"`
-	Capabilities []string `json:"capabilities"` // List of "module.step"
+	Address string `json:"address"`
+}
+
+// WorkerCapabilitiesUpdate contains the updated list of capabilities for a worker.
+type WorkerCapabilitiesUpdate struct {
+	Capabilities []string `json:"capabilities"`
 }
 
 // StepExecutionTask represents a single IR step dispatched to a worker.

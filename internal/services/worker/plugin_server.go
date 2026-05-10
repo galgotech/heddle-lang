@@ -23,8 +23,9 @@ import (
 
 type PluginServer struct {
 	flight.BaseFlightServer
-	SocketPath string
-	Plugins    sync.Map // map[string]*PluginInfo
+	SocketPath           string
+	Plugins              sync.Map // map[string]*PluginInfo
+	OnCapabilitiesUpdate func(ctx context.Context, capabilities []string) error
 }
 
 type PluginInfo struct {
@@ -75,6 +76,13 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 			Namespace:    reg.Namespace,
 		})
 		logger.L().Info("Plugin registered", zap.String("namespace", reg.Namespace), zap.String("language", reg.Language))
+
+		if s.OnCapabilitiesUpdate != nil {
+			if err := s.OnCapabilitiesUpdate(stream.Context(), reg.Capabilities); err != nil {
+				logger.L().Error("Failed to update capabilities", zap.Error(err))
+			}
+		}
+
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case plugin.ActionPluginHeartbeat:

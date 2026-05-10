@@ -10,16 +10,6 @@ type TaskQueue struct {
 	lenCh  chan chan int
 }
 
-func NewTaskQueue() *TaskQueue {
-	q := &TaskQueue{
-		pushCh: make(chan models.Task),
-		popCh:  make(chan models.Task),
-		lenCh:  make(chan chan int),
-	}
-	go q.run()
-	return q
-}
-
 func (q *TaskQueue) run() {
 	var queue []models.Task
 	for {
@@ -54,4 +44,14 @@ func (q *TaskQueue) Len() int {
 	reply := make(chan int)
 	q.lenCh <- reply
 	return <-reply
+}
+
+func NewTaskQueue() *TaskQueue {
+	q := &TaskQueue{
+		pushCh: make(chan models.Task),
+		popCh:  make(chan models.Task),
+		lenCh:  make(chan chan int),
+	}
+	go q.run()
+	return q
 }

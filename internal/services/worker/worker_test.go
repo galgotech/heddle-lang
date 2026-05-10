@@ -24,6 +24,7 @@ type mockControlPlane struct {
 	RegisteredIDs     chan string
 	Heartbeats        chan models.WorkerHeartbeat
 	HeartbeatIDs      chan string
+	Capabilities      chan models.WorkerCapabilitiesUpdate
 }
 
 func (m *mockControlPlane) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
@@ -47,6 +48,11 @@ func (m *mockControlPlane) DoAction(action *flight.Action, stream flight.FlightS
 		m.Heartbeats <- hb
 		m.HeartbeatIDs <- workerID
 		return stream.Send(&flight.Result{Body: []byte("OK")})
+	case models.ActionUpdateCapabilities:
+		var update models.WorkerCapabilitiesUpdate
+		json.Unmarshal(action.Body, &update)
+		m.Capabilities <- update
+		return stream.Send(&flight.Result{Body: []byte("OK")})
 	}
 	return nil
 }
@@ -61,6 +67,7 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 		RegisteredIDs:     make(chan string, 1),
 		Heartbeats:        make(chan models.WorkerHeartbeat, 10),
 		HeartbeatIDs:      make(chan string, 10),
+		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 10),
 	}
 
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -75,17 +82,17 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	w, err := NewWorker(lis.Addr().String())
+	w, err := NewWorker(lis.Addr().String(), "/tmp/heddle-worker-test.sock")
 	require.NoError(t, err)
 
 	// Clean up socket
 	socketPath := "/tmp/heddle-worker-test.sock"
 	os.Remove(socketPath)
 	w.PluginServer = NewPluginServer(socketPath)
-	
+
 	// Override Start logic to avoid blocking forever in startTaskLoop for this test
 	// We'll just test registration and heartbeat
-	
+
 	go func() {
 		w.Start(ctx)
 	}()
@@ -110,23 +117,23 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 func TestWorker_PluginServer(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-plugin-test.sock"
 	os.Remove(socketPath)
-	
+
 	ps := NewPluginServer(socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	go ps.Start(ctx)
-	
+
 	// Wait for socket
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Connect as a plugin
 	conn, err := grpc.NewClient("unix://"+socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
-	
+
 	client := flight.NewClientFromConn(conn, nil)
-	
+
 	// Register plugin
 	reg := plugin.PluginRegistration{
 		Namespace: "test-ns",
@@ -138,10 +145,74 @@ func TestWorker_PluginServer(t *testing.T) {
 		Body: body,
 	})
 	assert.NoError(t, err)
-	
+
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Verify in server
 	_, ok := ps.Plugins.Load("test-ns")
 	assert.True(t, ok)
+}
+
+func TestWorker_CapabilityUpdate(t *testing.T) {
+	mock := &mockControlPlane{
+		RegisteredWorkers: make(chan models.WorkerRegistration, 1),
+		RegisteredIDs:     make(chan string, 1),
+		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 1),
+	}
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, mock)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	socketPath := "/tmp/heddle-worker-cap-test.sock"
+	os.Remove(socketPath)
+
+	w, err := NewWorker(lis.Addr().String(), socketPath)
+	require.NoError(t, err)
+
+	go w.Start(ctx)
+
+	// Wait for worker to register
+	select {
+	case <-mock.RegisteredIDs:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for registration")
+	}
+
+	// Connect as a plugin
+	conn, err := grpc.NewClient("unix://"+socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := flight.NewClientFromConn(conn, nil)
+
+	// Register plugin with capabilities
+	reg := plugin.PluginRegistration{
+		Namespace:    "test-ns",
+		Language:     "go",
+		Capabilities: []string{"test-ns.step1", "test-ns.step2"},
+	}
+	body, _ := json.Marshal(reg)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: plugin.ActionRegisterPlugin,
+		Body: body,
+	})
+	assert.NoError(t, err)
+
+	// Verify capability update reached control plane
+	select {
+	case update := <-mock.Capabilities:
+		assert.Contains(t, update.Capabilities, "test-ns.step1")
+		assert.Contains(t, update.Capabilities, "test-ns.step2")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for capability update")
+	}
 }

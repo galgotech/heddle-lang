@@ -42,12 +42,11 @@ func runStandalone(cmd *cobra.Command, args []string) {
 	}()
 
 	// 2. Start Worker
-	w, err := worker.NewWorker(cpSocket)
+	w, err := worker.NewWorker(cpSocket, workerSocket)
 	if err != nil {
 		logger.L().Fatal("Failed to create worker", zap.Error(err))
 	}
-	w.SocketPath = workerSocket
-	w.Capabilities = []string{"*"}
+
 	go func() {
 		if err := w.Start(ctx); err != nil {
 			logger.L().Fatal("Worker failed", zap.Error(err))
@@ -60,7 +59,7 @@ func runStandalone(cmd *cobra.Command, args []string) {
 		pStd := sdk.New("std")
 		pStd.RegisterStep("data", std.DataStep)
 		pStd.RegisterPlanningDataHandler(std.DefaultPlanningHandler)
-		
+
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			if err := pStd.Start(); err != nil {
@@ -71,7 +70,7 @@ func runStandalone(cmd *cobra.Command, args []string) {
 		// Then, start the "std/io" plugin
 		pIo := sdk.New("std/io")
 		pIo.RegisterStep("print", std.PrintStep)
-		
+
 		go func() {
 			time.Sleep(1000 * time.Millisecond)
 			if err := pIo.Start(); err != nil {

@@ -7,31 +7,34 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/galgotech/heddle-lang/internal/services/models"
-	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/galgotech/heddle-lang/internal/services/models"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 type Worker struct {
-	ID           string
-	ControlPlane flight.Client
-	Status       string
-	SocketPath   string
-	Capabilities []string
-	PluginServer *PluginServer
+	ID                   string
+	ControlPlane         flight.Client
+	Status               string
+	SocketPath           string
+	Capabilities         []string
+	PluginServer         *PluginServer
+	updateCapabilitiesCh chan func(context.Context)
 }
 
 func (w *Worker) Start(ctx context.Context) error {
+	go w.run(ctx)
+
 	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", w.ID)
 
 	// 1. Register with Control Plane
 	reg := models.WorkerRegistration{
-		Address:      "localhost", // Should be actual address
-		Capabilities: w.Capabilities,
+		Address: "localhost", // Should be actual address
 	}
 	body, _ := json.Marshal(reg)
 	_, err := w.ControlPlane.DoAction(ctx, &flight.Action{
@@ -48,6 +51,7 @@ func (w *Worker) Start(ctx context.Context) error {
 
 	// 3. Start Plugin Server (UDS)
 	w.PluginServer = NewPluginServer(w.SocketPath)
+	w.PluginServer.OnCapabilitiesUpdate = w.UpdateCapabilities
 	go func() {
 		if err := w.PluginServer.Start(ctx); err != nil {
 			logger.L().Error("Plugin server error", zap.Error(err))
@@ -56,6 +60,17 @@ func (w *Worker) Start(ctx context.Context) error {
 
 	// 4. Start Task Loop
 	return w.startTaskLoop(ctx)
+}
+
+func (w *Worker) run(ctx context.Context) {
+	for {
+		select {
+		case fn := <-w.updateCapabilitiesCh:
+			fn(ctx)
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (w *Worker) startHeartbeat(ctx context.Context) {
@@ -130,30 +145,65 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 	}
 }
 
-func (w *Worker) executeTask(ctx context.Context, task models.Task) models.TaskResult {
-	// Here we would route the task to the appropriate plugin.
-	// For this version, let's just log and return success.
-	logger.L().Info("Executing task", zap.String("id", task.ID))
+func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) error {
+	errCh := make(chan error, 1)
+	w.updateCapabilitiesCh <- func(mctx context.Context) {
+		// Merge unique capabilities
+		capsMap := make(map[string]bool)
+		for _, c := range w.Capabilities {
+			capsMap[c] = true
+		}
+		newCaps := false
+		for _, c := range capabilities {
+			if !capsMap[c] {
+				w.Capabilities = append(w.Capabilities, c)
+				capsMap[c] = true
+				newCaps = true
+			}
+		}
 
-	// Simulate work
-	time.Sleep(1 * time.Second)
+		if !newCaps {
+			errCh <- nil
+			return
+		}
 
-	return models.TaskResult{
-		TaskID: task.ID,
-		Status: "SUCCESS",
+		// Notify Control Plane
+		update := models.WorkerCapabilitiesUpdate{
+			Capabilities: w.Capabilities,
+		}
+		body, _ := json.Marshal(update)
+		_, err := w.ControlPlane.DoAction(ctx, &flight.Action{
+			Type: models.ActionUpdateCapabilities,
+			Body: body,
+		})
+		if err != nil {
+			errCh <- fmt.Errorf("failed to update capabilities: %w", err)
+			return
+		}
+
+		logger.L().Info("Worker capabilities updated", zap.Strings("capabilities", w.Capabilities))
+		errCh <- nil
+	}
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
-func NewWorker(cpAddr string) (*Worker, error) {
+func NewWorker(cpAddr string, socketPath string) (*Worker, error) {
 	conn, err := grpc.NewClient(cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to control plane: %w", err)
 	}
 
 	return &Worker{
-		ID:           "worker-" + uuid.New().String()[:8],
-		ControlPlane: flight.NewClientFromConn(conn, nil),
-		Status:       "starting",
-		SocketPath:   "/tmp/heddle-worker.sock",
+		ID:                   "worker-" + uuid.New().String()[:8],
+		ControlPlane:         flight.NewClientFromConn(conn, nil),
+		Status:               "starting",
+		SocketPath:           socketPath,
+		updateCapabilitiesCh: make(chan func(context.Context), 100),
 	}, nil
 }
