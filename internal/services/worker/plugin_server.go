@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"sync"
 
@@ -98,11 +99,19 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 	}
 	namespace := namespaces[0]
 
-	val, ok := s.Plugins.Load(namespace)
-	if !ok {
+	var info *PluginInfo
+	for i := 0; i < 5; i++ {
+		val, ok := s.Plugins.Load(namespace)
+		if ok {
+			info = val.(*PluginInfo)
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if info == nil {
 		return status.Errorf(codes.NotFound, "plugin %s not registered", namespace)
 	}
-	info := val.(*PluginInfo)
 	info.Stream = stream
 	info.ResponseCh = make(map[string]chan plugin.ExecuteStepResponse)
 

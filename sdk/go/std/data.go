@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
@@ -22,18 +23,18 @@ func DataStep(ctx context.Context, config DataConfig, input core.Table) (core.Ta
 	return nil, nil
 }
 
-// DefaultPlanningHandler is a built-in handler that simply logs the received data.
+// DefaultPlanningHandler is a built-in handler that logs the received data.
 func DefaultPlanningHandler(data []map[string]any) error {
-	fmt.Printf("--- std:data (Planning Time) ---\n")
-	fmt.Printf("Received %d rows of planning-time data\n", len(data))
+	logger.L().Info("--- std:data (Planning Time) ---")
+	logger.L().Info(fmt.Sprintf("Received %d rows of planning-time data", len(data)))
 	for i, row := range data {
 		if i < 5 { // Only print first 5 rows
-			fmt.Printf("Row %d: %v\n", i, row)
+			logger.L().Info(fmt.Sprintf("Row %d: %v", i, row))
 		}
 	}
 	if len(data) > 5 {
-		fmt.Printf("... and %d more rows\n", len(data)-5)
+		logger.L().Info(fmt.Sprintf("... and %d more rows", len(data)-5))
 	}
-	fmt.Printf("-------------------------------\n")
+	logger.L().Info("-------------------------------")
 	return nil
 }

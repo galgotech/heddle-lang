@@ -203,32 +203,36 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
-	if targetStep == nil {
-		// Special handling for built-in std.data step
-		if req.StepName == "std.data" && p.onPlanningData != nil {
-			var config struct {
-				Data []map[string]any `json:"data"`
+	// Special handling for built-in std.data step (dataframe literals)
+	if req.StepName == "data" && p.onPlanningData != nil {
+		var config struct {
+			Data []map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(req.ConfigJSON), &config); err != nil {
+			return ExecuteStepResponse{
+				TaskID:       req.TaskID,
+				Status:       "FAILED",
+				ErrorMessage: fmt.Sprintf("failed to unmarshal planning data: %v", err),
 			}
-			if err := json.Unmarshal([]byte(req.ConfigJSON), &config); err != nil {
-				return ExecuteStepResponse{
-					TaskID:       req.TaskID,
-					Status:       "FAILED",
-					ErrorMessage: fmt.Sprintf("failed to unmarshal planning data: %v", err),
-				}
+		}
+		if err := p.onPlanningData(config.Data); err != nil {
+			return ExecuteStepResponse{
+				TaskID:       req.TaskID,
+				Status:       "FAILED",
+				ErrorMessage: fmt.Sprintf("planning data handler failed: %v", err),
 			}
-			if err := p.onPlanningData(config.Data); err != nil {
-				return ExecuteStepResponse{
-					TaskID:       req.TaskID,
-					Status:       "FAILED",
-					ErrorMessage: fmt.Sprintf("planning data handler failed: %v", err),
-				}
-			}
+		}
+		// We still allow the execution to continue if there's a target step, 
+		// but for std.data we usually just want the handler to run.
+		if targetStep == nil {
 			return ExecuteStepResponse{
 				TaskID: req.TaskID,
 				Status: "SUCCESS",
 			}
 		}
+	}
 
+	if targetStep == nil {
 		return ExecuteStepResponse{
 			TaskID:       req.TaskID,
 			Status:       "FAILED",
@@ -238,9 +242,18 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 
 	// 2. Prepare arguments
 	// func(ctx, config, input) (output, error)
-	config := reflect.New(targetStep.ConfigType.Elem()).Interface()
+	configType := targetStep.ConfigType
+	isPtr := configType.Kind() == reflect.Ptr
+	
+	var configVal reflect.Value
+	if isPtr {
+		configVal = reflect.New(configType.Elem())
+	} else {
+		configVal = reflect.New(configType)
+	}
+
 	if req.ConfigJSON != "" {
-		if err := json.Unmarshal([]byte(req.ConfigJSON), config); err != nil {
+		if err := json.Unmarshal([]byte(req.ConfigJSON), configVal.Interface()); err != nil {
 			return ExecuteStepResponse{
 				TaskID:       req.TaskID,
 				Status:       "FAILED",
@@ -249,14 +262,22 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
-	// Placeholder for input (real Arrow data would be here)
-	input := "input_placeholder"
-
 	// 3. Call the function
+	var arg1 reflect.Value
+	if isPtr {
+		arg1 = configVal
+	} else {
+		arg1 = configVal.Elem()
+	}
+
+	// For now, we pass a zero value (nil interface) for the input table
+	// as Arrow data transmission is still being integrated.
+	arg2 := reflect.Zero(targetStep.Func.Type().In(2))
+
 	args := []reflect.Value{
 		reflect.ValueOf(ctx),
-		reflect.ValueOf(config),
-		reflect.ValueOf(input),
+		arg1,
+		arg2,
 	}
 
 	results := targetStep.Func.Call(args)

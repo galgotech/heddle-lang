@@ -54,31 +54,30 @@ func runStandalone(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	// 3. Start Standard Library Plugin (std/io and std)
+	// 3. Start Standard Library Plugins (std and std/io)
 	go func() {
-		// We use "std" as the namespace for core data operations
-		p := sdk.New("std")
-		p.RegisterStep("data", std.DataStep)
-		p.RegisterPlanningDataHandler(std.DefaultPlanningHandler)
+		// First, start the "std" plugin for core data operations
+		pStd := sdk.New("std")
+		pStd.RegisterStep("data", std.DataStep)
+		pStd.RegisterPlanningDataHandler(std.DefaultPlanningHandler)
 		
-		// We can also register io steps in the same plugin or separate ones.
-		// For simplicity in local mode, let's use separate namespaces if needed,
-		// but the lowerer uses "std/io" for io.print.
-		
-		// Give some time for worker to start
-		time.Sleep(500 * time.Millisecond)
-		if err := p.Start(); err != nil {
-			logger.L().Info("Standard library plugin (core) failed: %v", zap.Error(err))
-		}
-	}()
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			if err := pStd.Start(); err != nil {
+				logger.L().Info("Standard library plugin (core) failed: %v", zap.Error(err))
+			}
+		}()
 
-	go func() {
-		p := sdk.New("std/io")
-		p.RegisterStep("print", std.PrintStep)
-		time.Sleep(500 * time.Millisecond)
-		if err := p.Start(); err != nil {
-			logger.L().Info("Standard library plugin (io) failed: %v", zap.Error(err))
-		}
+		// Then, start the "std/io" plugin
+		pIo := sdk.New("std/io")
+		pIo.RegisterStep("print", std.PrintStep)
+		
+		go func() {
+			time.Sleep(1000 * time.Millisecond)
+			if err := pIo.Start(); err != nil {
+				logger.L().Info("Standard library plugin (io) failed: %v", zap.Error(err))
+			}
+		}()
 	}()
 
 	// Give some time for everything to connect

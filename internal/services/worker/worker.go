@@ -108,9 +108,18 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 		logger.L().Info("Received task", zap.String("id", task.TaskID), zap.String("step", task.Step.Call[1]))
 
 		go func(t models.StepExecutionTask) {
-			result, err := w.PluginServer.DispatchTask(ctx, t)
+			var result models.TaskResult
+			var err error
+			// Retry dispatch for up to 3 seconds to allow plugins to connect
+			for i := 0; i < 30; i++ {
+				result, err = w.PluginServer.DispatchTask(ctx, t)
+				if err == nil {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
 			if err != nil {
-				logger.L().Error("Failed to dispatch task", zap.Error(err))
+				logger.L().Error("Failed to dispatch task after retries", zap.Error(err))
 				return
 			}
 			respBody, _ := json.Marshal(result)
