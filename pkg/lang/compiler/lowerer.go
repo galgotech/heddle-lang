@@ -310,14 +310,14 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 
 		if isEmpty {
 			// Identity step representing '*' or implicit input redirection.
-			stepID = l.nextID("identity")
+			stepID = l.nextID("step_identity")
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
 					ID:   stepID,
 					Type: ir.StepInst,
 				},
 				DefinitionName: "identity",
-				Call:           []string{"std", "identity"},
+				Call:           []string{"__internal", "identity"},
 				Config:         make(map[string]any),
 			}
 			if isCatchAll {
@@ -327,14 +327,14 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 
 		} else if call.IsPrql {
 			// Handle inline relational transformations via the standard query step.
-			stepID = l.nextID("query")
+			stepID = l.nextID("step_prql")
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
 					ID:   stepID,
 					Type: ir.StepInst,
 				},
-				DefinitionName: "query",
-				Call:           []string{"std", "query"},
+				DefinitionName: "prql",
+				Call:           []string{"__internal", "prql"},
 				Config:         map[string]any{"query": l.getString(call.QueryRef)},
 			}
 			if call.TrapRef.End > 0 {
@@ -362,7 +362,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 				return "", "", fmt.Errorf("undefined step: %s", name)
 			}
 
-			stepID = l.nextID("call")
+			stepID = l.nextID("step_call")
 			orig := l.instructions[origID].(*ir.StepInstruction)
 
 			// Clone the base definition to ensure call-specific state isolation.
@@ -376,7 +376,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 
 		} else if call.DataframeRef != ast.NilNode {
 			// Handle dataframe literals in pipelines by creating a specialized data step.
-			stepID = l.nextID("data")
+			stepID = l.nextID("step_data")
 			data, err := l.lowerDataframe(call.DataframeRef)
 			if err != nil {
 				return "", "", err
@@ -387,8 +387,8 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 					ID:   stepID,
 					Type: ir.StepInst,
 				},
-				DefinitionName: "data",
-				Call:           []string{"std", "data"},
+				DefinitionName: "data_literal",
+				Call:           []string{"__internal", "data_literal"},
 				Config:         map[string]any{"data": data},
 			}
 			if call.TrapRef.End > 0 {
@@ -400,7 +400,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 		} else {
 			// Handle anonymous calls by resolving modules and generating fresh instructions.
 			fnRef := l.ctx.FunctionRefNodes[call.FunctionRef]
-			stepID = l.nextID("step")
+			stepID = l.nextID("step_call_anonymous")
 
 			config, err := l.lowerDict(fnRef.ConfigRef)
 			if err != nil {

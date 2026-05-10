@@ -14,6 +14,12 @@ const (
 	ActionUpdateCapabilities = "update-capabilities"
 )
 
+// Task Statuses
+const (
+	TaskStatusSuccess = "SUCCESS"
+	TaskStatusFailed  = "FAILED"
+)
+
 // WorkerRegistration contains metadata sent by a worker when it registers with the Control Plane.
 type WorkerRegistration struct {
 	Address string `json:"address"`

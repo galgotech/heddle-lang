@@ -53,6 +53,15 @@ func (w *Worker) Start(ctx context.Context) error {
 	// 2. Start Heartbeats
 	go w.startHeartbeat(ctx)
 
+	// 2.1 Sync internal capabilities
+	if err := w.updateCapabilities(ctx, []string{
+		"__internal.identity",
+		"__internal.prql",
+		"__internal.data_literal",
+	}, true); err != nil {
+		return fmt.Errorf("failed to sync internal capabilities: %w", err)
+	}
+
 	// 3. Start Plugin Server (UDS)
 	if w.PluginServer == nil {
 		w.PluginServer = NewPluginServer(w.SocketPath)
@@ -137,10 +146,21 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 		go func(t models.StepExecutionTask) {
 			var result models.TaskResult
 			var err error
-			result, err = w.PluginServer.DispatchTask(ctx, t)
+
+			if t.Step.Call[0] == "__internal" {
+				result, err = w.executeInternalStep(ctx, t)
+			} else {
+				result, err = w.PluginServer.DispatchTask(ctx, t)
+			}
+
 			if err != nil {
-				logger.L().Error("Failed to dispatch task", zap.Error(err))
-				return
+				logger.L().Error("Failed to execute task", zap.Error(err))
+				// Send failure result back
+				result = models.TaskResult{
+					TaskID:       t.TaskID,
+					Status:       models.TaskStatusFailed,
+					ErrorMessage: err.Error(),
+				}
 			}
 			respBody, _ := json.Marshal(result)
 			if err := stream.Send(&flight.FlightData{DataBody: respBody}); err != nil {
@@ -150,7 +170,41 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 	}
 }
 
+func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecutionTask) (models.TaskResult, error) {
+	stepName := task.Step.Call[1]
+	logger.L().Info("Executing internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
+
+	switch stepName {
+	case "identity":
+		// TODO: Implement identity step
+		return models.TaskResult{
+			TaskID: task.TaskID,
+			Status: models.TaskStatusSuccess,
+		}, nil
+	case "prql":
+		// TODO: Implement PRQL execution via DataFusion
+		return models.TaskResult{
+			TaskID: task.TaskID,
+			Status: models.TaskStatusSuccess,
+		}, nil
+	case "data_literal":
+		logger.L().Info("Executing data_literal step", zap.String("task_id", task.TaskID))
+		// TODO: Implement data literal step
+		return models.TaskResult{
+			TaskID: task.TaskID,
+			Status: models.TaskStatusSuccess,
+		}, nil
+	default:
+		logger.L().Error("Unknown internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
+		return models.TaskResult{}, fmt.Errorf("unknown internal step: %s", stepName)
+	}
+}
+
 func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) error {
+	return w.updateCapabilities(ctx, capabilities, false)
+}
+
+func (w *Worker) updateCapabilities(ctx context.Context, capabilities []string, isInternal bool) error {
 	errCh := make(chan error, 1)
 	w.updateCapabilitiesCh <- func(mctx context.Context) {
 		// Merge unique capabilities
@@ -160,6 +214,12 @@ func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) 
 		}
 		newCaps := false
 		for _, c := range capabilities {
+			// Protection: Plugins cannot override __internal namespace
+			if !isInternal && len(c) >= 11 && c[:11] == "__internal." {
+				logger.L().Warn("Plugin attempted to register __internal capability, ignoring", zap.String("capability", c))
+				continue
+			}
+
 			if !capsMap[c] {
 				w.Capabilities = append(w.Capabilities, c)
 				capsMap[c] = true

@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/galgotech/heddle-lang/internal/services/models"
-	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/galgotech/heddle-lang/internal/services/models"
+	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
 type mockControlPlane struct {
@@ -25,6 +26,7 @@ type mockControlPlane struct {
 	Heartbeats        chan models.WorkerHeartbeat
 	HeartbeatIDs      chan string
 	Capabilities      chan models.WorkerCapabilitiesUpdate
+	DoExchangeFunc    func(stream flight.FlightService_DoExchangeServer) error
 }
 
 func (m *mockControlPlane) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
@@ -58,6 +60,9 @@ func (m *mockControlPlane) DoAction(action *flight.Action, stream flight.FlightS
 }
 
 func (m *mockControlPlane) DoExchange(stream flight.FlightService_DoExchangeServer) error {
+	if m.DoExchangeFunc != nil {
+		return m.DoExchangeFunc(stream)
+	}
 	return nil
 }
 
@@ -191,6 +196,14 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	defer conn.Close()
 
 	client := flight.NewClientFromConn(conn, nil)
+
+	// Consume initial internal capabilities update
+	select {
+	case update := <-mock.Capabilities:
+		assert.Contains(t, update.Capabilities, "__internal.identity")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for initial internal capabilities update")
+	}
 
 	// Register plugin with capabilities
 	reg := plugin.PluginRegistration{

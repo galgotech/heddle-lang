@@ -250,7 +250,7 @@ func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowI
 	case <-ctx.Done():
 		return ctx.Err()
 	case res := <-resultCh:
-		if res.Status != "SUCCESS" {
+		if res.Status != models.TaskStatusSuccess {
 			return fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
 		}
 	case <-time.After(30 * time.Second):
