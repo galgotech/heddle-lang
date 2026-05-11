@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -15,17 +19,18 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
 type Worker struct {
 	ID                   string
 	ControlPlane         flight.Client
-	Status               string
 	SocketPath           string
 	Capabilities         []string
 	PluginServer         *PluginServer
 	updateCapabilitiesCh chan func(context.Context)
 	Ready                chan struct{}
+	Registry             *locality.DataLocalityRegistry
 }
 
 func (w *Worker) Start(ctx context.Context) error {
@@ -189,7 +194,38 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		}, nil
 	case "data_literal":
 		logger.L().Info("Executing data_literal step", zap.String("task_id", task.TaskID))
-		// TODO: Implement data literal step
+
+		data, ok := task.Step.Config["data"]
+		if !ok {
+			return models.TaskResult{}, fmt.Errorf("data_literal: missing 'data' in config")
+		}
+
+		listData, ok := data.([]any)
+		if !ok {
+			return models.TaskResult{}, fmt.Errorf("data_literal: 'data' must be a list of objects")
+		}
+
+		table, err := convertToArrowTable(listData)
+		if err != nil {
+			return models.TaskResult{}, fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
+		}
+
+		// Store data in the locality registry for zero-copy access by plugins.
+		// In a production environment, this would be backed by Vineyard (v6d) shared memory.
+		// The task ID or assignment name serves as the handle for subsequent steps.
+		handle := task.TaskID
+		if task.Step.Assignment != "" {
+			handle = task.Step.Assignment
+		}
+
+		metadata := locality.Metadata{
+			IODirection: locality.Input,
+		}
+
+		w.Registry.Put(handle, metadata, table)
+
+		logger.L().Info("Persisted arrow table to registry", zap.String("handle", handle))
+
 		return models.TaskResult{
 			TaskID: task.TaskID,
 			Status: models.TaskStatusSuccess,
@@ -271,9 +307,104 @@ func NewWorker(cpAddr string, socketPath string) (*Worker, error) {
 	return &Worker{
 		ID:                   "worker-" + uuid.New().String()[:8],
 		ControlPlane:         flight.NewClientFromConn(conn, nil),
-		Status:               "starting",
 		SocketPath:           socketPath,
 		updateCapabilitiesCh: make(chan func(context.Context), 100),
 		Ready:                make(chan struct{}),
+		Registry:             locality.NewDataLocalityRegistry(),
 	}, nil
+}
+
+func convertToArrowTable(data []any) (arrow.Table, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("data is empty")
+	}
+
+	first, ok := data[0].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid data format: expected list of maps, got %T", data[0])
+	}
+
+	// 1. Infer schema from first element
+	keys := make([]string, 0, len(first))
+	for k := range first {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	fields := make([]arrow.Field, 0, len(keys))
+	for _, k := range keys {
+		v := first[k]
+		var dt arrow.DataType
+		switch v.(type) {
+		case float64:
+			dt = arrow.PrimitiveTypes.Float64
+		case string:
+			dt = arrow.BinaryTypes.String
+		case bool:
+			dt = arrow.FixedWidthTypes.Boolean
+		default:
+			dt = arrow.BinaryTypes.String // Fallback
+		}
+		fields = append(fields, arrow.Field{Name: k, Type: dt})
+	}
+	schema := arrow.NewSchema(fields, nil)
+
+	// 2. Build columns
+	mem := memory.NewGoAllocator()
+	builders := make([]array.Builder, len(fields))
+	for i, f := range fields {
+		builders[i] = array.NewBuilder(mem, f.Type)
+	}
+	defer func() {
+		for _, b := range builders {
+			b.Release()
+		}
+	}()
+
+	for _, item := range data {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		for i, f := range fields {
+			val := m[f.Name]
+			if val == nil {
+				builders[i].AppendNull()
+				continue
+			}
+
+			switch b := builders[i].(type) {
+			case *array.Float64Builder:
+				if fv, ok := val.(float64); ok {
+					b.Append(fv)
+				} else {
+					b.AppendNull()
+				}
+			case *array.StringBuilder:
+				b.Append(fmt.Sprint(val))
+			case *array.BooleanBuilder:
+				if bv, ok := val.(bool); ok {
+					b.Append(bv)
+				} else {
+					b.AppendNull()
+				}
+			default:
+				builders[i].AppendNull()
+			}
+		}
+	}
+
+	columns := make([]arrow.Column, len(fields))
+	for i := range fields {
+		arr := builders[i].NewArray()
+		chunked := arrow.NewChunked(fields[i].Type, []arrow.Array{arr})
+		arr.Release()
+
+		col := arrow.NewColumn(fields[i], chunked)
+		chunked.Release()
+
+		columns[i] = *col
+	}
+
+	return array.NewTable(schema, columns, int64(len(data))), nil
 }

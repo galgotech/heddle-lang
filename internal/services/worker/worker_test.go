@@ -172,8 +172,7 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	go srv.Serve(lis)
 	defer srv.Stop()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	socketPath := "/tmp/heddle-worker-cap-test.sock"
 	os.Remove(socketPath)

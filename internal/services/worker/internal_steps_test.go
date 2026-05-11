@@ -99,6 +99,82 @@ func TestWorker_InternalSteps(t *testing.T) {
 	}
 }
 
+func TestWorker_DataLiteral(t *testing.T) {
+	mock := &mockControlPlane{
+		RegisteredWorkers: make(chan models.WorkerRegistration, 1),
+		RegisteredIDs:     make(chan string, 1),
+		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 10),
+	}
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, mock)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	socketPath := "/tmp/heddle-worker-data-test.sock"
+	os.Remove(socketPath)
+
+	w, err := NewWorker(lis.Addr().String(), socketPath)
+	require.NoError(t, err)
+
+	exchangeCh := make(chan flight.FlightService_DoExchangeServer, 1)
+	mock.DoExchangeFunc = func(stream flight.FlightService_DoExchangeServer) error {
+		exchangeCh <- stream
+		<-stream.Context().Done()
+		return nil
+	}
+
+	go w.Start(ctx)
+
+	var stream flight.FlightService_DoExchangeServer
+	select {
+	case stream = <-exchangeCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for exchange stream")
+	}
+
+	// Send a data_literal task
+	data := []any{
+		map[string]any{"id": float64(1), "name": "Alice"},
+		map[string]any{"id": float64(2), "name": "Bob"},
+	}
+	task := models.StepExecutionTask{
+		TaskID: "task-data-1",
+		Step: &ir.StepInstruction{
+			Call:       []string{"__internal", "data_literal"},
+			Config:     map[string]any{"data": data},
+			Assignment: "users",
+		},
+	}
+	body, _ := json.Marshal(task)
+	err = stream.Send(&flight.FlightData{DataBody: body})
+	require.NoError(t, err)
+
+	// Verify result
+	res, err := stream.Recv()
+	require.NoError(t, err)
+
+	var result models.TaskResult
+	err = json.Unmarshal(res.DataBody, &result)
+	require.NoError(t, err)
+	assert.Equal(t, "task-data-1", result.TaskID)
+	assert.Equal(t, models.TaskStatusSuccess, result.Status)
+
+	// Verify data in registry
+	table, ok := w.Registry.GetData("users")
+	assert.True(t, ok)
+	assert.True(t, ok)
+	assert.Equal(t, int64(2), table.NumRows())
+	assert.Equal(t, int64(2), table.NumCols())
+}
+
 func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	mock := &mockControlPlane{
 		RegisteredWorkers: make(chan models.WorkerRegistration, 1),
