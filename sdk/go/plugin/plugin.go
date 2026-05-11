@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/signal"
 	"reflect"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
@@ -35,11 +38,12 @@ type StepRegistration struct {
 type PlanningDataHandler func(data []map[string]any) error
 
 type Plugin struct {
-	Namespace string
-	Language  string
-	resources map[string]ResourceRegistration
-	steps     map[string]StepRegistration
-	Ready     chan struct{}
+	Namespace     string
+	Language      string
+	WorkerAddress string
+	resources     map[string]ResourceRegistration
+	steps         map[string]StepRegistration
+	Ready         chan struct{}
 }
 
 // RegisterResource adds a new resource initializer to the registry.
@@ -81,57 +85,113 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 
 // Serve starts the plugin and connects to the specified worker.
 func (p *Plugin) Start() error {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	var opts []grpc.DialOption
+	var err error
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	// 1. Connect to Worker (handle UDS if path starts with / or unix:)
-	target := "unix:///tmp/heddle-worker.sock"
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return fmt.Errorf("failed to connect to worker: %w", err)
+	var conn *grpc.ClientConn
+	var client flight.Client
+
+	// 1. Start Retry Loop
+	for {
+		// 1.1 Connect to Worker (handle UDS if path starts with / or unix:)
+		target := p.WorkerAddress
+		if target == "" {
+			target = "unix:///tmp/heddle-worker.sock"
+		}
+
+		conn, err = grpc.NewClient(target, opts...)
+		if err != nil {
+			logger.L().Info("Worker not reachable, retrying...", zap.String("target", target))
+			
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1 * time.Second):
+				continue
+			}
+		}
+
+		client = flight.NewClientFromConn(conn, nil)
+
+		// 1.2 Register Plugin
+		capabilities := make([]string, 0, len(p.steps))
+		for name := range p.steps {
+			capabilities = append(capabilities, fmt.Sprintf("%s.%s", p.Namespace, name))
+		}
+
+		reg := PluginRegistration{
+			Namespace:    p.Namespace,
+			Language:     p.Language,
+			Version:      "0.1.0",
+			Capabilities: capabilities,
+		}
+		regBody, _ := json.Marshal(reg)
+		res, err := client.DoAction(ctx, &flight.Action{
+			Type: ActionRegisterPlugin,
+			Body: regBody,
+		})
+		if err != nil {
+			logger.L().Info("Retrying plugin registration...", zap.String("target", target))
+			conn.Close()
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1 * time.Second):
+				continue
+			}
+		}
+
+		// Wait for registration result
+		if _, err := res.Recv(); err != nil {
+			logger.L().Info("Waiting for registration result...", zap.String("target", target))
+			conn.Close()
+			
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1 * time.Second):
+				continue
+			}
+		}
+
+		logger.L().Info("Plugin registered", zap.String("namespace", p.Namespace))
+
+		// 1.3 Start Heartbeat and Execution Loop
+		// We use a separate context for each connection session
+		sessionCtx, cancel := context.WithCancel(ctx)
+		
+		go p.startHeartbeat(sessionCtx, client)
+
+		if p.Ready != nil {
+			// Only close Ready once
+			select {
+			case <-p.Ready:
+			default:
+				close(p.Ready)
+			}
+		}
+
+		err = p.startExecutionLoop(sessionCtx, client)
+		cancel() // Stop heartbeat
+		conn.Close()
+
+		if err != nil {
+			logger.L().Info("Worker connection lost, reconnecting...", zap.String("target", target))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1 * time.Second):
+				continue
+			}
+		}
+		
+		return nil // Graceful shutdown
 	}
-	defer conn.Close()
-
-	client := flight.NewClientFromConn(conn, nil)
-
-	// 2. Register Plugin
-	capabilities := make([]string, 0, len(p.steps))
-	for name := range p.steps {
-		capabilities = append(capabilities, fmt.Sprintf("%s.%s", p.Namespace, name))
-	}
-
-	reg := PluginRegistration{
-		Namespace:    p.Namespace,
-		Language:     p.Language,
-		Version:      "0.1.0",
-		Capabilities: capabilities,
-	}
-	regBody, _ := json.Marshal(reg)
-	res, err := client.DoAction(ctx, &flight.Action{
-		Type: ActionRegisterPlugin,
-		Body: regBody,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register plugin: %w", err)
-	}
-
-	// Wait for registration result
-	if _, err := res.Recv(); err != nil {
-		return fmt.Errorf("failed to receive registration result: %w", err)
-	}
-
-	logger.L().Info("Plugin registered", zap.String("namespace", p.Namespace))
-
-	// 3. Start Heartbeat
-	go p.startHeartbeat(ctx, client)
-
-	// 4. Start Execution Loop
-	if p.Ready != nil {
-		close(p.Ready)
-	}
-	return p.startExecutionLoop(ctx, client)
 }
 
 func (p *Plugin) startHeartbeat(ctx context.Context, client flight.Client) {

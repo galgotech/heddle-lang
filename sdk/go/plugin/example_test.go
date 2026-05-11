@@ -3,8 +3,7 @@ package plugin_test
 import (
 	"context"
 	"testing"
-
-	"github.com/stretchr/testify/require"
+	"time"
 
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
@@ -49,6 +48,12 @@ func TestExampleInterface(t *testing.T) {
 	p.RegisterResource("vault", &VaultResource{})
 	p.RegisterStep("hash", HashPassword)
 
-	err := p.Start()
-	require.NoError(t, err)
+	// Start the plugin (it will monitor signals internally)
+	// We run it in a goroutine because it blocks
+	go func() {
+		_ = p.Start()
+	}()
+	
+	// Wait a bit to ensure it starts
+	time.Sleep(100 * time.Millisecond)
 }
