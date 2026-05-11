@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"sync"
 
@@ -33,11 +34,13 @@ type PluginServer struct {
 }
 
 type PluginInfo struct {
-	Registration plugin.PluginRegistration
-	Namespace    string
-	Stream       flight.FlightService_DoExchangeServer
-	ResponseCh   map[string]chan plugin.ExecuteStepResponse
-	mu           sync.Mutex
+	Registration  plugin.PluginRegistration
+	Namespace     string
+	LastHeartbeat time.Time
+	Status        string
+	Stream        flight.FlightService_DoExchangeServer
+	ResponseCh    map[string]chan plugin.ExecuteStepResponse
+	mu            sync.Mutex
 }
 
 func (s *PluginServer) Start(ctx context.Context) error {
@@ -98,7 +101,16 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 		if err := json.Unmarshal(action.Body, &hb); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal heartbeat: %v", err)
 		}
-		logger.L().Info("Heartbeat from plugin")
+		logger.L().Debug("Heartbeat from plugin", zap.String("namespace", hb.Namespace))
+
+		if val, ok := s.Plugins.Load(hb.Namespace); ok {
+			info := val.(*PluginInfo)
+			info.mu.Lock()
+			info.LastHeartbeat = hb.Timestamp
+			info.Status = hb.Status
+			info.mu.Unlock()
+		}
+
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	default:

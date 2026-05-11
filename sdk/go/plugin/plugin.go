@@ -202,6 +202,7 @@ func (p *Plugin) startHeartbeat(ctx context.Context, client flight.Client) {
 		select {
 		case <-ticker.C:
 			hb := Heartbeat{
+				Namespace: p.Namespace,
 				Timestamp: time.Now(),
 				Status:    "ready",
 			}

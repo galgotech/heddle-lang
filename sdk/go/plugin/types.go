@@ -27,6 +27,7 @@ type PluginRegistration struct {
 
 // Heartbeat is sent periodically by plugins to the worker.
 type Heartbeat struct {
+	Namespace string    `json:"namespace"`
 	Timestamp time.Time `json:"timestamp"`
 	Status    string    `json:"status"`
 }

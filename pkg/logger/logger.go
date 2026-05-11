@@ -24,6 +24,7 @@ func init() {
 type Config struct {
 	Development bool
 	Level       string
+	Encoding    string // "json" or "console"
 	OutputPaths []string
 }
 
@@ -32,9 +33,20 @@ func Init(cfg Config) error {
 	var zapCfg zap.Config
 	if cfg.Development {
 		zapCfg = zap.NewDevelopmentConfig()
-		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	} else {
 		zapCfg = zap.NewProductionConfig()
+	}
+
+	if cfg.Encoding != "" {
+		zapCfg.Encoding = cfg.Encoding
+	}
+
+	// Apply beautiful console formatting if console is selected (or development mode)
+	if zapCfg.Encoding == "console" || cfg.Development {
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		zapCfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		zapCfg.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
+		zapCfg.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
 	}
 
 	if cfg.Level != "" {
@@ -56,6 +68,7 @@ func Init(cfg Config) error {
 	globalLogger = logger
 	return nil
 }
+
 
 // L returns the global logger instance
 func L() *zap.Logger {
