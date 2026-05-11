@@ -166,7 +166,7 @@ func (s *ControlPlaneServer) orchestrateTask(ctx context.Context, task models.Ta
 	for _, flowID := range program.Workflows {
 		flow := program.Instructions[flowID].(*ir.FlowInstruction)
 		for _, headID := range flow.Heads {
-			if err := s.executeStepRecursive(ctx, task.ID, program, headID); err != nil {
+			if err := s.executeStepRecursive(ctx, task.ID, program, headID, ""); err != nil {
 				logger.L().Error("Task failed", zap.Error(err))
 				s.signalWorkflow(task.ID, err)
 				return
@@ -209,7 +209,7 @@ func (s *ControlPlaneServer) WaitForWorkflow(taskID string) chan error {
 	return ch
 }
 
-func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string) error {
+func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string) error {
 	step := prog.Instructions[stepID].(*ir.StepInstruction)
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
@@ -233,9 +233,10 @@ func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowI
 
 	// 4. Dispatch step
 	execTask := models.StepExecutionTask{
-		WorkflowID: workflowID,
-		TaskID:     stepID,
-		Step:       step,
+		WorkflowID:     workflowID,
+		TaskID:         stepID,
+		PreviousTaskID: prevTaskID,
+		Step:           step,
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {
@@ -259,7 +260,7 @@ func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowI
 
 	// 6. Continue to next steps
 	for _, nextID := range step.Next {
-		if err := s.executeStepRecursive(ctx, workflowID, prog, nextID); err != nil {
+		if err := s.executeStepRecursive(ctx, workflowID, prog, nextID, stepID); err != nil {
 			return err
 		}
 	}

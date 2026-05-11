@@ -169,7 +169,7 @@ func TestWorker_DataLiteral(t *testing.T) {
 	assert.Equal(t, models.TaskStatusSuccess, result.Status)
 
 	// Verify data in registry: SHM path must be populated
-	meta, ok := w.Registry.GetMetadata("users", locality.Input)
+	meta, ok := w.Registry.GetMetadata("task-data-1", locality.Output)
 	assert.True(t, ok)
 	assert.NotEmpty(t, meta.Path)
 

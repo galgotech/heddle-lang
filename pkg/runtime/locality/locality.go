@@ -28,7 +28,16 @@ func (d IODirection) String() string {
 type Metadata struct {
 	TaskID      string
 	IODirection IODirection
-	Path        string // Optional: physical path in /dev/shm
+	Path        string // physical path in /dev/shm
+}
+
+// NewMetadata creates a new Metadata instance ensuring all required fields are provided.
+func NewMetadata(taskID string, dir IODirection, path string) Metadata {
+	return Metadata{
+		TaskID:      taskID,
+		IODirection: dir,
+		Path:        path,
+	}
 }
 
 // DataLocalityRegistry manages the mapping of data identifiers to their physical locations

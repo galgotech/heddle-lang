@@ -39,9 +39,7 @@ type Plugin struct {
 	Language  string
 	resources map[string]ResourceRegistration
 	steps     map[string]StepRegistration
-	// onPlanningData is called when a 'std.data' step is executed.
-	onPlanningData PlanningDataHandler
-	Ready          chan struct{}
+	Ready     chan struct{}
 }
 
 // RegisterResource adds a new resource initializer to the registry.
@@ -79,12 +77,6 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 	p.steps[name] = reg
 
 	return nil
-}
-
-// RegisterPlanningDataHandler registers a callback that will be invoked when
-// the plugin receives data from a dataframe literal (std.data step).
-func (p *Plugin) RegisterPlanningDataHandler(fn PlanningDataHandler) {
-	p.onPlanningData = fn
 }
 
 // Serve starts the plugin and connects to the specified worker.
@@ -222,35 +214,6 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
-	// Special handling for built-in std.data step (dataframe literals)
-	if req.StepName == "data" && p.onPlanningData != nil {
-		var config struct {
-			Data []map[string]any `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(req.ConfigJSON), &config); err != nil {
-			return ExecuteStepResponse{
-				TaskID:       req.TaskID,
-				Status:       "FAILED",
-				ErrorMessage: fmt.Sprintf("failed to unmarshal planning data: %v", err),
-			}
-		}
-		if err := p.onPlanningData(config.Data); err != nil {
-			return ExecuteStepResponse{
-				TaskID:       req.TaskID,
-				Status:       "FAILED",
-				ErrorMessage: fmt.Sprintf("planning data handler failed: %v", err),
-			}
-		}
-		// We still allow the execution to continue if there's a target step,
-		// but for std.data we usually just want the handler to run.
-		if targetStep == nil {
-			return ExecuteStepResponse{
-				TaskID: req.TaskID,
-				Status: "SUCCESS",
-			}
-		}
-	}
-
 	if targetStep == nil {
 		return ExecuteStepResponse{
 			TaskID:       req.TaskID,
@@ -293,10 +256,6 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
-	if inputTable == nil {
-		inputTable = core.NewTableFromRecord(nil)
-	}
-
 	// 3. Call the function
 	var arg1 reflect.Value
 	if isPtr {
@@ -313,6 +272,7 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		arg2,
 	}
 
+	// STEP EXECUTION
 	results := targetStep.Func.Call(args)
 
 	// 4. Handle results

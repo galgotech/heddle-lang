@@ -160,21 +160,18 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 	// Zero-Copy Input: resolve SHM path from registry metadata
 	inputHandle := ""
-	if s.Registry != nil {
-		handle := task.TaskID
-		if task.Step.Assignment != "" {
-			handle = task.Step.Assignment
-		}
-
-		// Try Output first, then Input
-		meta, ok := s.Registry.GetMetadata(handle, locality.Output)
-		if !ok {
-			meta, ok = s.Registry.GetMetadata(handle, locality.Input)
-		}
-
-		if ok && meta.Path != "" {
-			inputHandle = meta.Path
-			logger.L().Info("Using SHM path from registry", zap.String("path", inputHandle))
+	isInputVoid := len(task.Step.InputType) > 0 && task.Step.InputType[0] == models.VoidType
+	if s.Registry != nil && !isInputVoid {
+		handle := task.PreviousTaskID
+		if handle != "" {
+			meta, ok := s.Registry.GetMetadata(handle, locality.Output)
+			if ok {
+				inputHandle = meta.Path
+			} else {
+				return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
+			}
+		} else {
+			return models.TaskResult{}, fmt.Errorf("critical error: task %s expects input but PreviousTaskID is empty", task.TaskID)
 		}
 	}
 
@@ -185,7 +182,10 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		ConfigJSON:  string(configJSON),
 		InputHandle: inputHandle,
 	}
-	body, _ := json.Marshal(req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		return models.TaskResult{}, fmt.Errorf("failed to marshal task to plugin: %w", err)
+	}
 
 	resCh := make(chan plugin.ExecuteStepResponse, 1)
 	info.mu.Lock()
@@ -206,16 +206,10 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		return models.TaskResult{}, ctx.Err()
 	case resp := <-resCh:
 		// Zero-Copy Output: register SHM path in registry
-		if resp.OutputHandle != "" && s.Registry != nil {
+		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
+		if resp.OutputHandle != "" && s.Registry != nil && !isOutputVoid {
 			handle := task.TaskID
-			if task.Step.Assignment != "" {
-				handle = task.Step.Assignment
-			}
-			s.Registry.Put(locality.Metadata{
-				TaskID:      handle,
-				IODirection: locality.Output,
-				Path:        resp.OutputHandle,
-			})
+			s.Registry.Put(locality.NewMetadata(handle, locality.Output, resp.OutputHandle))
 			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle), zap.String("path", resp.OutputHandle))
 		}
 

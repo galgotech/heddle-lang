@@ -212,28 +212,23 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		}
 
 		// Store data in the locality registry for zero-copy access by plugins.
-		// The task ID or assignment name serves as the handle for subsequent steps.
+		// The task ID serves as the handle for subsequent steps.
 		handle := task.TaskID
-		if task.Step.Assignment != "" {
-			handle = task.Step.Assignment
-		}
-
-		metadata := locality.Metadata{
-			TaskID:      handle,
-			IODirection: locality.Input,
-		}
 
 		f, err := locality.AllocateAndWrite(record)
 		if err != nil {
 			return models.TaskResult{}, fmt.Errorf("data_literal: failed to write to SHM: %w", err)
 		}
-		metadata.Path = f.Name()
+		path := f.Name()
 		f.Close()
-		logger.L().Info("Allocated data_literal to SHM", zap.String("handle", handle), zap.String("path", metadata.Path))
+		logger.L().Info("Allocated data_literal to SHM", zap.String("handle", handle), zap.String("path", path))
 
-		w.Registry.Put(metadata)
-
-		logger.L().Info("Persisted arrow table to registry", zap.String("handle", handle))
+		// literal_data always is first step the tips is void -> data_type
+		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
+		if isOutputVoid {
+			logger.L().Warn("data_literal is first step and output is void, this is not expected", zap.String("handle", handle))
+		}
+		w.Registry.Put(locality.NewMetadata(handle, locality.Output, path))
 
 		return models.TaskResult{
 			TaskID: task.TaskID,
