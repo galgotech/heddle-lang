@@ -13,7 +13,7 @@ import (
 	"github.com/galgotech/heddle-lang/sdk/go/core"
 )
 
-func createTestTable(t *testing.T, a, b []float64) *core.Table {
+func createTestTable(t *testing.T, a, b []float64) core.Table {
 	pool := memory.NewGoAllocator()
 
 	builderA := array.NewFloat64Builder(pool)
@@ -46,10 +46,10 @@ func TestAdd(t *testing.T) {
 	require.NoError(t, err)
 	defer output.Release()
 
-	require.NotNil(t, output.Record)
-	assert.Equal(t, int64(2), output.Record.NumRows())
+	require.NotNil(t, output.Native())
+	assert.Equal(t, int64(2), output.Native().NumRows())
 
-	resCol := output.Record.Column(0).(*array.Float64)
+	resCol := output.Native().Column(0).(*array.Float64)
 	assert.Equal(t, 15.0, resCol.Value(0))
 	assert.Equal(t, 22.0, resCol.Value(1))
 }
@@ -63,7 +63,7 @@ func TestSubtract(t *testing.T) {
 	require.NoError(t, err)
 	defer output.Release()
 
-	resCol := output.Record.Column(0).(*array.Float64)
+	resCol := output.Native().Column(0).(*array.Float64)
 	assert.Equal(t, 5.0, resCol.Value(0))
 	assert.Equal(t, 18.0, resCol.Value(1))
 }
@@ -77,7 +77,7 @@ func TestMultiply(t *testing.T) {
 	require.NoError(t, err)
 	defer output.Release()
 
-	resCol := output.Record.Column(0).(*array.Float64)
+	resCol := output.Native().Column(0).(*array.Float64)
 	assert.Equal(t, 50.0, resCol.Value(0))
 	assert.Equal(t, 40.0, resCol.Value(1))
 }
@@ -93,7 +93,7 @@ func TestDivide(t *testing.T) {
 		require.NoError(t, err)
 		defer output.Release()
 
-		resCol := output.Record.Column(0).(*array.Float64)
+		resCol := output.Native().Column(0).(*array.Float64)
 		assert.Equal(t, 2.0, resCol.Value(0))
 		assert.Equal(t, 10.0, resCol.Value(1))
 	})

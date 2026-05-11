@@ -21,28 +21,28 @@ func getColumns(record arrow.Record) (a, b *array.Float64, err error) {
 
 	idxA := schema.FieldIndices("a")
 	if len(idxA) == 0 {
-		return nil, nil, core.NewBusinessError("column 'a' not found")
+		return nil, nil, fmt.Errorf("column 'a' not found")
 	}
 
 	idxB := schema.FieldIndices("b")
 	if len(idxB) == 0 {
-		return nil, nil, core.NewBusinessError("column 'b' not found")
+		return nil, nil, fmt.Errorf("column 'b' not found")
 	}
 
 	colA, ok := record.Column(idxA[0]).(*array.Float64)
 	if !ok {
-		return nil, nil, core.NewBusinessError("column 'a' must be float64")
+		return nil, nil, fmt.Errorf("column 'a' must be float64")
 	}
 
 	colB, ok := record.Column(idxB[0]).(*array.Float64)
 	if !ok {
-		return nil, nil, core.NewBusinessError("column 'b' must be float64")
+		return nil, nil, fmt.Errorf("column 'b' must be float64")
 	}
 
 	return colA, colB, nil
 }
 
-func createResultTable(results []float64) *core.Table {
+func createResultTable(results []float64) core.Table {
 	pool := memory.NewGoAllocator()
 	builder := array.NewFloat64Builder(pool)
 	defer builder.Release()
@@ -60,13 +60,13 @@ func createResultTable(results []float64) *core.Table {
 	return core.NewTableFromRecord(record)
 }
 
-func Add(ctx context.Context, cfg Config, input *core.Table) (*core.Table, error) {
-	colA, colB, err := getColumns(input.Record)
+func Add(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
+	colA, colB, err := getColumns(input.Native())
 	if err != nil {
 		return nil, err
 	}
 
-	rows := int(input.Record.NumRows())
+	rows := int(input.Native().NumRows())
 	results := make([]float64, rows)
 	for i := range rows {
 		results[i] = colA.Value(i) + colB.Value(i)
@@ -75,13 +75,13 @@ func Add(ctx context.Context, cfg Config, input *core.Table) (*core.Table, error
 	return createResultTable(results), nil
 }
 
-func Subtract(ctx context.Context, cfg Config, input *core.Table) (*core.Table, error) {
-	colA, colB, err := getColumns(input.Record)
+func Subtract(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
+	colA, colB, err := getColumns(input.Native())
 	if err != nil {
 		return nil, err
 	}
 
-	rows := int(input.Record.NumRows())
+	rows := int(input.Native().NumRows())
 	results := make([]float64, rows)
 	for i := 0; i < rows; i++ {
 		results[i] = colA.Value(i) - colB.Value(i)
@@ -90,13 +90,13 @@ func Subtract(ctx context.Context, cfg Config, input *core.Table) (*core.Table, 
 	return createResultTable(results), nil
 }
 
-func Multiply(ctx context.Context, cfg Config, input *core.Table) (*core.Table, error) {
-	colA, colB, err := getColumns(input.Record)
+func Multiply(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
+	colA, colB, err := getColumns(input.Native())
 	if err != nil {
 		return nil, err
 	}
 
-	rows := int(input.Record.NumRows())
+	rows := int(input.Native().NumRows())
 	results := make([]float64, rows)
 	for i := 0; i < rows; i++ {
 		results[i] = colA.Value(i) * colB.Value(i)
@@ -105,17 +105,17 @@ func Multiply(ctx context.Context, cfg Config, input *core.Table) (*core.Table, 
 	return createResultTable(results), nil
 }
 
-func Divide(ctx context.Context, cfg Config, input *core.Table) (*core.Table, error) {
-	colA, colB, err := getColumns(input.Record)
+func Divide(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
+	colA, colB, err := getColumns(input.Native())
 	if err != nil {
 		return nil, err
 	}
 
-	rows := int(input.Record.NumRows())
+	rows := int(input.Native().NumRows())
 	results := make([]float64, rows)
 	for i := 0; i < rows; i++ {
 		if colB.Value(i) == 0 {
-			return nil, core.NewBusinessError(fmt.Sprintf("division by zero at row %d", i))
+			return nil, fmt.Errorf("division by zero at row %d", i)
 		}
 		results[i] = colA.Value(i) / colB.Value(i)
 	}
