@@ -305,6 +305,11 @@ func (p *Parser) parseHandler() ast.NodeRef {
 
 	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
 		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+			if p.isNextPipe() {
+				// Let parseHandlerStatement -> parsePipeChainFromPipe handle it.
+				p.ctx.AddHandlerStatementRef(p.parseHandlerStatement())
+				continue
+			}
 			p.nextToken()
 			continue
 		}
@@ -328,10 +333,13 @@ func (p *Parser) parseHandlerStatement() ast.NodeRef {
 		hs.IsCatchAll = true
 		p.nextToken() // Skip '*'
 		for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) {
+			if p.isNextPipe() {
+				break
+			}
 			p.nextToken()
 		}
 	}
-	if p.curTokenIs(lexer.PIPE) {
+	if p.curTokenIs(lexer.PIPE) || p.isNextPipe() {
 		chainRef := p.parsePipeChainFromPipe()
 		hs.StmtRef = p.ctx.AddPipelineStatementNode(ast.PipelineStatementNode{ExprRef: chainRef})
 	} else {
@@ -364,6 +372,12 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 
 	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
 		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+			if p.isNextPipe() {
+				// Let parsePipeChainFromPipe handle the whitespace and the same-line check.
+				chainRef := p.parsePipeChainFromPipe()
+				p.ctx.AddStatementRef(p.ctx.AddPipelineStatementNode(ast.PipelineStatementNode{ExprRef: chainRef}))
+				continue
+			}
 			p.nextToken()
 			continue
 		}
@@ -444,7 +458,8 @@ func (p *Parser) parsePipeChain() ast.NodeRef {
 	p.ctx.AddCallRef(p.parseCall())
 	indentDepth := 0
 	for {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+		hadWhitespace := false
+		for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			// Handle multi-line pipe chains.
 			// If we see a PIPE coming up after some whitespace/indentation, consume it.
 			if p.isNextPipe() {
@@ -454,11 +469,16 @@ func (p *Parser) parsePipeChain() ast.NodeRef {
 					indentDepth--
 				}
 				p.nextToken()
+				hadWhitespace = true
 				continue
 			}
+			break
 		}
 
 		if p.curTokenIs(lexer.PIPE) {
+			if !hadWhitespace {
+				p.curError("pipe cannot follow a call on the same line; use a newline")
+			}
 			p.nextToken() // Move past '|'
 			p.ctx.AddCallRef(p.parseCall())
 			continue
@@ -493,7 +513,8 @@ func (p *Parser) parsePipeChainFromPipe() ast.NodeRef {
 	p.ctx.AddCallRef(p.ctx.AddCallNode(ast.CallNode{}))
 	indentDepth := 0
 	for {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+		hadWhitespace := false
+		for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			if p.isNextPipe() {
 				if p.curTokenIs(lexer.INDENT) {
 					indentDepth++
@@ -501,11 +522,16 @@ func (p *Parser) parsePipeChainFromPipe() ast.NodeRef {
 					indentDepth--
 				}
 				p.nextToken()
+				hadWhitespace = true
 				continue
 			}
+			break
 		}
 
 		if p.curTokenIs(lexer.PIPE) {
+			if !hadWhitespace {
+				p.curError("pipe cannot follow a call on the same line; use a newline")
+			}
 			p.nextToken() // Move past '|'
 			p.ctx.AddCallRef(p.parseCall())
 			continue
@@ -540,9 +566,6 @@ func (p *Parser) parseCall() ast.NodeRef {
 		node.QueryRef = p.ctx.AddString(p.curToken.Literal)
 		node.IsPrql = true
 		p.nextToken()
-	} else if p.curTokenIs(lexer.LBRACKET) {
-		// dataframe literal
-		node.DataframeRef = p.parseDataframe()
 	} else if p.curTokenIs(lexer.LANGLE) {
 		// function_ref (anonymous_step_call) starting with resource_ref
 		node.FunctionRef = p.parseFunctionRef()
@@ -557,7 +580,7 @@ func (p *Parser) parseCall() ast.NodeRef {
 			p.nextToken()
 		}
 	} else {
-		p.curError("expected call (IDENT, resource_ref, PRQL block, or dataframe)")
+		p.curError("expected call (IDENT, resource_ref, or PRQL block)")
 		// Synchronize: skip until NEWLINE or PIPE to recover parsing.
 		for !p.curTokenIs(lexer.EOF) && !p.curTokenIs(lexer.NEWLINE) && !p.curTokenIs(lexer.PIPE) {
 			p.nextToken()
@@ -603,9 +626,7 @@ func (p *Parser) parseDataframe() ast.NodeRef {
 
 // parseDict parses a key-value dictionary block.
 func (p *Parser) parseDict() ast.NodeRef {
-	node := ast.DictNode{
-		PairRefsStart: uint32(len(p.ctx.PairRefs)),
-	}
+	var pairs []ast.NodeRef
 	p.expectCur(lexer.LBRACE)
 	p.nextToken()
 
@@ -625,7 +646,7 @@ func (p *Parser) parseDict() ast.NodeRef {
 				pair.ValueRef = 0
 				p.nextToken()
 			}
-			p.ctx.AddPairRef(p.ctx.AddPairNode(pair))
+			pairs = append(pairs, p.ctx.AddPairNode(pair))
 			if p.curTokenIs(lexer.COMMA) {
 				p.nextToken()
 			}
@@ -639,25 +660,36 @@ func (p *Parser) parseDict() ast.NodeRef {
 		p.nextToken()
 	}
 
+	node := ast.DictNode{
+		PairRefsStart: uint32(len(p.ctx.PairRefs)),
+	}
+	for _, ref := range pairs {
+		p.ctx.AddPairRef(ref)
+	}
 	node.PairRefsEnd = uint32(len(p.ctx.PairRefs))
 	return p.ctx.AddDictNode(node)
 }
 
 // parseList parses a square-bracketed list of literal values.
 func (p *Parser) parseList() ast.NodeRef {
-	node := ast.ListNode{
-		LiteralRefsStart: uint32(len(p.ctx.LiteralRefs)),
-	}
+	var literals []ast.NodeRef
 	p.nextToken() // Skip '['
 	for !p.curTokenIs(lexer.RBRACKET) && !p.curTokenIs(lexer.EOF) {
 		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.COMMA) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}
-		p.ctx.AddLiteralRef(p.parseLiteral())
+		literals = append(literals, p.parseLiteral())
 	}
 	if p.curTokenIs(lexer.RBRACKET) {
 		p.nextToken()
+	}
+
+	node := ast.ListNode{
+		LiteralRefsStart: uint32(len(p.ctx.LiteralRefs)),
+	}
+	for _, ref := range literals {
+		p.ctx.AddLiteralRef(ref)
 	}
 	node.LiteralRefsEnd = uint32(len(p.ctx.LiteralRefs))
 	return p.ctx.AddListNode(node)
@@ -751,7 +783,8 @@ func (p *Parser) parsePipeChainFromExpr(exprRef ast.NodeRef) ast.NodeRef {
 
 	indentDepth := 0
 	for {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+		hadWhitespace := false
+		for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			if p.isNextPipe() {
 				if p.curTokenIs(lexer.INDENT) {
 					indentDepth++
@@ -759,11 +792,16 @@ func (p *Parser) parsePipeChainFromExpr(exprRef ast.NodeRef) ast.NodeRef {
 					indentDepth--
 				}
 				p.nextToken()
+				hadWhitespace = true
 				continue
 			}
+			break
 		}
 
 		if p.curTokenIs(lexer.PIPE) {
+			if !hadWhitespace {
+				p.curError("pipe cannot follow a call on the same line; use a newline")
+			}
 			p.nextToken() // Move past '|'
 			p.ctx.AddCallRef(p.parseCall())
 			continue

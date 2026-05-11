@@ -10,6 +10,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/sdk/go/core"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -280,6 +281,22 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
+	// Zero-Copy Input: Read from SHM if path is provided
+	var inputTable core.Table
+	if req.InputHandle != "" {
+		record, err := core.ReadArrowFromPath(req.InputHandle)
+		if err != nil {
+			logger.L().Error("Failed to read input from SHM", zap.Error(err), zap.String("path", req.InputHandle))
+		} else {
+			inputTable = core.NewTableFromRecord(record)
+			defer inputTable.Release()
+		}
+	}
+
+	if inputTable == nil {
+		inputTable = core.NewTableFromRecord(nil)
+	}
+
 	// 3. Call the function
 	var arg1 reflect.Value
 	if isPtr {
@@ -288,9 +305,7 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		arg1 = configVal.Elem()
 	}
 
-	// For now, we pass a zero value (nil interface) for the input table
-	// as Arrow data transmission is still being integrated.
-	arg2 := reflect.Zero(targetStep.Func.Type().In(2))
+	arg2 := reflect.ValueOf(inputTable)
 
 	args := []reflect.Value{
 		reflect.ValueOf(ctx),
@@ -309,10 +324,21 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
+	outputTable, ok := results[0].Interface().(core.Table)
+	outputHandle := ""
+	if ok && outputTable != nil && outputTable.Native() != nil {
+		path, err := core.WriteArrowToShm(outputTable.Native())
+		if err != nil {
+			logger.L().Error("Failed to write output to SHM", zap.Error(err))
+		} else {
+			outputHandle = path
+		}
+	}
+
 	return ExecuteStepResponse{
 		TaskID:       req.TaskID,
 		Status:       "SUCCESS",
-		OutputHandle: req.OutputHandle, // Simplified
+		OutputHandle: outputHandle,
 	}
 }
 

@@ -71,6 +71,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	if w.PluginServer == nil {
 		w.PluginServer = NewPluginServer(w.SocketPath)
 	}
+	w.PluginServer.Registry = w.Registry
 	w.PluginServer.OnCapabilitiesUpdate = w.UpdateCapabilities
 	go func() {
 		if err := w.PluginServer.Start(ctx); err != nil {
@@ -205,13 +206,12 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 			return models.TaskResult{}, fmt.Errorf("data_literal: 'data' must be a list of objects")
 		}
 
-		table, err := convertToArrowTable(listData)
+		record, err := convertToArrowRecord(listData)
 		if err != nil {
 			return models.TaskResult{}, fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
 		}
 
 		// Store data in the locality registry for zero-copy access by plugins.
-		// In a production environment, this would be backed by Vineyard (v6d) shared memory.
 		// The task ID or assignment name serves as the handle for subsequent steps.
 		handle := task.TaskID
 		if task.Step.Assignment != "" {
@@ -219,10 +219,19 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		}
 
 		metadata := locality.Metadata{
+			TaskID:      handle,
 			IODirection: locality.Input,
 		}
 
-		w.Registry.Put(handle, metadata, table)
+		f, err := locality.AllocateAndWrite(record)
+		if err != nil {
+			return models.TaskResult{}, fmt.Errorf("data_literal: failed to write to SHM: %w", err)
+		}
+		metadata.Path = f.Name()
+		f.Close()
+		logger.L().Info("Allocated data_literal to SHM", zap.String("handle", handle), zap.String("path", metadata.Path))
+
+		w.Registry.Put(metadata)
 
 		logger.L().Info("Persisted arrow table to registry", zap.String("handle", handle))
 
@@ -314,7 +323,7 @@ func NewWorker(cpAddr string, socketPath string) (*Worker, error) {
 	}, nil
 }
 
-func convertToArrowTable(data []any) (arrow.Table, error) {
+func convertToArrowRecord(data []any) (arrow.Record, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("data is empty")
 	}
@@ -394,17 +403,15 @@ func convertToArrowTable(data []any) (arrow.Table, error) {
 		}
 	}
 
-	columns := make([]arrow.Column, len(fields))
+	cols := make([]arrow.Array, len(fields))
 	for i := range fields {
-		arr := builders[i].NewArray()
-		chunked := arrow.NewChunked(fields[i].Type, []arrow.Array{arr})
-		arr.Release()
-
-		col := arrow.NewColumn(fields[i], chunked)
-		chunked.Release()
-
-		columns[i] = *col
+		cols[i] = builders[i].NewArray()
 	}
+	defer func() {
+		for _, c := range cols {
+			c.Release()
+		}
+	}()
 
-	return array.NewTable(schema, columns, int64(len(data))), nil
+	return array.NewRecord(schema, cols, int64(len(data))), nil
 }

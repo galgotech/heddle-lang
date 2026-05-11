@@ -18,6 +18,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
@@ -27,6 +28,7 @@ type PluginServer struct {
 	Plugins              sync.Map // map[string]*PluginInfo
 	OnCapabilitiesUpdate func(ctx context.Context, capabilities []string) error
 	Ready                chan struct{}
+	Registry             *locality.DataLocalityRegistry
 }
 
 type PluginInfo struct {
@@ -156,11 +158,32 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		return models.TaskResult{}, fmt.Errorf("plugin %s not connected", namespace)
 	}
 
+	// Zero-Copy Input: resolve SHM path from registry metadata
+	inputHandle := ""
+	if s.Registry != nil {
+		handle := task.TaskID
+		if task.Step.Assignment != "" {
+			handle = task.Step.Assignment
+		}
+
+		// Try Output first, then Input
+		meta, ok := s.Registry.GetMetadata(handle, locality.Output)
+		if !ok {
+			meta, ok = s.Registry.GetMetadata(handle, locality.Input)
+		}
+
+		if ok && meta.Path != "" {
+			inputHandle = meta.Path
+			logger.L().Info("Using SHM path from registry", zap.String("path", inputHandle))
+		}
+	}
+
 	configJSON, _ := json.Marshal(task.Step.Config)
 	req := plugin.ExecuteStepRequest{
-		TaskID:     task.TaskID,
-		StepName:   task.Step.Call[1],
-		ConfigJSON: string(configJSON),
+		TaskID:      task.TaskID,
+		StepName:    task.Step.Call[1],
+		ConfigJSON:  string(configJSON),
+		InputHandle: inputHandle,
 	}
 	body, _ := json.Marshal(req)
 
@@ -182,6 +205,20 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	case <-ctx.Done():
 		return models.TaskResult{}, ctx.Err()
 	case resp := <-resCh:
+		// Zero-Copy Output: register SHM path in registry
+		if resp.OutputHandle != "" && s.Registry != nil {
+			handle := task.TaskID
+			if task.Step.Assignment != "" {
+				handle = task.Step.Assignment
+			}
+			s.Registry.Put(locality.Metadata{
+				TaskID:      handle,
+				IODirection: locality.Output,
+				Path:        resp.OutputHandle,
+			})
+			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle), zap.String("path", resp.OutputHandle))
+		}
+
 		return models.TaskResult{
 			TaskID:       resp.TaskID,
 			Status:       resp.Status,

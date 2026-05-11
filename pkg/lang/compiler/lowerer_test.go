@@ -116,7 +116,7 @@ workflow main ? on_error {
 	handlerStepID := flow.Handler
 	handlerStep := irProg.Instructions[handlerStepID].(*ir.StepInstruction)
 	assert.Equal(t, "identity", handlerStep.DefinitionName)
-	assert.Equal(t, []string{"std", "identity"}, handlerStep.Call)
+	assert.Equal(t, []string{"__internal", "identity"}, handlerStep.Call)
 	assert.True(t, handlerStep.Config["is_catch_all"].(bool))
 
 	// Next step in handler should be io.stderr
@@ -259,9 +259,9 @@ workflow FraudDetection ? alert_on_fail {
 		Resource string
 	}{
 		{Name: "fetch_transactions", Call: []string{"fhub/kafka", "consume"}, Assign: "tx_stream", Resource: "kf_broker"},
-		{Name: "query", Call: []string{"std", "query"}},
+		{Name: "prql", Call: []string{"__internal", "prql"}},
 		{Name: "", Call: []string{"fraud-score/detect", "process"}, Handler: true},
-		{Name: "query", Call: []string{"std", "query"}},
+		{Name: "prql", Call: []string{"__internal", "prql"}},
 		{Name: "generate_audit", Call: []string{"fhub/llm", "prompt"}},
 		{Name: "produce_fraud_audits", Call: []string{"fhub/kafka", "produce"}},
 	}
@@ -437,7 +437,7 @@ workflow main ? recover {
 
 	// Chain 2: query (Join) -> s3
 	currID = flow.Heads[1]
-	chain2 := []string{"query", "s3"}
+	chain2 := []string{"prql", "s3"}
 	for _, name := range chain2 {
 		require.NotEmpty(t, currID)
 		step := irProg.Instructions[currID].(*ir.StepInstruction)
@@ -451,7 +451,7 @@ workflow main ? recover {
 
 	// Chain 3: s4 -> query -> r1
 	currID = flow.Heads[2]
-	chain3 := []string{"s4", "query", "r1"}
+	chain3 := []string{"s4", "prql", "r1"}
 	for _, name := range chain3 {
 		require.NotEmpty(t, currID)
 		step := irProg.Instructions[currID].(*ir.StepInstruction)
@@ -501,8 +501,8 @@ workflow main {
 
 	dataStepID := flow.Heads[0]
 	dataStep := irProg.Instructions[dataStepID].(*ir.StepInstruction)
-	assert.Equal(t, "data", dataStep.DefinitionName)
-	assert.Equal(t, []string{"std", "data"}, dataStep.Call)
+	assert.Equal(t, "data_literal", dataStep.DefinitionName)
+	assert.Equal(t, []string{"__internal", "data_literal"}, dataStep.Call)
 
 	// Verify data content
 	data := dataStep.Config["data"].([]map[string]any)
@@ -557,7 +557,7 @@ workflow main ? test {
 		}
 	}
 	require.NotNil(t, handlerStep, "Identity step '*' not found in IR")
-	assert.Equal(t, []string{"std", "identity"}, handlerStep.Call)
+	assert.Equal(t, []string{"__internal", "identity"}, handlerStep.Call)
 
 	// Verify identity step links to io.print
 	require.NotEmpty(t, handlerStep.Next)

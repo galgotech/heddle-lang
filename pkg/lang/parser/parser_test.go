@@ -669,6 +669,175 @@ workflow main {
 `,
 			expectedErrs: 1,
 		},
+		{
+			name: "invalid handler trap and dataframe pipe",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+handler error2 {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users ? error2
+    | [{}]
+    | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid dataframe pipe",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+handler error2 {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users
+    | [{}]
+    | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "trap followed by same-line pipe",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+handler error2 {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users ? error2 | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "asterisk followed by same-line pipe",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+handler error2 {
+  * | io.print
+}
+
+workflow main ? error {
+  fetch_users ? error2
+    | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "pipe followed by pipe on same line",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "same-line pipe after identifier",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users | (select id)
+  | io.print
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "multiple pipes on same line",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users | (select id) | io.print
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "same-line pipe after trap",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  fetch_users ? error | (select id) | io.print
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "same-line pipe after prql block",
+			input: `
+import "std/io" io
+
+handler error {
+  *
+    | io.print
+}
+
+workflow main ? error {
+  (select id) | io.print ? error
+}
+`,
+			expectedErrs: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -738,6 +907,66 @@ workflow data_test4 {
 		}
 		if ctx.GetString(call4.TrapRef) != "test1" {
 			t.Errorf("expected trap test1 on call 3, got %q", ctx.GetString(call4.TrapRef))
+		}
+	})
+}
+
+func TestLiteralsAndLists(t *testing.T) {
+	input := `
+workflow lit_test {
+  [
+    {
+      "string": "hello",
+      "int": 42,
+      "float": 3.14,
+      "bool_true": true,
+      "bool_false": false,
+      "null_val": null,
+      "list": [1, 2, 3],
+      "nested": { "a": 1 }
+    }
+  ]
+  > data
+}
+`
+	runParserTest(t, input, 0, func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+		wfRef := ctx.WorkflowRefs[program.WorkflowRefsStart]
+		wf := ctx.WorkflowNodes[wfRef]
+		stmtRef := ctx.StatementRefs[wf.StatementRefsStart]
+		stmt := ctx.PipelineStatementNodes[stmtRef]
+		df := ctx.DataframeNodes[stmt.ExprRef]
+
+		if (df.DictRefsEnd - df.DictRefsStart) != 1 {
+			t.Errorf("expected 1 dict in dataframe, got %d", df.DictRefsEnd-df.DictRefsStart)
+		}
+
+		dictRef := ctx.DictRefs[df.DictRefsStart]
+		dict := ctx.DictNodes[dictRef]
+		pairCount := dict.PairRefsEnd - dict.PairRefsStart
+		if pairCount != 8 {
+			t.Errorf("expected 8 pairs in dict, got %d", pairCount)
+		}
+	})
+}
+
+func TestTopLevelSynchronization(t *testing.T) {
+	input := `
+unexpected_token
+import "std/io" io
+
+workflow main {
+  []
+    | io.print
+}
+`
+	// Expect 1 error for "unexpected_token"
+	runParserTest(t, input, 1, func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+		// Should still have successfully parsed the import and workflow after synchronization
+		if (program.ImportRefsEnd - program.ImportRefsStart) != 1 {
+			t.Errorf("expected 1 import, got %d", program.ImportRefsEnd-program.ImportRefsStart)
+		}
+		if (program.WorkflowRefsEnd - program.WorkflowRefsStart) != 1 {
+			t.Errorf("expected 1 workflow, got %d", program.WorkflowRefsEnd-program.WorkflowRefsStart)
 		}
 	})
 }

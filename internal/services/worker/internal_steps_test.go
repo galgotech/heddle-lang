@@ -16,6 +16,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
@@ -167,12 +168,17 @@ func TestWorker_DataLiteral(t *testing.T) {
 	assert.Equal(t, "task-data-1", result.TaskID)
 	assert.Equal(t, models.TaskStatusSuccess, result.Status)
 
-	// Verify data in registry
-	table, ok := w.Registry.GetData("users")
+	// Verify data in registry: SHM path must be populated
+	meta, ok := w.Registry.GetMetadata("users", locality.Input)
 	assert.True(t, ok)
-	assert.True(t, ok)
-	assert.Equal(t, int64(2), table.NumRows())
-	assert.Equal(t, int64(2), table.NumCols())
+	assert.NotEmpty(t, meta.Path)
+
+	// Read back from SHM and verify shape
+	record, err := locality.ReadFromPath(meta.Path)
+	require.NoError(t, err)
+	defer record.Release()
+	assert.Equal(t, int64(2), record.NumRows())
+	assert.Equal(t, int64(2), record.NumCols())
 }
 
 func TestWorker_ProtectInternalNamespace(t *testing.T) {
