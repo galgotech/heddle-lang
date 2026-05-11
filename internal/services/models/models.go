@@ -12,6 +12,8 @@ const (
 	ActionHeartbeat          = "heartbeat"
 	ActionSubmitWorkflow     = "submit-workflow"
 	ActionUpdateCapabilities = "update-capabilities"
+	ActionPurgeWorkflow      = "purge-workflow"
+	ActionPurgeAck           = "purge-ack"
 )
 
 // Task Statuses
@@ -65,4 +67,23 @@ type TaskResult struct {
 // WorkflowSubmission contains the source code of a Heddle program to be compiled and executed.
 type WorkflowSubmission struct {
 	Source string `json:"source"`
+}
+
+// WorkflowPurge is sent by the control plane to a worker after workflow termination.
+type WorkflowPurge struct {
+	WorkflowID string `json:"workflow_id"`
+}
+
+// PurgeAck is sent by the worker to the control plane after executing a purge.
+type PurgeAck struct {
+	WorkflowID string `json:"workflow_id"`
+	WorkerID   string `json:"worker_id"`
+}
+
+// ControlMessage wraps any control directive sent from the CP to a worker
+// via the DoExchange AppMetadata side-channel.
+type ControlMessage struct {
+	Type      string         `json:"type"`
+	PurgeData *WorkflowPurge `json:"purge,omitempty"`
+	PurgeAck  *PurgeAck      `json:"purge_ack,omitempty"`
 }

@@ -31,6 +31,7 @@ type ControlPlaneServer struct {
 	Queue           *TaskQueue
 	ActiveStreams   sync.Map // map[string]flight.FlightService_DoExchangeServer
 	pendingResults  sync.Map // map[string]chan models.TaskResult
+	pendingPurges   sync.Map // map[string]chan string (workerID)
 	workflowResults sync.Map // map[string]error
 	workflowWaiters sync.Map // map[string]chan error
 	mu              sync.Mutex
@@ -128,13 +129,28 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 
 	logger.L().Info("Worker connected", zap.String("id", workerID))
 
-	// Goroutine to receive results from this worker and route them to the orchestrator
+	// Goroutine to receive results and control messages (acks) from this worker
 	go func() {
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
 				return
 			}
+
+			// Check AppMetadata for control messages (like PurgeAck)
+			if len(resp.AppMetadata) > 0 {
+				var ctrl models.ControlMessage
+				if err := json.Unmarshal(resp.AppMetadata, &ctrl); err == nil {
+					if ctrl.Type == models.ActionPurgeAck && ctrl.PurgeAck != nil {
+						if chVal, ok := s.pendingPurges.Load(ctrl.PurgeAck.WorkflowID); ok {
+							ch := chVal.(chan string)
+							ch <- ctrl.PurgeAck.WorkerID
+						}
+					}
+				}
+				continue
+			}
+
 			var result models.TaskResult
 			if err := json.Unmarshal(resp.DataBody, &result); err != nil {
 				logger.L().Warn("Failed to unmarshal result", zap.Error(err))
@@ -168,13 +184,63 @@ func (s *ControlPlaneServer) orchestrateTask(ctx context.Context, task models.Ta
 		for _, headID := range flow.Heads {
 			if err := s.executeStepRecursive(ctx, task.ID, program, headID, ""); err != nil {
 				logger.L().Error("Task failed", zap.Error(err))
+				s.purgeWorkflow(ctx, task.ID)
 				s.signalWorkflow(task.ID, err)
 				return
 			}
 		}
 	}
 	logger.L().Info("Task completed successfully", zap.String("id", task.ID))
+	s.purgeWorkflow(ctx, task.ID)
 	s.signalWorkflow(task.ID, nil)
+}
+
+func (s *ControlPlaneServer) purgeWorkflow(ctx context.Context, workflowID string) {
+	msg := models.ControlMessage{
+		Type: models.ActionPurgeWorkflow,
+		PurgeData: &models.WorkflowPurge{
+			WorkflowID: workflowID,
+		},
+	}
+	body, _ := json.Marshal(msg)
+
+	ackCh := make(chan string, 10) // buffer to avoid blocking
+	s.pendingPurges.Store(workflowID, ackCh)
+	defer s.pendingPurges.Delete(workflowID)
+
+	workerIDs := make(map[string]bool)
+	s.ActiveStreams.Range(func(key, value interface{}) bool {
+		id := key.(string)
+		stream := value.(flight.FlightService_DoExchangeServer)
+		err := stream.Send(&flight.FlightData{
+			AppMetadata: body,
+		})
+		if err != nil {
+			logger.L().Error("Failed to send purge message to worker", zap.String("worker_id", id), zap.Error(err))
+		} else {
+			workerIDs[id] = true
+		}
+		return true
+	})
+
+	if len(workerIDs) == 0 {
+		return
+	}
+
+	// Wait for acks from all contacted workers
+	timeout := time.After(5 * time.Second)
+	for len(workerIDs) > 0 {
+		select {
+		case id := <-ackCh:
+			delete(workerIDs, id)
+		case <-timeout:
+			logger.L().Warn("Purge acks timed out for workflow", zap.String("workflow_id", workflowID), zap.Any("remaining_workers", workerIDs))
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+	logger.L().Info("All workers acknowledged SHM purge", zap.String("workflow_id", workflowID))
 }
 
 func (s *ControlPlaneServer) signalWorkflow(id string, err error) {
@@ -310,6 +376,7 @@ func NewControlPlaneServer() *ControlPlaneServer {
 		Queue:           NewTaskQueue(),
 		ActiveStreams:   sync.Map{},
 		pendingResults:  sync.Map{},
+		pendingPurges:   sync.Map{},
 		workflowResults: sync.Map{},
 		workflowWaiters: sync.Map{},
 		Ready:           make(chan struct{}),

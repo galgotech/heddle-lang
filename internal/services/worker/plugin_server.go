@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"sync"
 
@@ -138,6 +139,15 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 			continue
 		}
 
+		// Layer 2: Validate OutputHandle path before registering
+		if resp.OutputHandle != "" {
+			if err := validateSHMPath(resp.OutputHandle); err != nil {
+				logger.L().Error("Plugin provided invalid SHM output path", zap.Error(err), zap.String("path", resp.OutputHandle))
+				resp.Status = models.TaskStatusFailed
+				resp.ErrorMessage = "security error: invalid output handle path"
+			}
+		}
+
 		info.mu.Lock()
 		if ch, ok := info.ResponseCh[resp.TaskID]; ok {
 			ch <- resp
@@ -164,8 +174,12 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	if s.Registry != nil && !isInputVoid {
 		handle := task.PreviousTaskID
 		if handle != "" {
-			meta, ok := s.Registry.GetMetadata(handle, locality.Output)
+			meta, ok := s.Registry.GetMetadata(task.WorkflowID, handle, locality.Output)
 			if ok {
+				// Layer 2: Validate SHM path before dispatching
+				if err := validateSHMPath(meta.Path); err != nil {
+					return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
+				}
 				inputHandle = meta.Path
 			} else {
 				return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
@@ -208,8 +222,16 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		// Zero-Copy Output: register SHM path in registry
 		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
 		if resp.OutputHandle != "" && s.Registry != nil && !isOutputVoid {
+			// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
+			if err := validateSHMPath(resp.OutputHandle); err != nil {
+				return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
+			}
+
 			handle := task.TaskID
-			s.Registry.Put(locality.NewMetadata(handle, locality.Output, resp.OutputHandle))
+			// Layer 4: Registry.Put now validates permissions/ownership
+			if err := s.Registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, resp.OutputHandle)); err != nil {
+				return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
+			}
 			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle), zap.String("path", resp.OutputHandle))
 		}
 
@@ -226,4 +248,15 @@ func NewPluginServer(socketPath string) *PluginServer {
 		SocketPath: socketPath,
 		Ready:      make(chan struct{}),
 	}
+}
+
+// validateSHMPath ensures the path is inside /dev/shm and doesn't contain traversal.
+func validateSHMPath(path string) error {
+	if !strings.HasPrefix(path, "/dev/shm/") {
+		return fmt.Errorf("path %s is not in /dev/shm", path)
+	}
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path %s contains traversal characters", path)
+	}
+	return nil
 }

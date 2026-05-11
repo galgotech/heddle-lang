@@ -141,6 +141,31 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 			return fmt.Errorf("task stream closed: %w", err)
 		}
 
+		// Check AppMetadata for control messages (e.g., workflow purge)
+		if len(data.AppMetadata) > 0 {
+			var ctrl models.ControlMessage
+			if err := json.Unmarshal(data.AppMetadata, &ctrl); err == nil {
+				if ctrl.Type == models.ActionPurgeWorkflow && ctrl.PurgeData != nil {
+					w.Registry.DeleteByWorkflow(ctrl.PurgeData.WorkflowID)
+					logger.L().Info("SHM purged for workflow", zap.String("id", ctrl.PurgeData.WorkflowID))
+
+					// Send Acknowledgment
+					ack := models.ControlMessage{
+						Type: models.ActionPurgeAck,
+						PurgeAck: &models.PurgeAck{
+							WorkflowID: ctrl.PurgeData.WorkflowID,
+							WorkerID:   w.ID,
+						},
+					}
+					ackBody, _ := json.Marshal(ack)
+					if err := stream.Send(&flight.FlightData{AppMetadata: ackBody}); err != nil {
+						logger.L().Error("Failed to send purge ack", zap.Error(err))
+					}
+				}
+			}
+			continue // control messages carry no DataBody
+		}
+
 		var task models.StepExecutionTask
 		if err := json.Unmarshal(data.DataBody, &task); err != nil {
 			logger.L().Error("Failed to unmarshal task", zap.Error(err))
@@ -228,7 +253,11 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		if isOutputVoid {
 			logger.L().Warn("data_literal is first step and output is void, this is not expected", zap.String("handle", handle))
 		}
-		w.Registry.Put(locality.NewMetadata(handle, locality.Output, path))
+
+		// Register the data in the locality registry
+		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, path)); err != nil {
+			return models.TaskResult{}, fmt.Errorf("data_literal: failed to register in locality registry: %w", err)
+		}
 
 		return models.TaskResult{
 			TaskID: task.TaskID,

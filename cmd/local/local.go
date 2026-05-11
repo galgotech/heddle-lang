@@ -88,7 +88,7 @@ func runStandalone(cmd *cobra.Command, args []string) {
 			if err != nil {
 				logger.L().Fatal("Workflow failed", zap.Error(err))
 			}
-			logger.L().Info("Workflow completed successfully")
+			logger.L().Info("Workflow completed successfully (including SHM purge)")
 		case <-ctx.Done():
 			logger.L().Info("Shutdown requested")
 		}

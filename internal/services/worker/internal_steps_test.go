@@ -65,7 +65,8 @@ func TestWorker_InternalSteps(t *testing.T) {
 
 	// Send an internal task
 	task := models.StepExecutionTask{
-		TaskID: "task-1",
+		WorkflowID: "wf-1",
+		TaskID:     "task-1",
 		Step: &ir.StepInstruction{
 			Call: []string{"__internal", "identity"},
 		},
@@ -147,7 +148,8 @@ func TestWorker_DataLiteral(t *testing.T) {
 		map[string]any{"id": float64(2), "name": "Bob"},
 	}
 	task := models.StepExecutionTask{
-		TaskID: "task-data-1",
+		WorkflowID: "wf-data-1",
+		TaskID:     "task-data-1",
 		Step: &ir.StepInstruction{
 			Call:       []string{"__internal", "data_literal"},
 			Config:     map[string]any{"data": data},
@@ -169,7 +171,7 @@ func TestWorker_DataLiteral(t *testing.T) {
 	assert.Equal(t, models.TaskStatusSuccess, result.Status)
 
 	// Verify data in registry: SHM path must be populated
-	meta, ok := w.Registry.GetMetadata("task-data-1", locality.Output)
+	meta, ok := w.Registry.GetMetadata("wf-data-1", "task-data-1", locality.Output)
 	assert.True(t, ok)
 	assert.NotEmpty(t, meta.Path)
 
