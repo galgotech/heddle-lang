@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 // Action types for Control Plane Arrow Flight
@@ -34,7 +35,8 @@ type WorkerRegistration struct {
 
 // WorkerCapabilitiesUpdate contains the updated list of capabilities for a worker.
 type WorkerCapabilitiesUpdate struct {
-	Capabilities []string `json:"capabilities"`
+	Capabilities []string                      `json:"capabilities"`
+	Schemas      map[string]schema.StepSchemas `json:"schemas,omitempty"`
 }
 
 // StepExecutionTask represents a single IR step dispatched to a worker.

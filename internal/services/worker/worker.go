@@ -63,6 +63,7 @@ func (w *Worker) Start(ctx context.Context) error {
 		"__internal.identity",
 		"__internal.prql",
 		"__internal.data_literal",
+		"__internal.compress",
 	}, true); err != nil {
 		return fmt.Errorf("failed to sync internal capabilities: %w", err)
 	}
@@ -259,14 +260,100 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 			return models.TaskResult{}, fmt.Errorf("data_literal: failed to register in locality registry: %w", err)
 		}
 
+	case "compress":
+		logger.L().Info("Executing compress step", zap.String("task_id", task.TaskID))
+
+		// 1. Resolve input metadata to get SHM path and Dirty path
+		meta, ok := w.Registry.GetMetadata(task.WorkflowID, task.PreviousTaskID, locality.Output)
+		if !ok {
+			return models.TaskResult{}, fmt.Errorf("compress: input metadata not found for task %s", task.PreviousTaskID)
+		}
+
+		if meta.Path == "" {
+			return models.TaskResult{}, fmt.Errorf("compress: input path is empty")
+		}
+
+		// 2. Read Arrow record
+		record, err := locality.ReadFromPath(meta.Path)
+		if err != nil {
+			return models.TaskResult{}, fmt.Errorf("compress: failed to read input: %w", err)
+		}
+		defer record.Release()
+
+		// 3. Read Dirty Bitmap
+		if meta.DirtyPath == "" {
+			// No dirty bits, identity operation
+			if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, meta.Path)); err != nil {
+				return models.TaskResult{}, err
+			}
+			return models.TaskResult{TaskID: task.TaskID, Status: models.TaskStatusSuccess}, nil
+		}
+
+		dirty, err := locality.ReadDirtyFromPath(meta.DirtyPath)
+		if err != nil {
+			return models.TaskResult{}, fmt.Errorf("compress: failed to read dirty bits: %w", err)
+		}
+
+		// 4. Perform Compression (Filtering)
+		mem := memory.NewGoAllocator()
+		validRows := make([]int, 0, int(record.NumRows()))
+		for i := 0; i < int(record.NumRows()); i++ {
+			isDirty := (dirty[i/64] & (1 << (uint(i) % 64))) != 0
+			if !isDirty {
+				validRows = append(validRows, i)
+			}
+		}
+
+		if len(validRows) == int(record.NumRows()) {
+			// Identity
+			if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, meta.Path)); err != nil {
+				return models.TaskResult{}, err
+			}
+			return models.TaskResult{TaskID: task.TaskID, Status: models.TaskStatusSuccess}, nil
+		}
+
+		// Build new columns
+		newCols := make([]arrow.Array, record.NumCols())
+		for i := 0; i < int(record.NumCols()); i++ {
+			oldCol := record.Column(i)
+			builder := array.NewBuilder(mem, oldCol.DataType())
+			defer builder.Release()
+
+			for _, rowIdx := range validRows {
+				// Use the existing appendValue (I'll need to move it here or make it a helper)
+				appendRecordValue(builder, oldCol, rowIdx)
+			}
+			newCols[i] = builder.NewArray()
+		}
+		defer func() {
+			for _, c := range newCols {
+				c.Release()
+			}
+		}()
+
+		newRecord := array.NewRecord(record.Schema(), newCols, int64(len(validRows)))
+		defer newRecord.Release()
+
+		// 5. Write to SHM and Register
+		f, err := locality.AllocateAndWrite(newRecord)
+		if err != nil {
+			return models.TaskResult{}, fmt.Errorf("compress: failed to write result: %w", err)
+		}
+		resPath := f.Name()
+		f.Close()
+
+		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, resPath)); err != nil {
+			return models.TaskResult{}, err
+		}
+
 		return models.TaskResult{
 			TaskID: task.TaskID,
 			Status: models.TaskStatusSuccess,
 		}, nil
-	default:
-		logger.L().Error("Unknown internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
-		return models.TaskResult{}, fmt.Errorf("unknown internal step: %s", stepName)
 	}
+
+	logger.L().Error("Unknown internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
+	return models.TaskResult{}, fmt.Errorf("unknown internal step: %s", stepName)
 }
 
 func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) error {
@@ -438,4 +525,24 @@ func convertToArrowRecord(data []any) (arrow.Record, error) {
 	}()
 
 	return array.NewRecord(schema, cols, int64(len(data))), nil
+}
+
+func appendRecordValue(b array.Builder, arr arrow.Array, rowIdx int) {
+	if arr.IsNull(rowIdx) {
+		b.AppendNull()
+		return
+	}
+
+	switch builder := b.(type) {
+	case *array.Int64Builder:
+		builder.Append(arr.(*array.Int64).Value(rowIdx))
+	case *array.Int32Builder:
+		builder.Append(arr.(*array.Int32).Value(rowIdx))
+	case *array.StringBuilder:
+		builder.Append(arr.(*array.String).Value(rowIdx))
+	case *array.BooleanBuilder:
+		builder.Append(arr.(*array.Boolean).Value(rowIdx))
+	case *array.Float64Builder:
+		builder.Append(arr.(*array.Float64).Value(rowIdx))
+	}
 }

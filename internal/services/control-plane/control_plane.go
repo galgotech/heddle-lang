@@ -23,6 +23,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 type ControlPlaneServer struct {
@@ -80,7 +81,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if err := json.Unmarshal(action.Body, &update); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal capabilities update: %v", err)
 		}
-		if ok := s.Registry.UpdateCapabilities(workerID, update.Capabilities); !ok {
+		if ok := s.Registry.UpdateCapabilities(workerID, update); !ok {
 			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
 		}
 		logger.L().Info("Worker capabilities updated", zap.String("id", workerID), zap.Strings("capabilities", update.Capabilities))
@@ -275,7 +276,41 @@ func (s *ControlPlaneServer) WaitForWorkflow(taskID string) chan error {
 	return ch
 }
 
+func (s *ControlPlaneServer) validateEdge(prog *ir.Program, fromID, toID string) error {
+	if fromID == "" {
+		return nil
+	}
+
+	fromStep := prog.Instructions[fromID].(*ir.StepInstruction)
+	toStep := prog.Instructions[toID].(*ir.StepInstruction)
+
+	fromCap := fmt.Sprintf("%s.%s", fromStep.Call[0], fromStep.Call[1])
+	toCap := fmt.Sprintf("%s.%s", toStep.Call[0], toStep.Call[1])
+
+	// Find workers for these capabilities
+	fromWorker := s.Registry.FindWorkerForStep(fromCap)
+	toWorker := s.Registry.FindWorkerForStep(toCap)
+
+	if fromWorker == nil || toWorker == nil {
+		return nil
+	}
+
+	fromSchema := fromWorker.Schemas[fromCap].Output
+	toSchema := toWorker.Schemas[toCap].Input
+
+	if err := schema.Compatible(fromSchema, toSchema); err != nil {
+		return fmt.Errorf("DAG Type Error: %s -> %s: %w", fromCap, toCap, err)
+	}
+
+	return nil
+}
+
 func (s *ControlPlaneServer) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string) error {
+	// 0. Validate Schema Compatibility
+	if err := s.validateEdge(prog, prevTaskID, stepID); err != nil {
+		return err
+	}
+
 	step := prog.Instructions[stepID].(*ir.StepInstruction)
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 

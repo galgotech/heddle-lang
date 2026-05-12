@@ -5,12 +5,14 @@ import (
 	"time"
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 type WorkerInfo struct {
 	ID           string
 	Registration models.WorkerRegistration
 	Capabilities []string
+	Schemas      map[string]schema.StepSchemas
 	LastSeen     time.Time
 	ActiveTasks  int
 }
@@ -27,23 +29,33 @@ func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 	})
 }
 
-func (r *WorkerRegistry) UpdateCapabilities(id string, capabilities []string) bool {
+func (r *WorkerRegistry) UpdateCapabilities(id string, update models.WorkerCapabilitiesUpdate) bool {
 	val, ok := r.workers.Load(id)
 	if !ok {
 		return false
 	}
 	info := val.(*WorkerInfo)
 
-	// Merge unique capabilities
+	// Initialize schemas if nil
+	if info.Schemas == nil {
+		info.Schemas = make(map[string]schema.StepSchemas)
+	}
+
+	// Merge unique capabilities and update schemas
 	capsMap := make(map[string]bool)
 	for _, c := range info.Capabilities {
 		capsMap[c] = true
 	}
-	for _, c := range capabilities {
+	for _, c := range update.Capabilities {
 		if !capsMap[c] {
 			info.Capabilities = append(info.Capabilities, c)
 			capsMap[c] = true
 		}
+	}
+
+	// Update schemas
+	for k, v := range update.Schemas {
+		info.Schemas[k] = v
 	}
 
 	info.LastSeen = time.Now()

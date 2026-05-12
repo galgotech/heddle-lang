@@ -203,6 +203,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 	configJSON, _ := json.Marshal(task.Step.Config)
 	req := plugin.ExecuteStepRequest{
+		WorkflowID:  task.WorkflowID,
 		TaskID:      task.TaskID,
 		StepName:    task.Step.Call[1],
 		ConfigJSON:  string(configJSON),
@@ -241,10 +242,10 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 			handle := task.TaskID
 			// Layer 4: Registry.Put now validates permissions/ownership
-			if err := s.Registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, resp.OutputHandle)); err != nil {
+			if err := s.Registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputHandle, resp.DirtyHandle)); err != nil {
 				return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
 			}
-			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle), zap.String("path", resp.OutputHandle))
+			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle), zap.String("path", resp.OutputHandle), zap.String("dirty_path", resp.DirtyHandle))
 		}
 
 		return models.TaskResult{

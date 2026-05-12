@@ -30,6 +30,7 @@ type Metadata struct {
 	TaskID      string
 	IODirection IODirection
 	Path        string // physical path in /dev/shm
+	DirtyPath   string // physical path of dirty bitmap in /dev/shm
 }
 
 // NewMetadata creates a new Metadata instance ensuring all required fields are provided.
@@ -39,6 +40,16 @@ func NewMetadata(workflowID, taskID string, dir IODirection, path string) Metada
 		TaskID:      taskID,
 		IODirection: dir,
 		Path:        path,
+	}
+}
+
+func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, path, dirtyPath string) Metadata {
+	return Metadata{
+		WorkflowID:  workflowID,
+		TaskID:      taskID,
+		IODirection: dir,
+		Path:        path,
+		DirtyPath:   dirtyPath,
 	}
 }
 
@@ -202,6 +213,53 @@ func Unlink(f *os.File) error {
 		return fmt.Errorf("failed to remove file: %w", err)
 	}
 	return nil
+}
+
+// WriteDirtyToShm writes the dirty bitmap to a temp file in /dev/shm.
+func WriteDirtyToShm(dirty []uint64) (string, error) {
+	f, err := os.CreateTemp("/dev/shm", "heddle-dirty-*.bin")
+	if err != nil {
+		return "", fmt.Errorf("failed to create dirty file: %w", err)
+	}
+	defer f.Close()
+
+	// Simple binary write of uint64 slice
+	data := make([]byte, len(dirty)*8)
+	for i, v := range dirty {
+		for j := 0; j < 8; j++ {
+			data[i*8+j] = byte(v >> (j * 8))
+		}
+	}
+
+	if _, err := f.Write(data); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("failed to write dirty data: %w", err)
+	}
+
+	return f.Name(), nil
+}
+
+// ReadDirtyFromPath reads the dirty bitmap from SHM.
+func ReadDirtyFromPath(path string) ([]uint64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read dirty file: %w", err)
+	}
+
+	if len(data)%8 != 0 {
+		return nil, fmt.Errorf("invalid dirty file size")
+	}
+
+	res := make([]uint64, len(data)/8)
+	for i := range res {
+		var v uint64
+		for j := 0; j < 8; j++ {
+			v |= uint64(data[i*8+j]) << (j * 8)
+		}
+		res[i] = v
+	}
+
+	return res, nil
 }
 
 // validateSHMFile checks that the file is owner-only and owned by the current process.

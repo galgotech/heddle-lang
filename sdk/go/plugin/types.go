@@ -1,6 +1,10 @@
 package plugin
 
-import "time"
+import (
+	"time"
+
+	"github.com/galgotech/heddle-lang/pkg/schema"
+)
 
 // RouteType defines how a resource should be accessed.
 type RouteType int
@@ -19,10 +23,11 @@ type FlightTicket struct {
 
 // PluginRegistration contains metadata sent by a plugin when it registers with a worker.
 type PluginRegistration struct {
-	Namespace    string   `json:"namespace"`
-	Language     string   `json:"language"`
-	Version      string   `json:"version"`
-	Capabilities []string `json:"capabilities"`
+	Namespace    string                        `json:"namespace"`
+	Language     string                        `json:"language"`
+	Version      string                        `json:"version"`
+	Capabilities []string                      `json:"capabilities"`
+	Schemas      map[string]schema.StepSchemas `json:"schemas,omitempty"`
 }
 
 // Heartbeat is sent periodically by plugins to the worker.
@@ -34,6 +39,7 @@ type Heartbeat struct {
 
 // ExecuteStepRequest encapsulates the metadata for a task delegated to a plugin.
 type ExecuteStepRequest struct {
+	WorkflowID   string `json:"workflow_id"`
 	TaskID       string `json:"task_id"`
 	StepName     string `json:"step_name"`
 	ResourceId   string `json:"resource_id,omitempty"`
@@ -48,6 +54,7 @@ type ExecuteStepResponse struct {
 	Status       string `json:"status"`
 	ErrorMessage string `json:"error_message,omitempty"`
 	OutputHandle string `json:"output_handle,omitempty"`
+	DirtyHandle  string `json:"dirty_handle,omitempty"`
 }
 
 // Action types for Arrow Flight
