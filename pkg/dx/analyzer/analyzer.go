@@ -124,10 +124,10 @@ func (a *Analyzer) isStepDefined(name string) bool {
 
 	// Then check the DataLocalityRegistry.
 	if a.registry != nil {
-		if _, ok := a.registry.GetMetadata(name, locality.Output); ok {
+		if _, ok := a.registry.GetMetadata("", name, locality.Output); ok {
 			return true
 		}
-		if _, ok := a.registry.GetMetadata(name, locality.Input); ok {
+		if _, ok := a.registry.GetMetadata("", name, locality.Input); ok {
 			return true
 		}
 	}

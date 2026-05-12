@@ -260,6 +260,11 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 			return models.TaskResult{}, fmt.Errorf("data_literal: failed to register in locality registry: %w", err)
 		}
 
+		return models.TaskResult{
+			TaskID: task.TaskID,
+			Status: models.TaskStatusSuccess,
+		}, nil
+
 	case "compress":
 		logger.L().Info("Executing compress step", zap.String("task_id", task.TaskID))
 

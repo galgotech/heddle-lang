@@ -189,6 +189,13 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 		t.Fatal("Timeout waiting for registration")
 	}
 
+	// Wait for worker to be fully ready (plugin server started)
+	select {
+	case <-w.Ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for worker ready")
+	}
+
 	// Connect as a plugin
 	conn, err := grpc.NewClient("unix://"+socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
