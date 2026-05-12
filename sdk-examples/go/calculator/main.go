@@ -4,123 +4,78 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/arrow/memory"
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
-	"github.com/galgotech/heddle-lang/sdk/go/core"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
-type Config struct{}
-
-func getColumns(record arrow.Record) (a, b *array.Float64, err error) {
-	schema := record.Schema()
-
-	idxA := schema.FieldIndices("a")
-	if len(idxA) == 0 {
-		return nil, nil, fmt.Errorf("column 'a' not found")
-	}
-
-	idxB := schema.FieldIndices("b")
-	if len(idxB) == 0 {
-		return nil, nil, fmt.Errorf("column 'b' not found")
-	}
-
-	colA, ok := record.Column(idxA[0]).(*array.Float64)
-	if !ok {
-		return nil, nil, fmt.Errorf("column 'a' must be float64")
-	}
-
-	colB, ok := record.Column(idxB[0]).(*array.Float64)
-	if !ok {
-		return nil, nil, fmt.Errorf("column 'b' must be float64")
-	}
-
-	return colA, colB, nil
+type Config struct {
+	plugin.Config
 }
 
-func createResultTable(results []float64) core.Table {
-	pool := memory.NewGoAllocator()
-	builder := array.NewFloat64Builder(pool)
-	defer builder.Release()
+type InputFrame struct {
+	plugin.HeddleFrame
 
-	builder.AppendValues(results, nil)
-
-	schema := arrow.NewSchema([]arrow.Field{
-		{Name: "result", Type: arrow.PrimitiveTypes.Float64},
-	}, nil)
-
-	col := builder.NewArray()
-	defer col.Release()
-
-	record := array.NewRecord(schema, []arrow.Array{col}, int64(len(results)))
-	return core.NewTableFromRecord(record)
+	A plugin.Field[float64] `heddle:"a"`
+	B plugin.Field[float64] `heddle:"b"`
 }
 
-func Add(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
-	colA, colB, err := getColumns(input.Native())
-	if err != nil {
-		return nil, err
-	}
+type ResultTable struct {
+	plugin.HeddleFrame
 
-	rows := int(input.Native().NumRows())
+	A plugin.Field[float64] `heddle:"a"`
+}
+
+func Add(ctx context.Context, cfg Config, input InputFrame) (ResultTable, error) {
+	rows := input.NumRows()
 	results := make([]float64, rows)
 	for i := range rows {
-		results[i] = colA.Value(i) + colB.Value(i)
+		results[i] = input.A.Value(i) + input.B.Value(i)
 	}
 
-	return createResultTable(results), nil
+	res := ResultTable{}
+	res.A.SetValues(results)
+	return res, nil
 }
 
-func Subtract(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
-	colA, colB, err := getColumns(input.Native())
-	if err != nil {
-		return nil, err
-	}
-
-	rows := int(input.Native().NumRows())
+func Subtract(ctx context.Context, cfg Config, input InputFrame) (ResultTable, error) {
+	rows := input.NumRows()
 	results := make([]float64, rows)
-	for i := 0; i < rows; i++ {
-		results[i] = colA.Value(i) - colB.Value(i)
+	for i := range rows {
+		results[i] = input.A.Value(i) - input.B.Value(i)
 	}
 
-	return createResultTable(results), nil
+	res := ResultTable{}
+	res.A.SetValues(results)
+	return res, nil
 }
 
-func Multiply(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
-	colA, colB, err := getColumns(input.Native())
-	if err != nil {
-		return nil, err
-	}
-
-	rows := int(input.Native().NumRows())
+func Multiply(ctx context.Context, cfg Config, input InputFrame) (ResultTable, error) {
+	rows := input.NumRows()
 	results := make([]float64, rows)
-	for i := 0; i < rows; i++ {
-		results[i] = colA.Value(i) * colB.Value(i)
+	for i := range rows {
+		results[i] = input.A.Value(i) * input.B.Value(i)
 	}
 
-	return createResultTable(results), nil
+	res := ResultTable{}
+	res.A.SetValues(results)
+	return res, nil
 }
 
-func Divide(ctx context.Context, cfg Config, input core.Table) (core.Table, error) {
-	colA, colB, err := getColumns(input.Native())
-	if err != nil {
-		return nil, err
-	}
-
-	rows := int(input.Native().NumRows())
+func Divide(ctx context.Context, cfg Config, input InputFrame) (ResultTable, error) {
+	rows := input.NumRows()
 	results := make([]float64, rows)
-	for i := 0; i < rows; i++ {
-		if colB.Value(i) == 0 {
-			return nil, fmt.Errorf("division by zero at row %d", i)
+	for i := range rows {
+		if input.B.Value(i) == 0 {
+			return ResultTable{}, fmt.Errorf("division by zero at row %d", i)
 		}
-		results[i] = colA.Value(i) / colB.Value(i)
+		results[i] = input.A.Value(i) / input.B.Value(i)
 	}
 
-	return createResultTable(results), nil
+	res := ResultTable{}
+	res.A.SetValues(results)
+	return res, nil
 }
 
 func main() {

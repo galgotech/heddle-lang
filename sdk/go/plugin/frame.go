@@ -5,6 +5,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow/go/v18/arrow/memory"
 )
 
 // FieldType defines the set of Go types supported by Heddle's strictly-typed DSL.
@@ -22,16 +23,19 @@ type dirtyField interface {
 	IsDirty(rowIndex int) bool
 	dirtyBitmap() []uint64
 	bind(col *arrow.Column) error
+	materialize(pool memory.Allocator) (arrow.Array, error)
+	Len() int
 }
 
 // Field represents a strongly-typed, read-optimized column. It wraps an
 // Apache Arrow array and maintains a separate bitset for tracking logical
 // deletions, ensuring the underlying Arrow buffers remain immutable.
 type Field[T FieldType] struct {
-	col   arrow.Column
-	arr   arrow.Array
-	dirty []uint64 // bitset tracking logical deletions to avoid mutating immutable Arrow buffers
-	len   int
+	col    arrow.Column
+	arr    arrow.Array
+	dirty  []uint64 // bitset tracking logical deletions to avoid mutating immutable Arrow buffers
+	len    int
+	values []T // raw values for output fields
 }
 
 // Delete sets the dirty bit for the specified row, effectively removing it
@@ -67,16 +71,16 @@ func (f *Field[T]) IsValid(rowIndex int) bool {
 }
 
 // Value performs a type-safe retrieval of the scalar value at the given index.
-// It leverages Go generics and switch-type assertions to map Arrow arrays
-// to Go primitives with minimal overhead.
+// It prioritizes the internal values slice if present, falling back to the
+// underlying Arrow array for read-optimized access.
 func (f *Field[T]) Value(rowIndex int) T {
 	if rowIndex < 0 || rowIndex >= f.len {
 		panic(fmt.Sprintf("HeddleFrame: index %d out of range (length %d)", rowIndex, f.len))
 	}
 
-	// Implementation Note: This assume single-chunk record batches for simplicity.
-	// Production Heddle workflows typically pass flattened record batches to steps
-	// to maximize local IPC performance and simplify memory mapping.
+	if f.values != nil {
+		return f.values[rowIndex]
+	}
 
 	switch any(*new(T)).(type) {
 	case int:
@@ -112,6 +116,116 @@ func (f *Field[T]) Value(rowIndex int) T {
 	}
 }
 
+// SetValues populates the Field with raw Go values, typically used for step outputs.
+func (f *Field[T]) SetValues(v []T) {
+	f.values = v
+	f.len = len(v)
+	f.dirty = make([]uint64, (f.len+63)/64)
+}
+
+// Values returns the underlying Go slice of values.
+func (f *Field[T]) Values() []T {
+	return f.values
+}
+
+// materialize converts the internal values slice into a read-only Apache Arrow array.
+func (f *Field[T]) materialize(pool memory.Allocator) (arrow.Array, error) {
+	if f.arr != nil {
+		return f.arr, nil
+	}
+
+	if f.values == nil {
+		return nil, fmt.Errorf("field has no data")
+	}
+
+	switch v := any(f.values).(type) {
+	case []int:
+		b := array.NewInt64Builder(pool)
+		defer b.Release()
+		vals := make([]int64, len(v))
+		for i, x := range v {
+			vals[i] = int64(x)
+		}
+		b.AppendValues(vals, nil)
+		return b.NewArray(), nil
+	case []int64:
+		b := array.NewInt64Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []int32:
+		b := array.NewInt32Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []int16:
+		b := array.NewInt16Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []int8:
+		b := array.NewInt8Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []uint:
+		b := array.NewUint64Builder(pool)
+		defer b.Release()
+		vals := make([]uint64, len(v))
+		for i, x := range v {
+			vals[i] = uint64(x)
+		}
+		b.AppendValues(vals, nil)
+		return b.NewArray(), nil
+	case []uint64:
+		b := array.NewUint64Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []uint32:
+		b := array.NewUint32Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []uint16:
+		b := array.NewUint16Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []uint8:
+		b := array.NewUint8Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []float64:
+		b := array.NewFloat64Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []float32:
+		b := array.NewFloat32Builder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []bool:
+		b := array.NewBooleanBuilder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	case []string:
+		b := array.NewStringBuilder(pool)
+		defer b.Release()
+		b.AppendValues(v, nil)
+		return b.NewArray(), nil
+	}
+	return nil, fmt.Errorf("unsupported type for materialization")
+}
+
+// Len returns the number of rows in the field.
+func (f *Field[T]) Len() int {
+	return f.len
+}
+
 // bind attaches an Arrow column to the Field and initializes the tracking bitset.
 // It prioritizes single-chunk arrays to maintain high-performance zero-copy semantics.
 func (f *Field[T]) bind(col *arrow.Column) error {
@@ -144,8 +258,8 @@ type VoidFrame struct {
 	HeddleFrame
 }
 
-// bind links the HeddleFrame to an underlying Apache Arrow table.
-func (h *HeddleFrame) bind(table arrow.Table) error {
+// Bind links the HeddleFrame to an underlying Apache Arrow table.
+func (h *HeddleFrame) Bind(table arrow.Table) error {
 	h.native = table
 	return nil
 }
@@ -177,7 +291,14 @@ func (h *HeddleFrame) dirtyBitmap() []uint64 {
 
 // NumRows returns the total number of rows in the frame, including dirty ones.
 func (h *HeddleFrame) NumRows() int {
-	return int(h.native.NumRows())
+	if h.native != nil {
+		return int(h.native.NumRows())
+	}
+	// If the frame hasn't been materialized yet, check the first field's length.
+	if len(h.fields) > 0 {
+		return h.fields[0].Len()
+	}
+	return 0
 }
 
 // NumCols returns the number of columns in the frame.

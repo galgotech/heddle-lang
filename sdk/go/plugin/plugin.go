@@ -14,6 +14,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/apache/arrow/go/v18/arrow/memory"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -358,7 +359,7 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 	inputVal := reflect.New(targetStep.InputType).Elem()
 	if hasHeddleFrame(targetStep.InputType) {
 		if arrowTable != nil {
-			if err := bindFrameValue(inputVal, arrowTable); err != nil {
+			if err := Bind(inputVal.Addr().Interface(), arrowTable); err != nil {
 				return ExecuteStepResponse{
 					TaskID:       req.TaskID,
 					Status:       "FAILED",
@@ -411,6 +412,20 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		frameField := findHeddleFrameField(outputVal)
 		if frameField.IsValid() {
 			hf := frameField.Addr().Interface().(*HeddleFrame)
+
+			// If native is not set, attempt to materialize it from the Fields.
+			if hf.native == nil {
+				table, err := materializeFrame(outputVal)
+				if err != nil {
+					return ExecuteStepResponse{
+						TaskID:       req.TaskID,
+						Status:       "FAILED",
+						ErrorMessage: fmt.Sprintf("failed to materialize output frame: %v", err),
+					}
+				}
+				hf.native = table
+			}
+
 			if hf.native != nil {
 				// 5.1 Write the Arrow RecordBatch to SHM.
 				reader := array.NewTableReader(hf.native, hf.native.NumRows())
@@ -536,26 +551,31 @@ func findHeddleFrameField(v reflect.Value) reflect.Value {
 	return reflect.Value{}
 }
 
-// bindFrameValue maps Arrow Table columns to Go struct fields.
+// Bind maps Arrow Table columns to Go struct fields.
 // It looks for fields with the `heddle` tag or uses the field name to find matching Arrow columns.
-func bindFrameValue(v reflect.Value, table arrow.Table) error {
-	// Internal binding logic using reflect.Value
-	t := v.Type()
+func Bind(v any, table arrow.Table) error {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Pointer || rv.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("Bind requires a pointer to a struct")
+	}
+	vVal := rv.Elem()
+	t := vVal.Type()
+
 	var frame *HeddleFrame
 	for i := 0; i < t.NumField(); i++ {
 		if t.Field(i).Type == reflect.TypeFor[HeddleFrame]() {
-			frame = v.Field(i).Addr().Interface().(*HeddleFrame)
+			frame = vVal.Field(i).Addr().Interface().(*HeddleFrame)
 			break
 		}
 	}
 	if frame == nil {
 		return fmt.Errorf("missing HeddleFrame")
 	}
-	frame.bind(table)
+	frame.Bind(table)
 
 	schema := table.Schema()
 	for i := 0; i < t.NumField(); i++ {
-		fValue := v.Field(i)
+		fValue := vVal.Field(i)
 		if df, ok := fValue.Addr().Interface().(dirtyField); ok {
 			name := t.Field(i).Tag.Get("heddle")
 			if name == "" {
@@ -569,4 +589,59 @@ func bindFrameValue(v reflect.Value, table arrow.Table) error {
 		}
 	}
 	return nil
+}
+
+// materializeFrame constructs an Apache Arrow Table from the Fields within a struct.
+// This allows developers to work with raw Go slices while maintaining the zero-copy
+// performance of Arrow during transmission.
+func materializeFrame(v reflect.Value) (arrow.Table, error) {
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	t := v.Type()
+
+	var fields []arrow.Field
+	var arrays []arrow.Array
+	var numRows int = -1
+
+	pool := memory.NewGoAllocator()
+
+	for i := 0; i < t.NumField(); i++ {
+		fValue := v.Field(i)
+		// Check if the field implements dirtyField (which all Field[T] do).
+		if df, ok := fValue.Addr().Interface().(dirtyField); ok {
+			arr, err := df.materialize(pool)
+			if err != nil {
+				return nil, err
+			}
+
+			if numRows == -1 {
+				numRows = arr.Len()
+			} else if numRows != arr.Len() {
+				return nil, fmt.Errorf("column %d has inconsistent length (expected %d, got %d)", i, numRows, arr.Len())
+			}
+
+			name := t.Field(i).Tag.Get("heddle")
+			if name == "" {
+				name = t.Field(i).Name
+			}
+
+			fields = append(fields, arrow.Field{
+				Name:     name,
+				Type:     arr.DataType(),
+				Nullable: true,
+			})
+			arrays = append(arrays, arr)
+		}
+	}
+
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("no fields found in frame struct")
+	}
+
+	schema := arrow.NewSchema(fields, nil)
+	record := array.NewRecord(schema, arrays, int64(numRows))
+	defer record.Release()
+
+	return array.NewTableFromRecords(schema, []arrow.Record{record}), nil
 }
