@@ -11,9 +11,9 @@ import (
 
 type SchemaTable struct {
 	plugin.HeddleFrame
-	ID     plugin.Field[int64]  `heddle:"id"`
-	Email  plugin.Field[string] `heddle:"user_email"`
-	Active plugin.Field[bool]
+	ID     *plugin.Int64  `heddle:"id"`
+	Email  *plugin.String `heddle:"user_email"`
+	Active *plugin.Bool
 }
 
 func TestExtractSchema(t *testing.T) {

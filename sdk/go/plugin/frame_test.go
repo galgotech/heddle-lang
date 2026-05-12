@@ -1,91 +1,112 @@
 package plugin
 
 import (
-	"reflect"
 	"testing"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-type UserTable struct {
-	HeddleFrame
-	ID       Field[int64]  `heddle:"id"`
-	UserName Field[string] `heddle:"username"`
-	Active   Field[bool]
+func TestFieldValue(t *testing.T) {
+
+	t.Run("Int8", func(t *testing.T) {
+		data := NewInt8([]int8{1, 2, 3})
+		assert.Equal(t, int8(1), data.Value(0))
+		assert.Equal(t, int8(2), data.Value(1))
+		assert.Equal(t, int8(3), data.Value(2))
+	})
+
+	t.Run("Int16", func(t *testing.T) {
+		data := NewInt16([]int16{1, 2, 3})
+		assert.Equal(t, int16(1), data.Value(0))
+		assert.Equal(t, int16(2), data.Value(1))
+		assert.Equal(t, int16(3), data.Value(2))
+	})
+
+	t.Run("Int32", func(t *testing.T) {
+		data := NewInt32([]int32{1, 2, 3})
+		assert.Equal(t, int32(1), data.Value(0))
+		assert.Equal(t, int32(2), data.Value(1))
+		assert.Equal(t, int32(3), data.Value(2))
+	})
+
+	t.Run("Int64", func(t *testing.T) {
+		data := NewInt64([]int64{10, 20, 30})
+		assert.Equal(t, int64(10), data.Value(0))
+		assert.Equal(t, int64(20), data.Value(1))
+		assert.Equal(t, int64(30), data.Value(2))
+	})
+
+	t.Run("Int", func(t *testing.T) {
+		data := NewInt64([]int64{10, 20, 30})
+		assert.Equal(t, int64(10), data.Value(0))
+		assert.Equal(t, int64(20), data.Value(1))
+		assert.Equal(t, int64(30), data.Value(2))
+
+	})
+
+	t.Run("Uint8", func(t *testing.T) {
+		data := NewUint8([]uint8{1, 2, 3})
+		assert.Equal(t, uint8(1), data.Value(0))
+		assert.Equal(t, uint8(2), data.Value(1))
+		assert.Equal(t, uint8(3), data.Value(2))
+	})
+
+	t.Run("Uint16", func(t *testing.T) {
+		data := NewUint16([]uint16{1, 2, 3})
+		assert.Equal(t, uint16(1), data.Value(0))
+		assert.Equal(t, uint16(2), data.Value(1))
+		assert.Equal(t, uint16(3), data.Value(2))
+	})
+
+	t.Run("Uint32", func(t *testing.T) {
+		data := NewUint32([]uint32{1, 2, 3})
+		assert.Equal(t, uint32(1), data.Value(0))
+		assert.Equal(t, uint32(2), data.Value(1))
+		assert.Equal(t, uint32(3), data.Value(2))
+	})
+
+	t.Run("Uint64", func(t *testing.T) {
+		data := NewUint64([]uint64{10, 20, 30})
+		assert.Equal(t, uint64(10), data.Value(0))
+		assert.Equal(t, uint64(20), data.Value(1))
+		assert.Equal(t, uint64(30), data.Value(2))
+	})
+
+	t.Run("Float32", func(t *testing.T) {
+		data := NewFloat32([]float32{1.1, 2.2, 3.3})
+		assert.InDelta(t, float32(1.1), data.Value(0), 1e-6)
+		assert.InDelta(t, float32(2.2), data.Value(1), 1e-6)
+		assert.InDelta(t, float32(3.3), data.Value(2), 1e-6)
+	})
+
+	t.Run("String", func(t *testing.T) {
+		data := NewString([]string{"a", "b", "c"})
+		assert.Equal(t, "a", data.Value(0))
+		assert.Equal(t, "b", data.Value(1))
+		assert.Equal(t, "c", data.Value(2))
+	})
+
+	t.Run("Float64", func(t *testing.T) {
+		data := NewFloat64([]float64{1.1, 2.2, 3.3})
+		assert.Equal(t, 1.1, data.Value(0))
+		assert.Equal(t, 2.2, data.Value(1))
+		assert.Equal(t, 3.3, data.Value(2))
+	})
+
+	t.Run("Bool", func(t *testing.T) {
+		data := NewBool([]bool{true, false, true})
+		assert.Equal(t, true, data.Value(0))
+		assert.Equal(t, false, data.Value(1))
+		assert.Equal(t, true, data.Value(2))
+	})
 }
 
-func TestHeddleFrameAndField(t *testing.T) {
-	pool := memory.NewGoAllocator()
+func TestFieldDelete(t *testing.T) {
+	// Test with nil array
+	f := NewInt8([]int8{1, 2, 3})
+	f.Delete(1)
 
-	// 1. Build an Arrow table
-	schema := arrow.NewSchema([]arrow.Field{
-		{Name: "id", Type: arrow.PrimitiveTypes.Int64},
-		{Name: "username", Type: arrow.BinaryTypes.String},
-		{Name: "Active", Type: arrow.FixedWidthTypes.Boolean},
-	}, nil)
-
-	ib := array.NewInt64Builder(pool)
-	defer ib.Release()
-	sb := array.NewStringBuilder(pool)
-	defer sb.Release()
-	bb := array.NewBooleanBuilder(pool)
-	defer bb.Release()
-
-	ib.AppendValues([]int64{1, 2, 3}, nil)
-	sb.AppendValues([]string{"alice", "bob", "charlie"}, nil)
-	bb.AppendValues([]bool{true, false, true}, nil)
-
-	ic := ib.NewArray()
-	defer ic.Release()
-	sc := sb.NewArray()
-	defer sc.Release()
-	bc := bb.NewArray()
-	defer bc.Release()
-
-	// Convert to table
-	tbl := array.NewTable(schema, []arrow.Column{
-		*arrow.NewColumn(schema.Field(0), arrow.NewChunked(schema.Field(0).Type, []arrow.Array{ic})),
-		*arrow.NewColumn(schema.Field(1), arrow.NewChunked(schema.Field(1).Type, []arrow.Array{sc})),
-		*arrow.NewColumn(schema.Field(2), arrow.NewChunked(schema.Field(2).Type, []arrow.Array{bc})),
-	}, 3)
-	defer tbl.Release()
-
-	// 2. Bind to UserTable using internal bindFrameValue logic
-	ut := &UserTable{}
-	err := bindFrameValue(reflect.ValueOf(ut).Elem(), tbl)
-	require.NoError(t, err)
-
-	// 3. Test values
-	assert.Equal(t, int64(1), ut.ID.Value(0))
-	assert.Equal(t, "alice", ut.UserName.Value(0))
-	assert.True(t, ut.Active.Value(0))
-
-	assert.Equal(t, int64(2), ut.ID.Value(1))
-	assert.Equal(t, "bob", ut.UserName.Value(1))
-	assert.False(t, ut.Active.Value(1))
-
-	// 4. Test Soft Delete (Cell)
-	assert.True(t, ut.UserName.IsValid(1))
-	ut.UserName.Delete(1)
-	assert.False(t, ut.UserName.IsValid(1))
-	assert.True(t, ut.ID.IsValid(1)) // ID still valid
-
-	// 5. Test Soft Delete (Row)
-	assert.True(t, ut.ID.IsValid(2))
-	assert.True(t, ut.UserName.IsValid(2))
-	ut.Delete(2)
-	assert.False(t, ut.ID.IsValid(2))
-	assert.False(t, ut.UserName.IsValid(2))
-	assert.False(t, ut.Active.IsValid(2))
-
-	// Row 0 should still be valid
-	assert.True(t, ut.ID.IsValid(0))
-}
-
-func TestOOBPanic(t *testing.T) {
-	// ... (implementation of OOB test)
+	bitmap := f.dirt
+	assert.NotNil(t, bitmap)
+	assert.Equal(t, uint64(2), bitmap[0]) // 1 << 1
 }

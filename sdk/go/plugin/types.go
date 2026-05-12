@@ -44,8 +44,8 @@ type ExecuteStepRequest struct {
 	StepName     string `json:"step_name"`
 	ResourceId   string `json:"resource_id,omitempty"`
 	ConfigJSON   string `json:"config_json,omitempty"`
-	InputHandle  string `json:"input_handle"`
-	OutputHandle string `json:"output_handle"`
+	InputHandles  map[string]string `json:"input_handles"`
+	OutputHandles map[string]string `json:"output_handles"`
 }
 
 // ExecuteStepResponse contains the result of a plugin task execution.
@@ -53,8 +53,8 @@ type ExecuteStepResponse struct {
 	TaskID       string `json:"task_id"`
 	Status       string `json:"status"`
 	ErrorMessage string `json:"error_message,omitempty"`
-	OutputHandle string `json:"output_handle,omitempty"`
-	DirtyHandle  string `json:"dirty_handle,omitempty"`
+	OutputHandles map[string]string `json:"output_handles,omitempty"`
+	DirtyHandles  map[string]string `json:"dirty_handles,omitempty"`
 }
 
 // Action types for Arrow Flight

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"golang.org/x/sys/unix"
 )
@@ -29,27 +30,27 @@ type Metadata struct {
 	WorkflowID  string
 	TaskID      string
 	IODirection IODirection
-	Path        string // physical path in /dev/shm
-	DirtyPath   string // physical path of dirty bitmap in /dev/shm
+	Paths       map[string]string // physical paths in /dev/shm
+	DirtyPaths  map[string]string // physical paths of dirty bitmap in /dev/shm
 }
 
 // NewMetadata creates a new Metadata instance ensuring all required fields are provided.
-func NewMetadata(workflowID, taskID string, dir IODirection, path string) Metadata {
+func NewMetadata(workflowID, taskID string, dir IODirection, paths map[string]string) Metadata {
 	return Metadata{
 		WorkflowID:  workflowID,
 		TaskID:      taskID,
 		IODirection: dir,
-		Path:        path,
+		Paths:       paths,
 	}
 }
 
-func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, path, dirtyPath string) Metadata {
+func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, paths map[string]string, dirtyPaths map[string]string) Metadata {
 	return Metadata{
 		WorkflowID:  workflowID,
 		TaskID:      taskID,
 		IODirection: dir,
-		Path:        path,
-		DirtyPath:   dirtyPath,
+		Paths:       paths,
+		DirtyPaths:  dirtyPaths,
 	}
 }
 
@@ -63,13 +64,15 @@ type DataLocalityRegistry struct {
 // Put registers a data identifier with its corresponding SHM metadata.
 // It validates that the file at Path exists and has secure permissions.
 func (r *DataLocalityRegistry) Put(metadata Metadata) error {
-	if metadata.Path != "" {
-		fi, err := os.Stat(metadata.Path)
-		if err != nil {
-			return fmt.Errorf("failed to stat shm file: %w", err)
-		}
-		if err := validateSHMFile(fi); err != nil {
-			return err
+	for _, path := range metadata.Paths {
+		if path != "" {
+			fi, err := os.Stat(path)
+			if err != nil {
+				return fmt.Errorf("failed to stat shm file: %w", err)
+			}
+			if err := validateSHMFile(fi); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -91,8 +94,12 @@ func (r *DataLocalityRegistry) GetMetadata(workflowID, taskID string, dir IODire
 
 // Delete removes a data identifier from the registry and unlinks the underlying SHM file if present.
 func (r *DataLocalityRegistry) Delete(workflowID, taskID string, dir IODirection) {
-	if meta, ok := r.GetMetadata(workflowID, taskID, dir); ok && meta.Path != "" {
-		os.Remove(meta.Path)
+	if meta, ok := r.GetMetadata(workflowID, taskID, dir); ok {
+		for _, path := range meta.Paths {
+			if path != "" {
+				os.Remove(path)
+			}
+		}
 	}
 	key := r.makeKey(workflowID, taskID, dir)
 	r.metadata.Delete(key)
@@ -107,8 +114,10 @@ func (r *DataLocalityRegistry) DeleteByWorkflow(workflowID string) {
 	r.metadata.Range(func(key, value interface{}) bool {
 		meta := value.(Metadata)
 		if meta.WorkflowID == workflowID {
-			if meta.Path != "" {
-				os.Remove(meta.Path)
+			for _, path := range meta.Paths {
+				if path != "" {
+					os.Remove(path)
+				}
 			}
 			r.metadata.Delete(key)
 		}
@@ -156,6 +165,51 @@ func AllocateAndWrite(batch arrow.Record) (*os.File, error) {
 	}
 
 	// Layer 3: Seal the file (make it read-only for owner)
+	if err := f.Chmod(0400); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("failed to seal shm file: %w", err)
+	}
+
+	return f, nil
+}
+
+// AllocateAndWriteArray creates a temporary file in /dev/shm, writes the Arrow Array to it
+// as a 1-column RecordBatch, and returns the open file handle.
+func AllocateAndWriteArray(field arrow.Field, arr arrow.Array) (*os.File, error) {
+	f, err := os.CreateTemp("/dev/shm", "heddle-*.arrow")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	if err := f.Chmod(0600); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("failed to restrict shm file permissions: %w", err)
+	}
+
+	schema := arrow.NewSchema([]arrow.Field{field}, nil)
+	record := array.NewRecord(schema, []arrow.Array{arr}, int64(arr.Len()))
+	defer record.Release()
+
+	writer, err := ipc.NewFileWriter(f, ipc.WithSchema(schema))
+	if err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("failed to create ipc writer: %w", err)
+	}
+	if err := writer.Write(record); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("failed to write record batch: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("failed to close ipc writer: %w", err)
+	}
+
 	if err := f.Chmod(0400); err != nil {
 		f.Close()
 		os.Remove(f.Name())

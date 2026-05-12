@@ -14,7 +14,6 @@ import (
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/apache/arrow/go/v18/arrow/memory"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -37,14 +36,15 @@ type ResourceRegistration struct {
 // It captures the function signature, inferred JSON schemas for configuration,
 // and the mapping between Arrow schemas and Go struct types.
 type StepRegistration struct {
-	Name         string
-	ConfigSchema string // JSON schema inferred from the configuration struct for DSL-side validation
-	ConfigType   reflect.Type
-	InputType    reflect.Type
-	OutputType   reflect.Type
-	Func         reflect.Value
-	InputSchema  *schema.FrameSchema
-	OutputSchema *schema.FrameSchema
+	Name          string
+	ConfigSchema  string // JSON schema inferred from the configuration struct for DSL-side validation
+	ConfigType    reflect.Type
+	InputType     reflect.Type
+	OutputType    reflect.Type
+	Func          reflect.Value
+	InputSchema   *schema.FrameSchema
+	OutputSchema  *schema.FrameSchema
+	IsOutputAsArg bool // True if signature is func(ctx, cfg, input, output) error
 }
 
 // PlanningDataHandler is a callback function that receives data from a 'std.data' step.
@@ -80,31 +80,45 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 		return fmt.Errorf("step %q must be a function", name)
 	}
 
-	// Ensure the function signature matches the expected contract:
-	// func(context.Context, TConfig, TInput) (TOutput, error)
-	if typ.NumIn() != 3 || typ.NumOut() != 2 {
-		return fmt.Errorf("step %q must have signature func(ctx, config, input) (output, error)", name)
+	// Ensure the function signature matches one of the expected contracts:
+	// 1. func(context.Context, TConfig, TInput) (TOutput, error)
+	// 2. func(context.Context, TConfig, TInput, TOutput) error
+
+	var inputType, outputType reflect.Type
+	var isOutputAsArg bool
+
+	if typ.NumIn() == 3 && typ.NumOut() == 2 {
+		inputType = typ.In(2)
+		outputType = typ.Out(0)
+		isOutputAsArg = false
+	} else if typ.NumIn() == 4 && typ.NumOut() == 1 {
+		inputType = typ.In(2)
+		outputType = typ.In(3)
+		isOutputAsArg = true
+	} else {
+		return fmt.Errorf("step %q must have signature func(ctx, config, input) (output, error) or func(ctx, config, input, output) error", name)
 	}
 
-	inputSchema, err := ExtractSchema(typ.In(2))
+	inputSchema, err := ExtractSchema(inputType)
 	if err != nil {
 		return fmt.Errorf("step %q input: %w", name, err)
 	}
 
-	outputSchema, err := ExtractSchema(typ.Out(0))
+	outputSchema, err := ExtractSchema(outputType)
 	if err != nil {
 		return fmt.Errorf("step %q output: %w", name, err)
 	}
 
 	reg := StepRegistration{
-		Name:         name,
-		ConfigSchema: generateJSONSchema(typ.In(1)),
-		ConfigType:   typ.In(1),
-		InputType:    typ.In(2),
-		OutputType:   typ.Out(0),
-		Func:         reflect.ValueOf(fn),
-		InputSchema:  inputSchema,
-		OutputSchema: outputSchema,
+		Name:          name,
+		ConfigSchema:  generateJSONSchema(typ.In(1)),
+		ConfigType:    typ.In(1),
+		InputType:     inputType,
+		OutputType:    outputType,
+		Func:          reflect.ValueOf(fn),
+		InputSchema:   inputSchema,
+		OutputSchema:  outputSchema,
+		IsOutputAsArg: isOutputAsArg,
 	}
 
 	p.steps[name] = reg
@@ -344,22 +358,21 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 	}
 
 	// 3. Prepare the Input Frame using Zero-Copy SHM access.
-	// If an InputHandle is provided, the Arrow data is mapped directly from shared memory.
-	var arrowTable arrow.Table
-	if req.InputHandle != "" {
-		record, err := core.ReadArrowFromPath(req.InputHandle)
+	columns := make(map[string]arrow.Array)
+	for fieldName, path := range req.InputHandles {
+		arr, err := core.ReadArrowArrayFromPath(path)
 		if err != nil {
-			logger.L().Error("Failed to read input from SHM", zap.Error(err), zap.String("path", req.InputHandle))
+			logger.L().Error("Failed to read input from SHM", zap.Error(err), zap.String("path", path))
 		} else {
-			arrowTable = array.NewTableFromRecords(record.Schema(), []arrow.Record{record})
-			defer arrowTable.Release()
+			columns[fieldName] = arr
+			defer arr.Release()
 		}
 	}
 
 	inputVal := reflect.New(targetStep.InputType).Elem()
 	if hasHeddleFrame(targetStep.InputType) {
-		if arrowTable != nil {
-			if err := Bind(inputVal.Addr().Interface(), arrowTable); err != nil {
+		if len(columns) > 0 {
+			if err := bind(inputVal.Addr().Interface(), columns); err != nil {
 				return ExecuteStepResponse{
 					TaskID:       req.TaskID,
 					Status:       "FAILED",
@@ -376,97 +389,166 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		arg1 = configVal.Elem()
 	}
 
-	args := []reflect.Value{
-		reflect.ValueOf(ctx),
-		arg1,
-		inputVal,
+	var outputVal reflect.Value
+	var args []reflect.Value
+
+	if targetStep.IsOutputAsArg {
+		if targetStep.OutputType.Kind() == reflect.Pointer {
+			outputVal = reflect.New(targetStep.OutputType.Elem())
+		} else {
+			outputVal = reflect.New(targetStep.OutputType).Elem()
+		}
+		args = []reflect.Value{
+			reflect.ValueOf(ctx),
+			arg1,
+			inputVal,
+			outputVal,
+		}
+	} else {
+		args = []reflect.Value{
+			reflect.ValueOf(ctx),
+			arg1,
+			inputVal,
+		}
 	}
 
 	// 4. Call the function
 	results := targetStep.Func.Call(args)
 
 	// 5. Handle output results and commit data to SHM.
-	if !results[1].IsNil() {
+	var errResult reflect.Value
+	if targetStep.IsOutputAsArg {
+		errResult = results[0]
+	} else {
+		outputVal = results[0]
+		errResult = results[1]
+	}
+
+	if !errResult.IsNil() {
 		return ExecuteStepResponse{
 			TaskID:       req.TaskID,
 			Status:       "FAILED",
-			ErrorMessage: results[1].Interface().(error).Error(),
+			ErrorMessage: errResult.Interface().(error).Error(),
 		}
 	}
-
-	outputVal := results[0]
-	outputHandle := ""
-	dirtyHandle := ""
+	outputHandles := make(map[string]string)
+	dirtyHandles := make(map[string]string)
 
 	// Check if the output is a VoidFrame (explicitly no-data).
 	if targetStep.OutputType == reflect.TypeFor[VoidFrame]() {
 		return ExecuteStepResponse{
-			TaskID:       req.TaskID,
-			Status:       "SUCCESS",
-			OutputHandle: "",
+			TaskID: req.TaskID,
+			Status: "SUCCESS",
 		}
 	}
 
 	// If the output contains a HeddleFrame, persist the Arrow data to Shared Memory.
-	if hasHeddleFrame(targetStep.OutputType) {
-		frameField := findHeddleFrameField(outputVal)
-		if frameField.IsValid() {
-			hf := frameField.Addr().Interface().(*HeddleFrame)
+	if !hasHeddleFrame(targetStep.OutputType) {
+		return ExecuteStepResponse{
+			TaskID:       req.TaskID,
+			Status:       "FAILED",
+			ErrorMessage: "failed to materialize output frame",
+		}
+	}
 
-			// If native is not set, attempt to materialize it from the Fields.
-			if hf.native == nil {
-				table, err := materializeFrame(outputVal)
-				if err != nil {
-					return ExecuteStepResponse{
-						TaskID:       req.TaskID,
-						Status:       "FAILED",
-						ErrorMessage: fmt.Sprintf("failed to materialize output frame: %v", err),
-					}
-				}
-				hf.native = table
+	frameField := findHeddleFrameField(outputVal)
+	if !frameField.IsValid() {
+		return ExecuteStepResponse{
+			TaskID:       req.TaskID,
+			Status:       "FAILED",
+			ErrorMessage: "output does not contain a HeddleFrame",
+		}
+	}
+
+	vVal := outputVal
+	if vVal.Kind() == reflect.Pointer {
+		vVal = vVal.Elem()
+	}
+	t := vVal.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		fValue := vVal.Field(i)
+		fieldPtr := fValue.Addr().Interface()
+
+		name := t.Field(i).Tag.Get("heddle")
+		if name == "" {
+			name = t.Field(i).Name
+		}
+
+		var arr arrow.Array
+		var dirt []uint64
+
+		switch df := fieldPtr.(type) {
+		case *Int8:
+			arr = df.arrayInt8
+			dirt = df.dirt
+		case *Int16:
+			arr = df.arrayInt16
+			dirt = df.dirt
+		case *Int32:
+			arr = df.arrayInt32
+			dirt = df.dirt
+		case *Int64:
+			arr = df.arrayInt64
+			dirt = df.dirt
+		case *Uint8:
+			arr = df.arrayUint8
+			dirt = df.dirt
+		case *Uint16:
+			arr = df.arrayUint16
+			dirt = df.dirt
+		case *Uint32:
+			arr = df.arrayUint32
+			dirt = df.dirt
+		case *Uint64:
+			arr = df.arrayUint64
+			dirt = df.dirt
+		case *Float32:
+			arr = df.arrayFloat32
+			dirt = df.dirt
+		case *Float64:
+			arr = df.arrayFloat64
+			dirt = df.dirt
+		case *Bool:
+			arr = df.arrayBool
+			dirt = df.dirt
+		case *String:
+			arr = df.arrayString
+			dirt = df.dirt
+		}
+
+		if arr != nil {
+			field := arrow.Field{Name: name, Type: arr.DataType(), Nullable: true}
+			path, err := core.WriteArrowArrayToShm(field, arr)
+			if err != nil {
+				logger.L().Error("Failed to write output to SHM", zap.Error(err))
+			} else {
+				outputHandles[name] = path
 			}
 
-			if hf.native != nil {
-				// 5.1 Write the Arrow RecordBatch to SHM.
-				reader := array.NewTableReader(hf.native, hf.native.NumRows())
-				if reader.Next() {
-					rec := reader.Record()
-					path, err := core.WriteArrowToShm(rec)
-					if err != nil {
-						logger.L().Error("Failed to write output to SHM", zap.Error(err))
-					} else {
-						outputHandle = path
-
-						// 5.2 Write the Dirty Bitmap to SHM.
-						// This allows downstream steps to identify which rows were modified.
-						hasDirty := false
-						for _, d := range hf.dirtyBitmap() {
-							if d != 0 {
-								hasDirty = true
-								break
-							}
-						}
-
-						if hasDirty {
-							dp, err := locality.WriteDirtyToShm(hf.dirtyBitmap())
-							if err != nil {
-								logger.L().Error("Failed to write dirty bits to SHM", zap.Error(err))
-							} else {
-								dirtyHandle = dp
-							}
-						}
-					}
+			hasDirty := false
+			for _, d := range dirt {
+				if d != 0 {
+					hasDirty = true
+					break
 				}
-				reader.Release()
+			}
+			if hasDirty {
+				dp, err := locality.WriteDirtyToShm(dirt)
+				if err != nil {
+					logger.L().Error("Failed to write dirty bits to SHM", zap.Error(err))
+				} else {
+					dirtyHandles[name] = dp
+				}
 			}
 		}
 	}
 
 	return ExecuteStepResponse{
-		TaskID:       req.TaskID,
-		Status:       "SUCCESS",
-		OutputHandle: outputHandle,
-		DirtyHandle:  dirtyHandle,
+		TaskID:        req.TaskID,
+		Status:        "SUCCESS",
+		OutputHandles: outputHandles,
+		DirtyHandles:  dirtyHandles,
 	}
 }
 
@@ -551,9 +633,8 @@ func findHeddleFrameField(v reflect.Value) reflect.Value {
 	return reflect.Value{}
 }
 
-// Bind maps Arrow Table columns to Go struct fields.
-// It looks for fields with the `heddle` tag or uses the field name to find matching Arrow columns.
-func Bind(v any, table arrow.Table) error {
+// bind maps Arrow Table columns to Go struct fields.
+func bind(v any, columns map[string]arrow.Array) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("Bind requires a pointer to a struct")
@@ -561,87 +642,55 @@ func Bind(v any, table arrow.Table) error {
 	vVal := rv.Elem()
 	t := vVal.Type()
 
-	var frame *HeddleFrame
-	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).Type == reflect.TypeFor[HeddleFrame]() {
-			frame = vVal.Field(i).Addr().Interface().(*HeddleFrame)
-			break
-		}
-	}
-	if frame == nil {
-		return fmt.Errorf("missing HeddleFrame")
-	}
-	frame.Bind(table)
-
-	schema := table.Schema()
 	for i := 0; i < t.NumField(); i++ {
 		fValue := vVal.Field(i)
-		if df, ok := fValue.Addr().Interface().(dirtyField); ok {
-			name := t.Field(i).Tag.Get("heddle")
-			if name == "" {
-				name = t.Field(i).Name
-			}
-			indices := schema.FieldIndices(name)
-			if len(indices) > 0 {
-				df.bind(table.Column(indices[0]))
-				frame.fields = append(frame.fields, df)
+		fieldPtr := fValue.Addr().Interface()
+
+		name := t.Field(i).Tag.Get("heddle")
+		if name == "" {
+			name = t.Field(i).Name
+		}
+
+		if arr, ok := columns[name]; ok {
+			switch df := fieldPtr.(type) {
+			case *Int8:
+				df.arrayInt8 = arr.(*array.Int8)
+				df.dirt = []uint64{}
+			case *Int16:
+				df.arrayInt16 = arr.(*array.Int16)
+				df.dirt = []uint64{}
+			case *Int32:
+				df.arrayInt32 = arr.(*array.Int32)
+				df.dirt = []uint64{}
+			case *Int64:
+				df.arrayInt64 = arr.(*array.Int64)
+				df.dirt = []uint64{}
+			case *Uint8:
+				df.arrayUint8 = arr.(*array.Uint8)
+				df.dirt = []uint64{}
+			case *Uint16:
+				df.arrayUint16 = arr.(*array.Uint16)
+				df.dirt = []uint64{}
+			case *Uint32:
+				df.arrayUint32 = arr.(*array.Uint32)
+				df.dirt = []uint64{}
+			case *Uint64:
+				df.arrayUint64 = arr.(*array.Uint64)
+				df.dirt = []uint64{}
+			case *Float32:
+				df.arrayFloat32 = arr.(*array.Float32)
+				df.dirt = []uint64{}
+			case *Float64:
+				df.arrayFloat64 = arr.(*array.Float64)
+				df.dirt = []uint64{}
+			case *Bool:
+				df.arrayBool = arr.(*array.Boolean)
+				df.dirt = []uint64{}
+			case *String:
+				df.arrayString = arr.(*array.String)
+				df.dirt = []uint64{}
 			}
 		}
 	}
 	return nil
-}
-
-// materializeFrame constructs an Apache Arrow Table from the Fields within a struct.
-// This allows developers to work with raw Go slices while maintaining the zero-copy
-// performance of Arrow during transmission.
-func materializeFrame(v reflect.Value) (arrow.Table, error) {
-	if v.Kind() == reflect.Pointer {
-		v = v.Elem()
-	}
-	t := v.Type()
-
-	var fields []arrow.Field
-	var arrays []arrow.Array
-	var numRows int = -1
-
-	pool := memory.NewGoAllocator()
-
-	for i := 0; i < t.NumField(); i++ {
-		fValue := v.Field(i)
-		// Check if the field implements dirtyField (which all Field[T] do).
-		if df, ok := fValue.Addr().Interface().(dirtyField); ok {
-			arr, err := df.materialize(pool)
-			if err != nil {
-				return nil, err
-			}
-
-			if numRows == -1 {
-				numRows = arr.Len()
-			} else if numRows != arr.Len() {
-				return nil, fmt.Errorf("column %d has inconsistent length (expected %d, got %d)", i, numRows, arr.Len())
-			}
-
-			name := t.Field(i).Tag.Get("heddle")
-			if name == "" {
-				name = t.Field(i).Name
-			}
-
-			fields = append(fields, arrow.Field{
-				Name:     name,
-				Type:     arr.DataType(),
-				Nullable: true,
-			})
-			arrays = append(arrays, arr)
-		}
-	}
-
-	if len(fields) == 0 {
-		return nil, fmt.Errorf("no fields found in frame struct")
-	}
-
-	schema := arrow.NewSchema(fields, nil)
-	record := array.NewRecord(schema, arrays, int64(numRows))
-	defer record.Release()
-
-	return array.NewTableFromRecords(schema, []arrow.Record{record}), nil
 }

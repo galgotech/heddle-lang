@@ -62,7 +62,7 @@ func TestDataLocalityRegistry(t *testing.T) {
 	f.Chmod(0400)
 	f.Close()
 
-	meta := locality.NewMetadata("wf-1", "task-1", locality.Input, f.Name())
+	meta := locality.NewMetadata("wf-1", "task-1", locality.Input, map[string]string{"f1": f.Name()})
 
 	// Put should use composite key (WorkflowID + TaskID + IODirection)
 	err = r.Put(meta)
@@ -104,9 +104,9 @@ func TestDeleteByWorkflow(t *testing.T) {
 	f3.Close()
 	defer os.Remove(f3.Name())
 
-	r.Put(locality.NewMetadata("wf-1", "task-1", locality.Output, f1.Name()))
-	r.Put(locality.NewMetadata("wf-1", "task-2", locality.Output, f2.Name()))
-	r.Put(locality.NewMetadata("wf-2", "task-1", locality.Output, f3.Name()))
+	r.Put(locality.NewMetadata("wf-1", "task-1", locality.Output, map[string]string{"f1": f1.Name()}))
+	r.Put(locality.NewMetadata("wf-1", "task-2", locality.Output, map[string]string{"f2": f2.Name()}))
+	r.Put(locality.NewMetadata("wf-2", "task-1", locality.Output, map[string]string{"f3": f3.Name()}))
 
 	// Delete wf-1
 	r.DeleteByWorkflow("wf-1")
@@ -178,7 +178,7 @@ func TestRegistry_Put_RejectsInsecurePath(t *testing.T) {
 	err = os.Chmod(f.Name(), 0644)
 	require.NoError(t, err)
 
-	meta := locality.NewMetadata("wf-fail", "task-fail", locality.Output, f.Name())
+	meta := locality.NewMetadata("wf-fail", "task-fail", locality.Output, map[string]string{"f1": f.Name()})
 	err = r.Put(meta)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "insecure permissions")

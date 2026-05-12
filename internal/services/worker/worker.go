@@ -241,13 +241,19 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		// The task ID serves as the handle for subsequent steps.
 		handle := task.TaskID
 
-		f, err := locality.AllocateAndWrite(record)
-		if err != nil {
-			return models.TaskResult{}, fmt.Errorf("data_literal: failed to write to SHM: %w", err)
+		paths := make(map[string]string)
+		schema := record.Schema()
+		for i := 0; i < int(record.NumCols()); i++ {
+			field := schema.Field(i)
+			arr := record.Column(i)
+			f, err := locality.AllocateAndWriteArray(field, arr)
+			if err != nil {
+				return models.TaskResult{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
+			}
+			paths[field.Name] = f.Name()
+			f.Close()
+			logger.L().Info("Allocated data_literal column to SHM", zap.String("handle", handle), zap.String("field", field.Name), zap.String("path", f.Name()))
 		}
-		path := f.Name()
-		f.Close()
-		logger.L().Info("Allocated data_literal to SHM", zap.String("handle", handle), zap.String("path", path))
 
 		// literal_data always is first step the tips is void -> data_type
 		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
@@ -256,7 +262,7 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		}
 
 		// Register the data in the locality registry
-		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, path)); err != nil {
+		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, paths)); err != nil {
 			return models.TaskResult{}, fmt.Errorf("data_literal: failed to register in locality registry: %w", err)
 		}
 
@@ -274,80 +280,80 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 			return models.TaskResult{}, fmt.Errorf("compress: input metadata not found for task %s", task.PreviousTaskID)
 		}
 
-		if meta.Path == "" {
-			return models.TaskResult{}, fmt.Errorf("compress: input path is empty")
+		if len(meta.Paths) == 0 {
+			return models.TaskResult{}, fmt.Errorf("compress: input paths are empty")
 		}
 
-		// 2. Read Arrow record
-		record, err := locality.ReadFromPath(meta.Path)
-		if err != nil {
-			return models.TaskResult{}, fmt.Errorf("compress: failed to read input: %w", err)
-		}
-		defer record.Release()
+		// Since compress needs the whole record, we have to construct it or do this per column.
+		// For now, let's process column by column.
+		resPaths := make(map[string]string)
 
-		// 3. Read Dirty Bitmap
-		if meta.DirtyPath == "" {
+		// 3. Read Dirty Bitmap. Assuming compress can use any of the dirty bitmaps, or they are identical.
+		// In a column-wise setup, we might need a common dirty path or assume they are combined.
+		// Let's just grab the first one we find.
+		var dirtyPath string
+		for _, dp := range meta.DirtyPaths {
+			if dp != "" {
+				dirtyPath = dp
+				break
+			}
+		}
+
+		if dirtyPath == "" {
 			// No dirty bits, identity operation
-			if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, meta.Path)); err != nil {
+			if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, meta.Paths)); err != nil {
 				return models.TaskResult{}, err
 			}
 			return models.TaskResult{TaskID: task.TaskID, Status: models.TaskStatusSuccess}, nil
 		}
 
-		dirty, err := locality.ReadDirtyFromPath(meta.DirtyPath)
+		dirty, err := locality.ReadDirtyFromPath(dirtyPath)
 		if err != nil {
 			return models.TaskResult{}, fmt.Errorf("compress: failed to read dirty bits: %w", err)
 		}
 
-		// 4. Perform Compression (Filtering)
 		mem := memory.NewGoAllocator()
-		validRows := make([]int, 0, int(record.NumRows()))
-		for i := 0; i < int(record.NumRows()); i++ {
-			isDirty := (dirty[i/64] & (1 << (uint(i) % 64))) != 0
-			if !isDirty {
-				validRows = append(validRows, i)
+		
+		for fieldName, path := range meta.Paths {
+			arr, err := locality.ReadArrowArrayFromPath(path)
+			if err != nil {
+				return models.TaskResult{}, fmt.Errorf("compress: failed to read input for %s: %w", fieldName, err)
 			}
-		}
-
-		if len(validRows) == int(record.NumRows()) {
-			// Identity
-			if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, meta.Path)); err != nil {
-				return models.TaskResult{}, err
+			
+			validRows := make([]int, 0, arr.Len())
+			for i := 0; i < arr.Len(); i++ {
+				isDirty := (dirty[i/64] & (1 << (uint(i) % 64))) != 0
+				if !isDirty {
+					validRows = append(validRows, i)
+				}
 			}
-			return models.TaskResult{TaskID: task.TaskID, Status: models.TaskStatusSuccess}, nil
-		}
 
-		// Build new columns
-		newCols := make([]arrow.Array, record.NumCols())
-		for i := 0; i < int(record.NumCols()); i++ {
-			oldCol := record.Column(i)
-			builder := array.NewBuilder(mem, oldCol.DataType())
-			defer builder.Release()
+			if len(validRows) == arr.Len() {
+				resPaths[fieldName] = path
+				arr.Release()
+				continue
+			}
 
+			builder := array.NewBuilder(mem, arr.DataType())
 			for _, rowIdx := range validRows {
-				// Use the existing appendValue (I'll need to move it here or make it a helper)
-				appendRecordValue(builder, oldCol, rowIdx)
+				appendRecordValue(builder, arr, rowIdx)
 			}
-			newCols[i] = builder.NewArray()
-		}
-		defer func() {
-			for _, c := range newCols {
-				c.Release()
+			newArr := builder.NewArray()
+			builder.Release()
+			arr.Release()
+
+			field := arrow.Field{Name: fieldName, Type: newArr.DataType(), Nullable: true}
+			f, err := locality.AllocateAndWriteArray(field, newArr)
+			if err != nil {
+				newArr.Release()
+				return models.TaskResult{}, fmt.Errorf("compress: failed to write result: %w", err)
 			}
-		}()
-
-		newRecord := array.NewRecord(record.Schema(), newCols, int64(len(validRows)))
-		defer newRecord.Release()
-
-		// 5. Write to SHM and Register
-		f, err := locality.AllocateAndWrite(newRecord)
-		if err != nil {
-			return models.TaskResult{}, fmt.Errorf("compress: failed to write result: %w", err)
+			resPaths[fieldName] = f.Name()
+			f.Close()
+			newArr.Release()
 		}
-		resPath := f.Name()
-		f.Close()
 
-		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, resPath)); err != nil {
+		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, resPaths)); err != nil {
 			return models.TaskResult{}, err
 		}
 

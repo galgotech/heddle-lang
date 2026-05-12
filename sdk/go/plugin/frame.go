@@ -1,307 +1,349 @@
 package plugin
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow/go/v18/arrow/compute"
 	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
-// FieldType defines the set of Go types supported by Heddle's strictly-typed DSL.
-type FieldType interface {
-	int8 | int16 | int32 | int64 | int |
-		uint8 | uint16 | uint32 | uint64 | uint |
-		float32 | float64 | bool | string
+type arrayInt8 = array.Int8
+type arrayInt16 = array.Int16
+type arrayInt32 = array.Int32
+type arrayInt64 = array.Int64
+type arrayUint8 = array.Uint8
+type arrayUint16 = array.Uint16
+type arrayUint32 = array.Uint32
+type arrayUint64 = array.Uint64
+type arrayFloat32 = array.Float32
+type arrayFloat64 = array.Float64
+type arrayBool = array.Boolean
+type arrayString = array.String
+
+var pool = memory.NewGoAllocator()
+
+type metaField struct {
+	dirt []uint64
 }
 
-// dirtyField provides a uniform interface for managing row-level state (dirty bits)
-// across generic fields. This allows HeddleFrame to perform operations like
-// bulk deletions without knowing the underlying field types.
-type dirtyField interface {
-	Delete(rowIndex int)
-	IsDirty(rowIndex int) bool
-	dirtyBitmap() []uint64
-	bind(col *arrow.Column) error
-	materialize(pool memory.Allocator) (arrow.Array, error)
-	Len() int
-}
-
-// Field represents a strongly-typed, read-optimized column. It wraps an
-// Apache Arrow array and maintains a separate bitset for tracking logical
-// deletions, ensuring the underlying Arrow buffers remain immutable.
-type Field[T FieldType] struct {
-	col    arrow.Column
-	arr    arrow.Array
-	dirty  []uint64 // bitset tracking logical deletions to avoid mutating immutable Arrow buffers
-	len    int
-	values []T // raw values for output fields
-}
-
-// Delete sets the dirty bit for the specified row, effectively removing it
-// from subsequent processing without re-allocating Arrow memory.
-func (f *Field[T]) Delete(rowIndex int) {
-	if rowIndex < 0 || rowIndex >= f.len {
-		panic(fmt.Sprintf("HeddleFrame: index %d out of range (length %d)", rowIndex, f.len))
+func (f *metaField) Delete(rowIndex int) {
+	idx := rowIndex / 64
+	for len(f.dirt) <= idx {
+		f.dirt = append(f.dirt, 0)
 	}
-	f.dirty[rowIndex/64] |= (1 << (uint(rowIndex) % 64))
+	f.dirt[idx] |= (1 << (uint(rowIndex) % 64))
 }
 
-// IsDirty checks the internal bitset to determine if the row has been logically deleted.
-func (f *Field[T]) IsDirty(rowIndex int) bool {
-	if rowIndex < 0 || rowIndex >= f.len {
-		return true // Logically dirty if out of bounds
-	}
-	return (f.dirty[rowIndex/64] & (1 << (uint(rowIndex) % 64))) != 0
+type Int8 struct {
+	metaField
+	*arrayInt8
 }
 
-// dirtyBitmap returns the raw bitset used for tracking logical deletions.
-func (f *Field[T]) dirtyBitmap() []uint64 {
-	return f.dirty
-}
-
-// IsValid evaluates if a row is present and non-null by checking both the
-// logical dirty bitset and the Arrow null bitmap.
-func (f *Field[T]) IsValid(rowIndex int) bool {
-	if f.IsDirty(rowIndex) {
-		return false
-	}
-	// Check underlying Arrow validity mask
-	return f.arr.IsValid(rowIndex)
-}
-
-// Value performs a type-safe retrieval of the scalar value at the given index.
-// It prioritizes the internal values slice if present, falling back to the
-// underlying Arrow array for read-optimized access.
-func (f *Field[T]) Value(rowIndex int) T {
-	if rowIndex < 0 || rowIndex >= f.len {
-		panic(fmt.Sprintf("HeddleFrame: index %d out of range (length %d)", rowIndex, f.len))
-	}
-
-	if f.values != nil {
-		return f.values[rowIndex]
-	}
-
-	switch any(*new(T)).(type) {
-	case int:
-		return any(int(f.arr.(*array.Int64).Value(rowIndex))).(T)
-	case int64:
-		return any(f.arr.(*array.Int64).Value(rowIndex)).(T)
-	case int32:
-		return any(f.arr.(*array.Int32).Value(rowIndex)).(T)
-	case int16:
-		return any(f.arr.(*array.Int16).Value(rowIndex)).(T)
-	case int8:
-		return any(f.arr.(*array.Int8).Value(rowIndex)).(T)
-	case uint:
-		return any(uint(f.arr.(*array.Uint64).Value(rowIndex))).(T)
-	case uint64:
-		return any(f.arr.(*array.Uint64).Value(rowIndex)).(T)
-	case uint32:
-		return any(f.arr.(*array.Uint32).Value(rowIndex)).(T)
-	case uint16:
-		return any(f.arr.(*array.Uint16).Value(rowIndex)).(T)
-	case uint8:
-		return any(f.arr.(*array.Uint8).Value(rowIndex)).(T)
-	case float64:
-		return any(f.arr.(*array.Float64).Value(rowIndex)).(T)
-	case float32:
-		return any(f.arr.(*array.Float32).Value(rowIndex)).(T)
-	case bool:
-		return any(f.arr.(*array.Boolean).Value(rowIndex)).(T)
-	case string:
-		return any(f.arr.(*array.String).Value(rowIndex)).(T)
-	default:
-		panic("unreachable")
+func NewInt8(data []int8) *Int8 {
+	b := array.NewInt8Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Int8{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayInt8: b.NewArray().(*arrayInt8),
 	}
 }
 
-// SetValues populates the Field with raw Go values, typically used for step outputs.
-func (f *Field[T]) SetValues(v []T) {
-	f.values = v
-	f.len = len(v)
-	f.dirty = make([]uint64, (f.len+63)/64)
+type Int16 struct {
+	metaField
+	*arrayInt16
 }
 
-// Values returns the underlying Go slice of values.
-func (f *Field[T]) Values() []T {
-	return f.values
+func NewInt16(data []int16) *Int16 {
+	b := array.NewInt16Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Int16{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayInt16: b.NewArray().(*arrayInt16),
+	}
 }
 
-// materialize converts the internal values slice into a read-only Apache Arrow array.
-func (f *Field[T]) materialize(pool memory.Allocator) (arrow.Array, error) {
-	if f.arr != nil {
-		return f.arr, nil
-	}
-
-	if f.values == nil {
-		return nil, fmt.Errorf("field has no data")
-	}
-
-	switch v := any(f.values).(type) {
-	case []int:
-		b := array.NewInt64Builder(pool)
-		defer b.Release()
-		vals := make([]int64, len(v))
-		for i, x := range v {
-			vals[i] = int64(x)
-		}
-		b.AppendValues(vals, nil)
-		return b.NewArray(), nil
-	case []int64:
-		b := array.NewInt64Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []int32:
-		b := array.NewInt32Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []int16:
-		b := array.NewInt16Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []int8:
-		b := array.NewInt8Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []uint:
-		b := array.NewUint64Builder(pool)
-		defer b.Release()
-		vals := make([]uint64, len(v))
-		for i, x := range v {
-			vals[i] = uint64(x)
-		}
-		b.AppendValues(vals, nil)
-		return b.NewArray(), nil
-	case []uint64:
-		b := array.NewUint64Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []uint32:
-		b := array.NewUint32Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []uint16:
-		b := array.NewUint16Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []uint8:
-		b := array.NewUint8Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []float64:
-		b := array.NewFloat64Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []float32:
-		b := array.NewFloat32Builder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []bool:
-		b := array.NewBooleanBuilder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	case []string:
-		b := array.NewStringBuilder(pool)
-		defer b.Release()
-		b.AppendValues(v, nil)
-		return b.NewArray(), nil
-	}
-	return nil, fmt.Errorf("unsupported type for materialization")
+type Int32 struct {
+	metaField
+	*arrayInt32
 }
 
-// Len returns the number of rows in the field.
-func (f *Field[T]) Len() int {
-	return f.len
+func NewInt32(data []int32) *Int32 {
+	b := array.NewInt32Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Int32{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayInt32: b.NewArray().(*arrayInt32),
+	}
 }
 
-// bind attaches an Arrow column to the Field and initializes the tracking bitset.
-// It prioritizes single-chunk arrays to maintain high-performance zero-copy semantics.
-func (f *Field[T]) bind(col *arrow.Column) error {
-	f.col = *col
-	f.len = int(col.Len())
-	f.dirty = make([]uint64, (f.len+63)/64)
+type Int64 struct {
+	metaField
+	*arrayInt64
+}
 
-	chunks := col.Data().Chunks()
-	if len(chunks) == 1 {
-		f.arr = chunks[0]
-	} else if len(chunks) > 1 {
-		// Fallback for multi-chunk columns; in high-performance paths, these
-		// should be pre-flattened by the control plane or data provider.
-		f.arr = chunks[0]
+func NewInt64(data []int64) *Int64 {
+	b := array.NewInt64Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Int64{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayInt64: b.NewArray().(*arrayInt64),
 	}
+}
+
+type Uint8 struct {
+	metaField
+	*arrayUint8
+}
+
+func NewUint8(data []uint8) *Uint8 {
+	b := array.NewUint8Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Uint8{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayUint8: b.NewArray().(*arrayUint8),
+	}
+}
+
+type Uint16 struct {
+	metaField
+	*arrayUint16
+}
+
+func NewUint16(data []uint16) *Uint16 {
+	b := array.NewUint16Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Uint16{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayUint16: b.NewArray().(*arrayUint16),
+	}
+}
+
+type Uint32 struct {
+	metaField
+	*arrayUint32
+}
+
+func NewUint32(data []uint32) *Uint32 {
+	b := array.NewUint32Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Uint32{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayUint32: b.NewArray().(*arrayUint32),
+	}
+}
+
+type Uint64 struct {
+	metaField
+	*arrayUint64
+}
+
+func NewUint64(data []uint64) *Uint64 {
+	b := array.NewUint64Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Uint64{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayUint64: b.NewArray().(*arrayUint64),
+	}
+}
+
+type Float32 struct {
+	metaField
+	*arrayFloat32
+}
+
+func NewFloat32(data []float32) *Float32 {
+	b := array.NewFloat32Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Float32{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayFloat32: b.NewArray().(*arrayFloat32),
+	}
+}
+
+type Float64 struct {
+	metaField
+	*arrayFloat64
+}
+
+func NewFloat64(data []float64) *Float64 {
+	b := array.NewFloat64Builder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &Float64{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayFloat64: b.NewArray().(*arrayFloat64),
+	}
+}
+
+type Bool struct {
+	metaField
+	*arrayBool
+}
+
+func NewBool(data []bool) *Bool {
+	b := array.NewBooleanBuilder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+
+	return &Bool{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayBool: b.NewArray().(*arrayBool),
+	}
+}
+
+type String struct {
+	metaField
+	*arrayString
+}
+
+func NewString(data []string) *String {
+	b := array.NewStringBuilder(pool)
+	defer b.Release()
+	b.AppendValues(data, nil)
+	return &String{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayString: b.NewArray().(*array.String),
+	}
+}
+
+type HeddleFrame struct {
+	schema schema.FrameSchema
+}
+
+func (h *HeddleFrame) Add(ctx context.Context, a any, b any, c any) error {
+	err := h.exec(
+		ctx,
+		"add",
+		c,
+		&compute.ArrayDatum{Value: a.(arrow.Array).Data()},
+		&compute.ArrayDatum{Value: b.(arrow.Array).Data()},
+	)
+
+	return err
+}
+
+func (h *HeddleFrame) Subtract(ctx context.Context, a any, b any, c any) error {
+	err := h.exec(
+		ctx,
+		"sub",
+		c,
+		&compute.ArrayDatum{Value: a.(arrow.Array).Data()},
+		&compute.ArrayDatum{Value: b.(arrow.Array).Data()},
+	)
+
+	return err
+}
+
+func (h *HeddleFrame) exec(ctx context.Context, name string, output any, inputs ...compute.Datum) error {
+	execCtx := compute.DefaultExecCtx()
+
+	outputArrayDatum, err := compute.CallFunction(
+		compute.SetExecCtx(ctx, execCtx),
+		name,
+		nil,
+		inputs...,
+	)
+	if err != nil {
+		return err
+	}
+
+	values := outputArrayDatum.(*compute.ArrayDatum)
+	switch f := output.(type) {
+	case *Int8:
+		f.arrayInt8 = array.NewInt8Data(values.Value)
+	case *Int16:
+		f.arrayInt16 = array.NewInt16Data(values.Value)
+	case *Int32:
+		f.arrayInt32 = array.NewInt32Data(values.Value)
+	case *Int64:
+		f.arrayInt64 = array.NewInt64Data(values.Value)
+	case *Uint8:
+		f.arrayUint8 = array.NewUint8Data(values.Value)
+	case *Uint16:
+		f.arrayUint16 = array.NewUint16Data(values.Value)
+	case *Uint32:
+		f.arrayUint32 = array.NewUint32Data(values.Value)
+	case *Uint64:
+		f.arrayUint64 = array.NewUint64Data(values.Value)
+	case *Float32:
+		f.arrayFloat32 = array.NewFloat32Data(values.Value)
+	case *Float64:
+		f.arrayFloat64 = array.NewFloat64Data(values.Value)
+	case *Bool:
+		f.arrayBool = array.NewBooleanData(values.Value)
+	case *String:
+		f.arrayString = array.NewStringData(values.Value)
+	}
+
 	return nil
 }
 
-// HeddleFrame is the base abstraction for tabular data in the Heddle ecosystem.
-// It synchronizes multiple Fields into a single logical unit, providing
-// deterministic execution and efficient memory management.
-type HeddleFrame struct {
-	native arrow.Table
-	fields []dirtyField
-}
-
-// VoidFrame is a specialized HeddleFrame representing the 'unit' or 'void' type.
-// It carries no data and is used for steps that exist purely for their side effects.
 type VoidFrame struct {
 	HeddleFrame
 }
 
-// Bind links the HeddleFrame to an underlying Apache Arrow table.
-func (h *HeddleFrame) Bind(table arrow.Table) error {
-	h.native = table
-	return nil
-}
-
-// Delete marks a row as dirty across all constituent fields.
-func (h *HeddleFrame) Delete(rowIndex int) {
-	for _, f := range h.fields {
-		f.Delete(rowIndex)
+func NewFrame(schema FrameSchema) *HeddleFrame {
+	return &HeddleFrame{
+		schema: schema,
 	}
-}
-
-// IsDirty reports whether a row has been marked for deletion.
-func (h *HeddleFrame) IsDirty(rowIndex int) bool {
-	if len(h.fields) == 0 {
-		return false
-	}
-	// Consistency: HeddleFrame.Delete affects all fields uniformly,
-	// so checking the primary field's dirty bit is sufficient.
-	return h.fields[0].IsDirty(rowIndex)
-}
-
-// dirtyBitmap returns the raw bitset used for tracking logical deletions.
-func (h *HeddleFrame) dirtyBitmap() []uint64 {
-	if len(h.fields) == 0 {
-		return nil
-	}
-	return h.fields[0].dirtyBitmap()
-}
-
-// NumRows returns the total number of rows in the frame, including dirty ones.
-func (h *HeddleFrame) NumRows() int {
-	if h.native != nil {
-		return int(h.native.NumRows())
-	}
-	// If the frame hasn't been materialized yet, check the first field's length.
-	if len(h.fields) > 0 {
-		return h.fields[0].Len()
-	}
-	return 0
-}
-
-// NumCols returns the number of columns in the frame.
-func (h *HeddleFrame) NumCols() int {
-	return int(h.native.NumCols())
 }

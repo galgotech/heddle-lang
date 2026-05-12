@@ -151,12 +151,14 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 			continue
 		}
 
-		// Layer 2: Validate OutputHandle path before registering
-		if resp.OutputHandle != "" {
-			if err := validateSHMPath(resp.OutputHandle); err != nil {
-				logger.L().Error("Plugin provided invalid SHM output path", zap.Error(err), zap.String("path", resp.OutputHandle))
-				resp.Status = models.TaskStatusFailed
-				resp.ErrorMessage = "security error: invalid output handle path"
+		// Layer 2: Validate OutputHandles path before registering
+		for _, outPath := range resp.OutputHandles {
+			if outPath != "" {
+				if err := validateSHMPath(outPath); err != nil {
+					logger.L().Error("Plugin provided invalid SHM output path", zap.Error(err), zap.String("path", outPath))
+					resp.Status = models.TaskStatusFailed
+					resp.ErrorMessage = "security error: invalid output handle path"
+				}
 			}
 		}
 
@@ -181,7 +183,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	}
 
 	// Zero-Copy Input: resolve SHM path from registry metadata
-	inputHandle := ""
+	var inputHandles map[string]string
 	isInputVoid := len(task.Step.InputType) > 0 && task.Step.InputType[0] == models.VoidType
 	if s.Registry != nil && !isInputVoid {
 		handle := task.PreviousTaskID
@@ -189,10 +191,12 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 			meta, ok := s.Registry.GetMetadata(task.WorkflowID, handle, locality.Output)
 			if ok {
 				// Layer 2: Validate SHM path before dispatching
-				if err := validateSHMPath(meta.Path); err != nil {
-					return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
+				for _, p := range meta.Paths {
+					if err := validateSHMPath(p); err != nil {
+						return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
+					}
 				}
-				inputHandle = meta.Path
+				inputHandles = meta.Paths
 			} else {
 				return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
 			}
@@ -206,8 +210,8 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		WorkflowID:  task.WorkflowID,
 		TaskID:      task.TaskID,
 		StepName:    task.Step.Call[1],
-		ConfigJSON:  string(configJSON),
-		InputHandle: inputHandle,
+		ConfigJSON:    string(configJSON),
+		InputHandles:  inputHandles,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -234,18 +238,20 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	case resp := <-resCh:
 		// Zero-Copy Output: register SHM path in registry
 		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
-		if resp.OutputHandle != "" && s.Registry != nil && !isOutputVoid {
+		if len(resp.OutputHandles) > 0 && s.Registry != nil && !isOutputVoid {
 			// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
-			if err := validateSHMPath(resp.OutputHandle); err != nil {
-				return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
+			for _, outPath := range resp.OutputHandles {
+				if err := validateSHMPath(outPath); err != nil {
+					return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
+				}
 			}
 
 			handle := task.TaskID
 			// Layer 4: Registry.Put now validates permissions/ownership
-			if err := s.Registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputHandle, resp.DirtyHandle)); err != nil {
+			if err := s.Registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputHandles, resp.DirtyHandles)); err != nil {
 				return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
 			}
-			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle), zap.String("path", resp.OutputHandle), zap.String("dirty_path", resp.DirtyHandle))
+			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle))
 		}
 
 		return models.TaskResult{

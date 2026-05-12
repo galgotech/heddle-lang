@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/ipc"
 	"golang.org/x/sys/unix"
 )
@@ -70,4 +71,32 @@ func WriteArrowToShm(batch arrow.Record) (string, error) {
 	}
 
 	return f.Name(), nil
+}
+
+// ReadArrowArrayFromPath mmaps the file at path and returns the first Arrow Array from the record batch.
+func ReadArrowArrayFromPath(path string) (arrow.Array, error) {
+	record, err := ReadArrowFromPath(path)
+	if err != nil {
+		return nil, err
+	}
+	if record.NumCols() == 0 {
+		return nil, fmt.Errorf("record batch has no columns")
+	}
+	// Note: We retain the record because the array points into it, 
+	// or we can simply return the column. In arrow-go, arrays are ref-counted.
+	// We retain the array and defer releasing the record.
+	arr := record.Column(0)
+	arr.Retain()
+	defer record.Release()
+	
+	return arr, nil
+}
+
+// WriteArrowArrayToShm writes an Arrow Array to a temporary file in /dev/shm.
+func WriteArrowArrayToShm(field arrow.Field, arr arrow.Array) (string, error) {
+	schema := arrow.NewSchema([]arrow.Field{field}, nil)
+	record := array.NewRecord(schema, []arrow.Array{arr}, int64(arr.Len()))
+	defer record.Release()
+
+	return WriteArrowToShm(record)
 }

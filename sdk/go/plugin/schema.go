@@ -49,31 +49,47 @@ func ExtractSchema(t reflect.Type) (*schema.FrameSchema, error) {
 		// Or check the type name/structure.
 		// Since Field[T] is a struct with a bind method, we check for that pattern.
 
-		if f.Type.Kind() == reflect.Struct {
-			ptrType := reflect.PointerTo(f.Type)
-			if ptrType.Implements(reflect.TypeOf((*dirtyField)(nil)).Elem()) {
-				name := f.Tag.Get("heddle")
-				if name == "" {
-					name = f.Name
-				}
-
-				method, ok := ptrType.MethodByName("Value")
-				if !ok {
-					continue
-				}
-
-				goType := method.Type.Out(0)
-				arrowType, err := goTypeToArrowType(goType)
-				if err != nil {
-					return nil, fmt.Errorf("field %q: %w", name, err)
-				}
-
-				res.Fields = append(res.Fields, schema.FrameSchemaField{
-					Name:      name,
-					ArrowType: arrowType,
-					Nullable:  true, // Defaulting to true for Arrow compatibility
-				})
+		if f.Type.Kind() == reflect.Pointer {
+			name := f.Tag.Get("heddle")
+			if name == "" {
+				name = f.Name
 			}
+
+			var arrowType string
+			switch f.Type {
+			case reflect.TypeFor[*Int8]():
+				arrowType = "int8"
+			case reflect.TypeFor[*Int16]():
+				arrowType = "int16"
+			case reflect.TypeFor[*Int32]():
+				arrowType = "int32"
+			case reflect.TypeFor[*Int64]():
+				arrowType = "int64"
+			case reflect.TypeFor[*Uint8]():
+				arrowType = "uint8"
+			case reflect.TypeFor[*Uint16]():
+				arrowType = "uint16"
+			case reflect.TypeFor[*Uint32]():
+				arrowType = "uint32"
+			case reflect.TypeFor[*Uint64]():
+				arrowType = "uint64"
+			case reflect.TypeFor[*Float32]():
+				arrowType = "float32"
+			case reflect.TypeFor[*Float64]():
+				arrowType = "float64"
+			case reflect.TypeFor[*Bool]():
+				arrowType = "bool"
+			case reflect.TypeFor[*String]():
+				arrowType = "utf8"
+			default:
+				continue
+			}
+
+			res.Fields = append(res.Fields, schema.FrameSchemaField{
+				Name:      name,
+				ArrowType: arrowType,
+				Nullable:  true,
+			})
 		}
 	}
 
