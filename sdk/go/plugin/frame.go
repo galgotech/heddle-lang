@@ -267,7 +267,16 @@ func NewString(data []string) *String {
 }
 
 type HeddleFrame struct {
-	schema schema.FrameSchema
+	schema  schema.FrameSchema
+	numRows int
+}
+
+func (h *HeddleFrame) NumRows() int {
+	return h.numRows
+}
+
+func (h *HeddleFrame) NumCols() int {
+	return len(h.schema.Fields)
 }
 
 func (h *HeddleFrame) Add(ctx context.Context, a any, b any, c any) error {

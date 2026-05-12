@@ -14,7 +14,7 @@ type Config struct {
 type PrintFrame struct {
 	plugin.HeddleFrame
 
-	Print plugin.Field[string]
+	Print plugin.String
 }
 
 // PrintStep implements std:io:print.

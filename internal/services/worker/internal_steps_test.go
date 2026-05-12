@@ -173,14 +173,15 @@ func TestWorker_DataLiteral(t *testing.T) {
 	// Verify data in registry: SHM path must be populated
 	meta, ok := w.Registry.GetMetadata("wf-data-1", "task-data-1", locality.Output)
 	assert.True(t, ok)
-	assert.NotEmpty(t, meta.Path)
+	assert.NotEmpty(t, meta.Paths["id"])
+	assert.NotEmpty(t, meta.Paths["name"])
 
-	// Read back from SHM and verify shape
-	record, err := locality.ReadFromPath(meta.Path)
+	// Read back from SHM and verify shape for one column
+	record, err := locality.ReadFromPath(meta.Paths["id"])
 	require.NoError(t, err)
 	defer record.Release()
 	assert.Equal(t, int64(2), record.NumRows())
-	assert.Equal(t, int64(2), record.NumCols())
+	assert.Equal(t, int64(1), record.NumCols())
 }
 
 func TestWorker_ProtectInternalNamespace(t *testing.T) {

@@ -642,7 +642,20 @@ func bind(v any, columns map[string]arrow.Array) error {
 	vVal := rv.Elem()
 	t := vVal.Type()
 
+	var numRows int
+	for _, arr := range columns {
+		numRows = arr.Len()
+		break
+	}
+
 	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.Type == reflect.TypeOf(HeddleFrame{}) {
+			hf := vVal.Field(i).Addr().Interface().(*HeddleFrame)
+			hf.numRows = numRows
+			continue
+		}
+
 		fValue := vVal.Field(i)
 		fieldPtr := fValue.Addr().Interface()
 

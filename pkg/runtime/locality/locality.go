@@ -257,6 +257,22 @@ func ReadFromPath(path string) (arrow.Record, error) {
 	return record, nil
 }
 
+// ReadArrowArrayFromPath mmaps the file at path and returns the first Arrow Array from the record batch.
+func ReadArrowArrayFromPath(path string) (arrow.Array, error) {
+	record, err := ReadFromPath(path)
+	if err != nil {
+		return nil, err
+	}
+	if record.NumCols() == 0 {
+		return nil, fmt.Errorf("record batch has no columns")
+	}
+	arr := record.Column(0)
+	arr.Retain()
+	defer record.Release()
+
+	return arr, nil
+}
+
 // Unlink closes the file and removes it from the filesystem.
 func Unlink(f *os.File) error {
 	name := f.Name()

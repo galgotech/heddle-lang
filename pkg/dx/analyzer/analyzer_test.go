@@ -26,7 +26,7 @@ func TestAnalyzer_IsStepDefined(t *testing.T) {
 
 	// 2. Defined in Registry
 	regStep := "external-step"
-	err := reg.Put(locality.NewMetadata("", regStep, locality.Output, ""))
+	err := reg.Put(locality.NewMetadata("", regStep, locality.Output, map[string]string{}))
 	assert.NoError(t, err)
 
 	assert.True(t, a.isStepDefined(regStep))
