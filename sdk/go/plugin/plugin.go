@@ -490,9 +490,9 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 	vVal := outputVal.Elem()
 	t := vVal.Type()
 
-	for i := 0; i < t.NumField(); i++ {
+	for _, i := range targetStep.outputFieldsIndex {
 		fValue := vVal.Field(i)
-		fieldPtr := fValue.Addr().Interface()
+		fieldPtr := fValue.Interface()
 		name := t.Field(i).Name
 
 		var arr arrow.Array
@@ -535,6 +535,13 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		case *String:
 			arr = dataFrame.arrayString
 			dirt = dataFrame.dirt
+		default:
+			logger.L().Error("unsupported output field type", zap.String("type", fValue.Type().String()))
+			return ExecuteStepResponse{
+				TaskID:       req.TaskID,
+				Status:       StepResponseError,
+				ErrorMessage: fmt.Sprintf("unsupported output field type %s", fValue.Type()),
+			}
 		}
 
 		if arr != nil && !reflect.ValueOf(arr).IsNil() {
