@@ -120,6 +120,17 @@ func (l *Lexer) NextToken() Token {
 			l.skipComment()
 			return l.NextToken()
 		}
+		if l.peekChar() == '*' {
+			tok.Type = BLOCK_COMMENT
+			tok.Literal = l.readBlockComment()
+			tok.Line = startLine
+			tok.Column = startCol
+			tok.EndLine = l.line
+			tok.EndColumn = l.column
+			tok.Start = startPos
+			l.lastTokType = tok.Type
+			return tok
+		}
 		tok = newToken(ILLEGAL, string(l.ch), startLine, startCol, l.line, l.column+1, startPos)
 	case 0:
 		// Check for missing DEDENT tokens at end of file
@@ -288,6 +299,29 @@ func (l *Lexer) skipComment() {
 	for l.ch != '\n' && l.ch != '\r' && l.ch != 0 {
 		l.readChar()
 	}
+}
+
+// readBlockComment captures a comment block starting with '/*' and ending with '*/'.
+func (l *Lexer) readBlockComment() string {
+	start := l.position
+	l.readChar() // Skip '/'
+	l.readChar() // Skip '*'
+
+	for l.ch != 0 {
+		if l.ch == '*' && l.peekChar() == '/' {
+			l.readChar() // Skip '*'
+			l.readChar() // Skip '/'
+			break
+		}
+
+		if l.ch == '\n' || l.ch == '\r' {
+			l.line++
+			l.column = 1
+		}
+		l.readChar()
+	}
+
+	return l.input[start:l.position]
 }
 
 // readIdentifier captures an alphanumeric identifier or keyword.

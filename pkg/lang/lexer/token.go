@@ -46,6 +46,9 @@ const (
 	NEWLINE = "NEWLINE"
 	INDENT  = "INDENT"
 	DEDENT  = "DEDENT"
+
+	// Comments
+	BLOCK_COMMENT = "BLOCK_COMMENT"
 )
 
 var keywords = map[string]TokenType{

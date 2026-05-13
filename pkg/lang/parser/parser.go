@@ -38,6 +38,7 @@ func (p *Parser) Parse() ast.ProgramNode {
 		StepRefsStart:     uint32(len(p.ctx.StepRefs)),
 		HandlerRefsStart:  uint32(len(p.ctx.HandlerRefs)),
 		WorkflowRefsStart: uint32(len(p.ctx.WorkflowRefs)),
+		CommentRefsStart:  uint32(len(p.ctx.CommentRefs)),
 	}
 
 	for !p.curTokenIs(lexer.EOF) {
@@ -48,6 +49,11 @@ func (p *Parser) Parse() ast.ProgramNode {
 		}
 
 		switch p.curToken.Type {
+		case lexer.BLOCK_COMMENT:
+			p.ctx.AddCommentRef(p.ctx.AddCommentNode(ast.CommentNode{
+				ValueRef: p.ctx.AddString(p.curToken.Literal),
+			}))
+			p.nextToken()
 		case lexer.IMPORT:
 			p.ctx.AddImportRef(p.parseImport())
 		case lexer.RESOURCE:
@@ -69,6 +75,7 @@ func (p *Parser) Parse() ast.ProgramNode {
 	program.StepRefsEnd = uint32(len(p.ctx.StepRefs))
 	program.HandlerRefsEnd = uint32(len(p.ctx.HandlerRefs))
 	program.WorkflowRefsEnd = uint32(len(p.ctx.WorkflowRefs))
+	program.CommentRefsEnd = uint32(len(p.ctx.CommentRefs))
 
 	return program
 }

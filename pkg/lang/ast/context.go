@@ -36,6 +36,7 @@ type ASTContext struct {
 	PairNodes              []PairNode
 	ListNodes              []ListNode
 	LiteralNodes           []LiteralNode
+	CommentNodes           []CommentNode
 
 	// Child reference slices used to store lists of children for parent nodes
 	// (e.g., statements in a workflow, pairs in a dictionary).
@@ -51,6 +52,7 @@ type ASTContext struct {
 	DictRefs             []NodeRef
 	PairRefs             []NodeRef
 	LiteralRefs          []NodeRef
+	CommentRefs          []NodeRef
 
 	// Parallel slices for source location tracking.
 	// These map 1:1 to their corresponding node slices.
@@ -86,6 +88,7 @@ func (ctx *ASTContext) Reset() {
 	ctx.PairNodes = ctx.PairNodes[:1]
 	ctx.ListNodes = ctx.ListNodes[:1]
 	ctx.LiteralNodes = ctx.LiteralNodes[:1]
+	ctx.CommentNodes = ctx.CommentNodes[:1]
 
 	// Reset reference slices to 0 length
 	ctx.ImportRefs = ctx.ImportRefs[:0]
@@ -100,6 +103,7 @@ func (ctx *ASTContext) Reset() {
 	ctx.DictRefs = ctx.DictRefs[:0]
 	ctx.PairRefs = ctx.PairRefs[:0]
 	ctx.LiteralRefs = ctx.LiteralRefs[:0]
+	ctx.CommentRefs = ctx.CommentRefs[:0]
 
 	// Reset source range slices, preserving NilNode alignment
 	ctx.ResourceRanges = ctx.ResourceRanges[:1]
@@ -282,6 +286,13 @@ func (ctx *ASTContext) AddLiteralNode(n LiteralNode) NodeRef {
 	return NodeRef(idx)
 }
 
+// AddCommentNode appends a CommentNode.
+func (ctx *ASTContext) AddCommentNode(n CommentNode) NodeRef {
+	idx := uint32(len(ctx.CommentNodes))
+	ctx.CommentNodes = append(ctx.CommentNodes, n)
+	return NodeRef(idx)
+}
+
 // AddImportRef appends a child reference to the import slice.
 func (ctx *ASTContext) AddImportRef(r NodeRef) {
 	ctx.ImportRefs = append(ctx.ImportRefs, r)
@@ -342,6 +353,11 @@ func (ctx *ASTContext) AddLiteralRef(r NodeRef) {
 	ctx.LiteralRefs = append(ctx.LiteralRefs, r)
 }
 
+// AddCommentRef appends a child reference to the comment slice.
+func (ctx *ASTContext) AddCommentRef(r NodeRef) {
+	ctx.CommentRefs = append(ctx.CommentRefs, r)
+}
+
 // astContextPool is a global pool for ASTContext instances to minimize allocations.
 var astContextPool = sync.Pool{
 	New: func() any {
@@ -365,6 +381,7 @@ var astContextPool = sync.Pool{
 			PairNodes:              []PairNode{{}},
 			ListNodes:              []ListNode{{}},
 			LiteralNodes:           []LiteralNode{{}},
+			CommentNodes:           []CommentNode{{}},
 
 			// Pre-allocate reference slices with reasonable default capacities.
 			ImportRefs:           make([]NodeRef, 0, 16),
@@ -379,6 +396,7 @@ var astContextPool = sync.Pool{
 			DictRefs:             make([]NodeRef, 0, 64),
 			PairRefs:             make([]NodeRef, 0, 128),
 			LiteralRefs:          make([]NodeRef, 0, 128),
+			CommentRefs:          make([]NodeRef, 0, 16),
 
 			// Initialize range slices with an empty element for NilNode alignment.
 			ResourceRanges: []Range{{}},

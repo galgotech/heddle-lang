@@ -21,6 +21,16 @@ func New(ctx *ast.ASTContext) *Formatter {
 func (f *Formatter) Format(program ast.ProgramNode) string {
 	var sb strings.Builder
 
+	// 0. Comments
+	if program.CommentRefsEnd > program.CommentRefsStart {
+		for i := program.CommentRefsStart; i < program.CommentRefsEnd; i++ {
+			ref := f.ctx.CommentRefs[i]
+			node := f.ctx.CommentNodes[ref]
+			sb.WriteString(f.ctx.GetString(node.ValueRef))
+			sb.WriteString("\n\n")
+		}
+	}
+
 	// 1. Imports
 	if program.ImportRefsEnd > program.ImportRefsStart {
 		for i := program.ImportRefsStart; i < program.ImportRefsEnd; i++ {

@@ -149,6 +149,11 @@ type LiteralNode struct {
 	Ref      NodeRef   // For Dict or List
 }
 
+// CommentNode represents a block comment.
+type CommentNode struct {
+	ValueRef StringRef
+}
+
 // ProgramNode is the root of the AST.
 type ProgramNode struct {
 	ImportRefsStart   uint32
@@ -161,4 +166,6 @@ type ProgramNode struct {
 	HandlerRefsEnd    uint32
 	WorkflowRefsStart uint32
 	WorkflowRefsEnd   uint32
+	CommentRefsStart  uint32
+	CommentRefsEnd    uint32
 }
