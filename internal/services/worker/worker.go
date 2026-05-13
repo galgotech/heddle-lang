@@ -56,12 +56,12 @@ func (w *Worker) Start(ctx context.Context) error {
 	go w.startHeartbeat(ctx)
 
 	// 2.1 Sync internal capabilities
-	if err := w.updateCapabilities(ctx, []string{
-		"__internal.identity",
-		"__internal.prql",
-		"__internal.data_literal",
-		"__internal.compress",
-	}, true); err != nil {
+	internalCaps := make([]string, 0)
+	for k := range internal.Registry {
+		internalCaps = append(internalCaps, "__internal."+k)
+	}
+
+	if err := w.updateCapabilities(ctx, internalCaps, true); err != nil {
 		return fmt.Errorf("failed to sync internal capabilities: %w", err)
 	}
 
