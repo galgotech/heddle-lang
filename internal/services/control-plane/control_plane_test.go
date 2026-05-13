@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/galgotech/heddle-lang/internal/services/client"
-	"github.com/galgotech/heddle-lang/internal/services/models"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/galgotech/heddle-lang/internal/services/client"
+	"github.com/galgotech/heddle-lang/internal/services/models"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 func TestControlPlane_WorkerRegistration(t *testing.T) {

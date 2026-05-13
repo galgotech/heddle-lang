@@ -19,19 +19,35 @@ import {
 } from 'vscode-languageclient/node';
 import { ConfigurationManager } from './configuration';
 import { TerminalManager } from './terminalManager';
+import { ProcessManager } from './processManager';
+import { ControlPlaneTreeDataProvider, SdkPluginsTreeDataProvider, HeddleTreeItem } from './treeViews';
 
 let client: LanguageClient;
 let configManager: ConfigurationManager;
+let processManager: ProcessManager;
 
 export async function activate(context: ExtensionContext) {
     const outputChannel = window.createOutputChannel("Heddle");
+    const processOutputChannel = window.createOutputChannel("Heddle Logs");
     context.subscriptions.push(outputChannel);
+    context.subscriptions.push(processOutputChannel);
+
+    processManager = new ProcessManager(processOutputChannel);
+    context.subscriptions.push({ dispose: () => processManager.stopAll() });
+
     configManager = new ConfigurationManager(workspace, () => {
         startServices();
     });
 
     const terminalManager = new TerminalManager();
     context.subscriptions.push({ dispose: () => terminalManager.dispose() });
+
+    // Tree Views
+    const controlPlaneProvider = new ControlPlaneTreeDataProvider(processManager);
+    window.registerTreeDataProvider('heddle-control-plane', controlPlaneProvider);
+
+    const sdkPluginsProvider = new SdkPluginsTreeDataProvider(processManager, context);
+    window.registerTreeDataProvider('heddle-sdk-plugins', sdkPluginsProvider);
 
     // Status Bar Item for AOT Validation
     const aotStatus = window.createStatusBarItem(2, 100); // StatusBarAlignment.Right
@@ -40,11 +56,16 @@ export async function activate(context: ExtensionContext) {
     aotStatus.show();
     context.subscriptions.push(aotStatus);
 
-    const startServices = async () => {
-        let heddlePath = workspace.getConfiguration('heddle').get<string>('lspPath') || workspace.getConfiguration('heddle').get<string>('path');
+    const getHeddlePath = () => {
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('path');
         if (!heddlePath) {
             heddlePath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle');
         }
+        return heddlePath;
+    };
+
+    const startServices = async () => {
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('lspPath') || getHeddlePath();
         const cpAddr = configManager.getControlPlaneAddr();
         outputChannel.appendLine(`Starting Heddle LSP using: '${heddlePath}' at ${cpAddr}`);
 
@@ -83,6 +104,61 @@ export async function activate(context: ExtensionContext) {
 
     await startServices();
 
+    // Register Commands
+    context.subscriptions.push(commands.registerCommand('heddle.startControlPlane', async () => {
+        const heddlePath = getHeddlePath();
+        const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath || context.extensionPath;
+        await processManager.start('control-plane', heddlePath, ['local', 'start'], cwd, 'Control Plane');
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.stopControlPlane', () => {
+        processManager.stop('control-plane');
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.restartControlPlane', async () => {
+        processManager.stop('control-plane');
+        await commands.executeCommand('heddle.startControlPlane');
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.addPluginFolder', async () => {
+        const folders = await window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: 'Select Plugin Folder'
+        });
+
+        if (folders && folders.length > 0) {
+            sdkPluginsProvider.addFolder(folders[0].fsPath);
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.startPlugin', async (item: HeddleTreeItem) => {
+        if (item && item.path) {
+            const heddlePath = getHeddlePath();
+            await processManager.start(item.itemId, heddlePath, ['local', 'start'], item.path, `Plugin: ${path.basename(item.path)}`);
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.stopPlugin', (item: HeddleTreeItem) => {
+        if (item) {
+            processManager.stop(item.itemId);
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.restartPlugin', async (item: HeddleTreeItem) => {
+        if (item) {
+            processManager.stop(item.itemId);
+            await commands.executeCommand('heddle.startPlugin', item);
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.editPluginSource', (uri: Uri) => {
+        if (uri) {
+            commands.executeCommand('vscode.openFolder', uri, true);
+        }
+    }));
+
     // Register Debug Adapter
     const factory = new HeddleDebugAdapterDescriptorFactory(context, configManager, outputChannel);
     context.subscriptions.push(debug.registerDebugAdapterDescriptorFactory('heddle-debug', factory));
@@ -95,11 +171,7 @@ export async function activate(context: ExtensionContext) {
             return;
         }
 
-        let heddlePath = workspace.getConfiguration('heddle').get<string>('clientPath') || workspace.getConfiguration('heddle').get<string>('path');
-        if (!heddlePath) {
-            heddlePath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle');
-        }
-
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('clientPath') || getHeddlePath();
         const cmd = `${heddlePath} run "${fileUri.fsPath}"`;
         outputChannel.appendLine(`Running command: ${cmd}`);
         terminalManager.executeCommand(cmd);
@@ -107,6 +179,9 @@ export async function activate(context: ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+    if (processManager) {
+        processManager.stopAll();
+    }
     if (!client) {
         return undefined;
     }
@@ -140,3 +215,4 @@ class HeddleDebugAdapterDescriptorFactory implements DebugAdapterDescriptorFacto
         });
     }
 }
+

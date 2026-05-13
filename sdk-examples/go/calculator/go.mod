@@ -3,7 +3,6 @@ module github.com/galgotech/heddle-lang/sdk-examples/go/calculator
 go 1.26.2
 
 require (
-	github.com/apache/arrow/go/v18 v18.0.0-20241007013041-ab95a4d25142
 	github.com/galgotech/heddle-lang v0.0.0-20260512003735-2b5ca843c610
 	github.com/galgotech/heddle-lang/sdk/go v0.0.0
 	go.uber.org/zap v1.28.0

@@ -69,6 +69,9 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 				if hs.IsCatchAll {
 					sb.WriteString("  *\n")
 				}
+				if j > node.HandlerStatementRefsStart {
+					sb.WriteString("\n")
+				}
 				ps := f.ctx.PipelineStatementNodes[hs.StmtRef]
 				f.writePipelineStatement(&sb, ps, 1)
 			}
@@ -87,6 +90,9 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 			}
 			sb.WriteString("{\n")
 			for j := node.StatementRefsStart; j < node.StatementRefsEnd; j++ {
+				if j > node.StatementRefsStart {
+					sb.WriteString("\n")
+				}
 				psRef := f.ctx.StatementRefs[j]
 				ps := f.ctx.PipelineStatementNodes[psRef]
 				f.writePipelineStatement(&sb, ps, 1)
@@ -100,7 +106,7 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 
 func (f *Formatter) writeFunctionRef(sb *strings.Builder, ref ast.NodeRef, indent int) {
 	node := f.ctx.FunctionRefNodes[ref]
-	
+
 	// Resource Mapping
 	if node.ResourcesRefRef != 0 {
 		sb.WriteString("<")
@@ -131,6 +137,24 @@ func (f *Formatter) writeFunctionRef(sb *strings.Builder, ref ast.NodeRef, inden
 
 func (f *Formatter) writeDict(sb *strings.Builder, ref ast.NodeRef, indent int) {
 	node := f.ctx.DictNodes[ref]
+	r := f.ctx.DictRanges[ref]
+	isMultiline := r.Start.Line != r.End.Line
+
+	if !isMultiline {
+		sb.WriteString("{ ")
+		for i := node.PairRefsStart; i < node.PairRefsEnd; i++ {
+			pRef := f.ctx.PairRefs[i]
+			p := f.ctx.PairNodes[pRef]
+			fmt.Fprintf(sb, "%s: ", f.ctx.GetString(p.KeyRef))
+			f.writeLiteral(sb, p.ValueRef, indent)
+			if i < node.PairRefsEnd-1 {
+				sb.WriteString(", ")
+			}
+		}
+		sb.WriteString(" }")
+		return
+	}
+
 	sb.WriteString("{\n")
 	for i := node.PairRefsStart; i < node.PairRefsEnd; i++ {
 		pRef := f.ctx.PairRefs[i]
@@ -169,7 +193,7 @@ func (f *Formatter) writeLiteral(sb *strings.Builder, ref ast.NodeRef, indent in
 
 func (f *Formatter) writePipelineStatement(sb *strings.Builder, ps ast.PipelineStatementNode, indent int) {
 	f.writeIndent(sb, indent)
-	
+
 	// Check if ExprRef is PipeChain or Dataframe
 	// (This logic needs to be careful as ExprRef is just a NodeRef)
 	// For now let's assume it's a PipeChain if it's within bounds
@@ -178,27 +202,76 @@ func (f *Formatter) writePipelineStatement(sb *strings.Builder, ps ast.PipelineS
 	}
 
 	if ps.AssignmentRef.Start != ps.AssignmentRef.End {
-		fmt.Fprintf(sb, " > %s", f.ctx.GetString(ps.AssignmentRef))
+		sb.WriteString("\n")
+		f.writeIndent(sb, indent)
+		fmt.Fprintf(sb, "> %s", f.ctx.GetString(ps.AssignmentRef))
 	}
 	sb.WriteString("\n")
 }
 
+func (f *Formatter) writeDataframe(sb *strings.Builder, ref ast.NodeRef, indent int) {
+	node := f.ctx.DataframeNodes[ref]
+	sb.WriteString("[")
+	// If it has dicts, let's keep it simple for now and just put them in.
+	for i := node.DictRefsStart; i < node.DictRefsEnd; i++ {
+		dRef := f.ctx.DictRefs[i]
+		f.writeDict(sb, dRef, indent)
+		if i < node.DictRefsEnd-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("]")
+}
+
 func (f *Formatter) writePipeChain(sb *strings.Builder, pc ast.PipeChainNode, indent int) {
+	effectiveFirst := true
+	skippedPlaceholder := false
 	for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
 		cRef := f.ctx.CallRefs[i]
 		call := f.ctx.CallNodes[cRef]
-		if i > pc.CallRefsStart {
+
+		// Check if this is a placeholder call (implicit input)
+		isEmpty := call.NameRef.End == 0 &&
+			call.FunctionRef == ast.NilNode &&
+			!call.IsPrql &&
+			call.DataframeRef == ast.NilNode
+
+		if isEmpty && i == pc.CallRefsStart {
+			// Skip the initial placeholder call but the next call MUST have a pipe.
+			skippedPlaceholder = true
+			continue
+		}
+
+		pipeLevel := indent
+		if !effectiveFirst || skippedPlaceholder {
+			pipeLevel = indent + 1
+		}
+
+		if !effectiveFirst {
 			sb.WriteString("\n")
-			f.writeIndent(sb, indent)
+			f.writeIndent(sb, pipeLevel)
+			sb.WriteString("| ")
+		} else if skippedPlaceholder {
+			// If we skipped a placeholder, we are already indented at 'indent' level
+			// from writePipelineStatement. We want 'indent + 1' total.
+			f.writeIndent(sb, 1)
 			sb.WriteString("| ")
 		}
-		
+
+		fnIndent := pipeLevel
+		if !effectiveFirst || skippedPlaceholder {
+			fnIndent = pipeLevel + 1
+		}
+		effectiveFirst = false
+
 		if call.IsPrql {
 			sb.WriteString(f.ctx.GetString(call.QueryRef))
 		} else if call.NameRef.Start != call.NameRef.End {
 			sb.WriteString(f.ctx.GetString(call.NameRef))
 		} else if call.FunctionRef != 0 {
-			f.writeFunctionRef(sb, call.FunctionRef, indent + 2)
+			f.writeFunctionRef(sb, call.FunctionRef, fnIndent)
+		} else if call.DataframeRef != 0 {
+			f.writeDataframe(sb, call.DataframeRef, fnIndent)
 		}
 
 		if call.TrapRef.Start != call.TrapRef.End {
@@ -208,7 +281,7 @@ func (f *Formatter) writePipeChain(sb *strings.Builder, pc ast.PipeChainNode, in
 }
 
 func (f *Formatter) writeIndent(sb *strings.Builder, indent int) {
-	for i := 0; i < indent; i++ {
+	for range indent {
 		sb.WriteString("  ")
 	}
 }

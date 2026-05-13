@@ -59,6 +59,7 @@ type ASTContext struct {
 	HandlerRanges  []Range
 	WorkflowRanges []Range
 	CallRanges     []Range
+	DictRanges     []Range
 }
 
 // Reset clears the context for reuse. It truncates slices to their initial state
@@ -106,6 +107,7 @@ func (ctx *ASTContext) Reset() {
 	ctx.HandlerRanges = ctx.HandlerRanges[:1]
 	ctx.WorkflowRanges = ctx.WorkflowRanges[:1]
 	ctx.CallRanges = ctx.CallRanges[:1]
+	ctx.DictRanges = ctx.DictRanges[:1]
 }
 
 // AddString appends a string to the internal buffer and returns a StringRef
@@ -250,7 +252,13 @@ func (ctx *ASTContext) AddDataframeNode(n DataframeNode) NodeRef {
 func (ctx *ASTContext) AddDictNode(n DictNode) NodeRef {
 	idx := uint32(len(ctx.DictNodes))
 	ctx.DictNodes = append(ctx.DictNodes, n)
+	ctx.DictRanges = append(ctx.DictRanges, Range{})
 	return NodeRef(idx)
+}
+
+// SetDictRange updates the source location metadata for a dictionary.
+func (ctx *ASTContext) SetDictRange(ref NodeRef, r Range) {
+	ctx.DictRanges[ref] = r
 }
 
 // AddPairNode appends a PairNode.
@@ -378,6 +386,7 @@ var astContextPool = sync.Pool{
 			HandlerRanges:  []Range{{}},
 			WorkflowRanges: []Range{{}},
 			CallRanges:     []Range{{}},
+			DictRanges:     []Range{{}},
 		}
 	},
 }

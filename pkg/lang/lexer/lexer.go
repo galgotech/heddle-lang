@@ -231,9 +231,20 @@ func (l *Lexer) handleNewLine() Token {
 	lastIndent := l.indentStack[len(l.indentStack)-1]
 
 	if currentIndent > lastIndent {
-		// New indentation level detected: emit INDENT
-		l.indentStack = append(l.indentStack, currentIndent)
-		l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1, l.line, len(indentation)+1, l.position-len(indentation)))
+		// New indentation level detected: emit one or more INDENT tokens
+		diff := currentIndent - lastIndent
+		if diff%l.tabSize != 0 {
+			// If not a multiple, we still allow it but just emit one INDENT for this specific level.
+			// However, Heddle usually enforces multiples. Let's be lenient but consistent with the stack.
+			l.indentStack = append(l.indentStack, currentIndent)
+			l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1, l.line, len(indentation)+1, l.position-len(indentation)))
+		} else {
+			for i := 0; i < diff/l.tabSize; i++ {
+				lastIndent += l.tabSize
+				l.indentStack = append(l.indentStack, lastIndent)
+				l.pending = append(l.pending, newToken(INDENT, indentation, l.line, 1, l.line, 1, l.position-len(indentation)))
+			}
+		}
 	} else if currentIndent < lastIndent {
 		// Decreased indentation level: emit DEDENT(s) until matching an outer level
 		for currentIndent < lastIndent {

@@ -10,10 +10,7 @@ import (
 	"go.lsp.dev/protocol"
 	"go.uber.org/zap"
 
-	"github.com/galgotech/heddle-lang/internal/services/client"
-	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
@@ -119,68 +116,14 @@ func (s *Server) validate(ctx context.Context, conn jsonrpc2.Conn, uri protocol.
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-	diagnostics := []protocol.Diagnostic{}
+	var diagnostics []protocol.Diagnostic
 
 	// Syntax Errors
-	for _, err := range p.Errors() {
-		diagnostics = append(diagnostics, protocol.Diagnostic{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: uint32(err.Line - 1), Character: uint32(err.Column - 1)},
-				End:   protocol.Position{Line: uint32(err.Line - 1), Character: uint32(err.Column)},
-			},
-			Severity: protocol.DiagnosticSeverityError,
-			Source:   "heddle-parser",
-			Message:  err.Message,
-		})
-	}
+	diagnostics = append(diagnostics, getSyntaxDiagnostics(p.Errors())...)
 
 	// Semantic & Type Validation (only if syntax is ok)
 	if len(p.Errors()) == 0 {
-		// Fetch schemas from Control Plane
-		var regInfo models.RegistryInfo
-		if cpClient, err := client.NewControlPlaneClient(s.cpAddr); err == nil {
-			if info, err := cpClient.GetRegistry(ctx); err == nil {
-				regInfo = info
-			} else {
-				s.logger.Warn("Failed to fetch registry for AOT validation", zap.Error(err))
-			}
-		}
-
-		val := compiler.NewValidator(prog, astCtx, regInfo.Steps)
-		if errs := val.ValidateAll(); len(errs) > 0 {
-			for _, vErr := range errs {
-				severity := protocol.DiagnosticSeverityError
-				switch vErr.Severity {
-				case compiler.SeverityWarning:
-					severity = protocol.DiagnosticSeverityWarning
-				case compiler.SeverityInformation:
-					severity = protocol.DiagnosticSeverityInformation
-				case compiler.SeverityHint:
-					severity = protocol.DiagnosticSeverityHint
-				}
-
-				tags := []protocol.DiagnosticTag{}
-				for _, t := range vErr.Tags {
-					switch t {
-					case compiler.TagUnnecessary:
-						tags = append(tags, protocol.DiagnosticTagUnnecessary)
-					case compiler.TagDeprecated:
-						tags = append(tags, protocol.DiagnosticTagDeprecated)
-					}
-				}
-
-				diagnostics = append(diagnostics, protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: vErr.Line - 1, Character: vErr.Column - 1},
-						End:   protocol.Position{Line: vErr.Line - 1, Character: vErr.Column},
-					},
-					Severity: severity,
-					Tags:     tags,
-					Source:   "heddle-compiler",
-					Message:  vErr.Message,
-				})
-			}
-		}
+		diagnostics = append(diagnostics, getSemanticDiagnostics(ctx, s, prog, astCtx)...)
 	}
 
 	// Publish Diagnostics

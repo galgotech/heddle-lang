@@ -37,14 +37,120 @@
         "command": "heddle.runFile",
         "title": "Run Heddle File",
         "icon": "$(play)"
+      },
+      {
+        "command": "heddle.startControlPlane",
+        "title": "Start Control Plane",
+        "icon": "$(play)"
+      },
+      {
+        "command": "heddle.stopControlPlane",
+        "title": "Stop Control Plane",
+        "icon": "$(primitive-square)"
+      },
+      {
+        "command": "heddle.restartControlPlane",
+        "title": "Restart Control Plane",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "heddle.addPluginFolder",
+        "title": "Add Plugin Folder",
+        "icon": "$(add)"
+      },
+      {
+        "command": "heddle.startPlugin",
+        "title": "Start Plugin",
+        "icon": "$(play)"
+      },
+      {
+        "command": "heddle.stopPlugin",
+        "title": "Stop Plugin",
+        "icon": "$(primitive-square)"
+      },
+      {
+        "command": "heddle.restartPlugin",
+        "title": "Restart Plugin",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "heddle.editPluginSource",
+        "title": "Edit Heddle SDK Plugin Source"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "heddle-explorer",
+          "title": "Heddle",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "heddle-explorer": [
+        {
+          "id": "heddle-control-plane",
+          "name": "Control Plane Manager"
+        },
+        {
+          "id": "heddle-sdk-plugins",
+          "name": "SDK Plugin Manager"
+        }
+      ]
+    },
     "menus": {
       "editor/title": [
         {
           "command": "heddle.runFile",
           "when": "resourceLangId == heddle",
           "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "heddle.addPluginFolder",
+          "when": "view == heddle-sdk-plugins",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "heddle.startControlPlane",
+          "when": "view == heddle-control-plane && viewItem == controlPlaneStopped",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.stopControlPlane",
+          "when": "view == heddle-control-plane && viewItem == controlPlaneRunning",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.restartControlPlane",
+          "when": "view == heddle-control-plane && viewItem == controlPlaneRunning",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.startPlugin",
+          "when": "view == heddle-sdk-plugins && viewItem == pluginStopped",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.stopPlugin",
+          "when": "view == heddle-sdk-plugins && viewItem == pluginRunning",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.restartPlugin",
+          "when": "view == heddle-sdk-plugins && viewItem == pluginRunning",
+          "group": "inline"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "heddle.editPluginSource",
+          "when": "explorerResourceIsFolder",
+          "group": "7_modification"
         }
       ]
     },

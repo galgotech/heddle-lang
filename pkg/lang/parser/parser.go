@@ -9,9 +9,8 @@ import (
 
 // ParserError represents a diagnostic error encountered during the parsing phase.
 type ParserError struct {
-	Message string // Human-readable description of the error.
-	Line    int    // 1-indexed line number where the error occurred.
-	Column  int    // 1-indexed column number where the error occurred.
+	Message string    // Human-readable description of the error.
+	Range   ast.Range // Source range where the error occurred.
 }
 
 // Parser maintains the state of the parsing process, including the lexer,
@@ -103,17 +102,21 @@ func (p *Parser) peekError(t lexer.TokenType) {
 	pk := p.peek(0)
 	p.errors = append(p.errors, ParserError{
 		Message: "expected " + string(t) + " but got " + string(pk.Type) + " (" + pk.Literal + ")",
-		Line:    pk.Line,
-		Column:  pk.Column,
+		Range: ast.Range{
+			Start: ast.Position{Line: uint32(pk.Line), Col: uint32(pk.Column)},
+			End:   ast.Position{Line: uint32(pk.EndLine), Col: uint32(pk.EndColumn)},
+		},
 	})
 }
 
 // curError records a diagnostic error at the current token's position.
 func (p *Parser) curError(msg string) {
 	p.errors = append(p.errors, ParserError{
-		Message: msg + " (got " + string(p.curToken.Type) + ": " + p.curToken.Literal + ") peek(0)=" + string(p.peek(0).Type) + " peek(1)=" + string(p.peek(1).Type),
-		Line:    p.curToken.Line,
-		Column:  p.curToken.Column,
+		Message: msg + " (got " + string(p.curToken.Type) + ": " + p.curToken.Literal + ")",
+		Range: ast.Range{
+			Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+			End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+		},
 	})
 }
 
@@ -223,6 +226,9 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 		// After parseResourceRef, p.curToken is the token AFTER the closing '>'
 		// We want to know the end position of the '>'
 		// Since we don't track RANGLE's end position easily, we can use p.prevTokenEndCol and p.prevTokenEndLine
+		for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+			p.nextToken()
+		}
 		if p.curToken.Line == int(p.prevTokenEndLine) && p.curToken.Column == int(p.prevTokenEndCol) {
 			p.curError("missing space after resource ref")
 		}
@@ -354,7 +360,42 @@ func (p *Parser) parseHandlerStatement() ast.NodeRef {
 	}
 	if p.curTokenIs(lexer.PIPE) || p.isNextPipe() {
 		chainRef := p.parsePipeChainFromPipe()
-		hs.StmtRef = p.ctx.AddPipelineStatementNode(ast.PipelineStatementNode{ExprRef: chainRef})
+		ps := ast.PipelineStatementNode{ExprRef: chainRef}
+		// Handle optional assignment
+		for {
+			if p.curTokenIs(lexer.RANGLE) {
+				p.nextToken()
+				for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+					p.nextToken()
+				}
+				if p.curTokenIs(lexer.IDENTIFIER) {
+					ps.AssignmentRef = p.ctx.AddString(p.curToken.Literal)
+					p.nextToken()
+				} else {
+					p.curError("expected identifier after '>'")
+				}
+				break
+			}
+			if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+				isNextRangle := false
+				for n := 0; ; n++ {
+					tok := p.peek(n)
+					if tok.Type == lexer.NEWLINE || tok.Type == lexer.INDENT || tok.Type == lexer.DEDENT {
+						continue
+					}
+					if tok.Type == lexer.RANGLE {
+						isNextRangle = true
+					}
+					break
+				}
+				if isNextRangle {
+					p.nextToken()
+					continue
+				}
+			}
+			break
+		}
+		hs.StmtRef = p.ctx.AddPipelineStatementNode(ps)
 	} else {
 		hs.StmtRef = p.parsePipelineStatement()
 	}
@@ -385,12 +426,6 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 
 	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
 		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
-			if p.isNextPipe() {
-				// Let parsePipeChainFromPipe handle the whitespace and the same-line check.
-				chainRef := p.parsePipeChainFromPipe()
-				p.ctx.AddStatementRef(p.ctx.AddPipelineStatementNode(ast.PipelineStatementNode{ExprRef: chainRef}))
-				continue
-			}
 			p.nextToken()
 			continue
 		}
@@ -416,7 +451,7 @@ func (p *Parser) parsePipelineStatement() ast.NodeRef {
 		if p.curTokenIs(lexer.PIPE) || p.isNextPipe() {
 			ps.ExprRef = p.parsePipeChainFromExpr(dfRef)
 		} else {
-			ps.ExprRef = dfRef
+			ps.ExprRef = p.parsePipeChainFromExpr(dfRef)
 		}
 	} else {
 		ps.ExprRef = p.parsePipeChain()
@@ -685,6 +720,7 @@ func (p *Parser) parseDataframe() ast.NodeRef {
 
 // parseDict parses a key-value dictionary block.
 func (p *Parser) parseDict(allowNested bool) ast.NodeRef {
+	start := p.getPos()
 	openerLine := uint32(p.curToken.Line)
 	openerColumn := uint32(p.curToken.Column)
 	openerLineStartCol := p.lineStartCols[openerLine]
@@ -762,8 +798,12 @@ func (p *Parser) parseDict(allowNested bool) ast.NodeRef {
 		}
 	}
 
+	var end ast.Position
 	if p.curTokenIs(lexer.RBRACE) {
+		end = p.getEndPos()
 		p.nextToken()
+	} else {
+		end = p.getEndPos()
 	}
 
 	node := ast.DictNode{
@@ -773,7 +813,9 @@ func (p *Parser) parseDict(allowNested bool) ast.NodeRef {
 		p.ctx.AddPairRef(ref)
 	}
 	node.PairRefsEnd = uint32(len(p.ctx.PairRefs))
-	return p.ctx.AddDictNode(node)
+	ref := p.ctx.AddDictNode(node)
+	p.ctx.SetDictRange(ref, ast.Range{Start: start, End: end})
+	return ref
 }
 
 // parseList parses a square-bracketed list of literal values.
@@ -899,27 +941,6 @@ func (p *Parser) peekTokenIs(t lexer.TokenType) bool {
 // curTokenIs checks if the current token matches the specified type.
 func (p *Parser) curTokenIs(t lexer.TokenType) bool {
 	return p.curToken.Type == t
-}
-
-func (p *Parser) checkWhitespace(tok lexer.Token, next lexer.Token, msg string) {
-	if next.Type == lexer.NEWLINE || next.Type == lexer.INDENT || next.Type == lexer.DEDENT || next.Type == lexer.EOF {
-		return
-	}
-	if uint32(tok.EndColumn) == uint32(next.Column) && uint32(tok.Line) == uint32(next.Line) {
-		p.errors = append(p.errors, ParserError{
-			Message: msg,
-			Line:    tok.Line,
-			Column:  tok.Column,
-		})
-	}
-}
-
-func (p *Parser) prevToken() lexer.Token {
-	// Synthesize a token with just the info we need for spacing checks
-	return lexer.Token{
-		EndColumn: int(p.prevTokenEndCol),
-		Line:      int(p.prevTokenEndLine),
-	}
 }
 
 func (p *Parser) nextToken() {

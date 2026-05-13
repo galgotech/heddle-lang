@@ -11,8 +11,15 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-func TestFormatter_Basic(t *testing.T) {
-	input := `import "pg" pg
+func TestFormatter(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{
+			name: "Basic",
+			before: `import "pg" pg
 import "io"
 
 resource db = pg.connection {
@@ -27,23 +34,141 @@ workflow main {
   query
   | io.print
 }
-`
-	ctx := ast.AcquireASTContext()
-	defer ast.ReleaseASTContext(ctx)
+`,
+			after: `import "pg" pg
+import "io"
 
-	l := lexer.New(input)
-	p := parser.New(l, ctx)
-	prog := p.Parse()
-	require.Empty(t, p.Errors())
+resource db = pg.connection {
+  host: "localhost"
+}
 
-	f := New(ctx)
-	formatted := f.Format(prog)
+step query = <connection=db> pg.query {
+  query: "SELECT 1"
+}
 
-	// Note: Our formatter might change minor things like spacing/newlines
-	// but the structure should be the same.
-	assert.Contains(t, formatted, "import \"pg\" pg")
-	assert.Contains(t, formatted, "resource db = pg.connection {")
-	assert.Contains(t, formatted, "step query = <connection=db> pg.query {")
-	assert.Contains(t, formatted, "workflow main {")
-	assert.Contains(t, formatted, "  query\n  | io.print")
+workflow main {
+  query
+    | io.print
+}
+`,
+		},
+		{
+			name: "PipeFirst",
+			before: `import "std/io" io
+
+handler error_print {
+  *
+    | io.print
+}
+
+workflow hello_world ? error_print {
+  []
+  | io.print
+}
+`,
+			after: `import "std/io" io
+
+handler error_print {
+  *
+    | io.print
+}
+
+workflow hello_world ? error_print {
+  []
+    | io.print
+}
+`,
+		},
+		{
+			name: "AssignmentNewline",
+			before: `workflow w {
+  <broker=kf_broker> kafka.consume { topic: "live_transactions" }
+  > tx_stream
+
+  <broker=kf_broker> kafka.consume {
+    topic: "live_transactions"
+  }
+  > tx_stream2
+}
+`,
+			after: `workflow w {
+  <broker=kf_broker> kafka.consume { topic: "live_transactions" }
+  > tx_stream
+
+  <broker=kf_broker> kafka.consume {
+    topic: "live_transactions"
+  }
+  > tx_stream2
+}
+`,
+		},
+		{
+			name: "HandlerAssignment",
+			before: `handler h {
+  *
+    | call { a: 1 }
+    > out
+}
+`,
+			after: `handler h {
+  *
+    | call { a: 1 }
+  > out
+}
+`,
+		},
+		{
+			name: "WorkflowComplexIndentation",
+			before: `workflow FraudDetection {
+  tx_stream
+    | draft_final_audit
+    | <broker=kf_broker> kafka.produce {
+      topic: "fraud_audits"
+    }
+}
+`,
+			after: `workflow FraudDetection {
+  tx_stream
+    | draft_final_audit
+    | <broker=kf_broker> kafka.produce {
+        topic: "fraud_audits"
+      }
+}
+`,
+		},
+		{
+			name: "HandlerIndentation",
+			before: `handler alert_step_fail {
+  *
+    | <broker=kf_broker> kafka.produce {
+      topic: "dlq_alerts"
+    }
+}
+`,
+			after: `handler alert_step_fail {
+  *
+    | <broker=kf_broker> kafka.produce {
+        topic: "dlq_alerts"
+      }
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := ast.AcquireASTContext()
+			defer ast.ReleaseASTContext(ctx)
+
+			l := lexer.New(tt.before)
+			p := parser.New(l, ctx)
+			prog := p.Parse()
+			require.Empty(t, p.Errors())
+
+			f := New(ctx)
+			formatted := f.Format(prog)
+
+			assert.Equal(t, tt.after, formatted, "failed test: %s", tt.name)
+		})
+	}
 }

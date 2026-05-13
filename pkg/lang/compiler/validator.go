@@ -26,8 +26,7 @@ const (
 // ValidationError represents a diagnostic entry encountered during validation.
 type ValidationError struct {
 	Message  string
-	Line     uint32
-	Column   uint32
+	Range    ast.Range
 	Severity DiagnosticSeverity
 	Tags     []DiagnosticTag
 }
@@ -84,18 +83,39 @@ func (v *Validator) ValidateAll() []ValidationError {
 
 func (v *Validator) addError(msg string, line, col uint32) {
 	v.errors = append(v.errors, ValidationError{
-		Message:  msg,
-		Line:     line,
-		Column:   col,
+		Message: msg,
+		Range: ast.Range{
+			Start: ast.Position{Line: line, Col: col},
+			End:   ast.Position{Line: line, Col: col + 1},
+		},
 		Severity: SeverityError,
 	})
 }
 
 func (v *Validator) addWarning(msg string, line, col uint32, tags ...DiagnosticTag) {
 	v.errors = append(v.errors, ValidationError{
+		Message: msg,
+		Range: ast.Range{
+			Start: ast.Position{Line: line, Col: col},
+			End:   ast.Position{Line: line, Col: col + 1},
+		},
+		Severity: SeverityWarning,
+		Tags:     tags,
+	})
+}
+
+func (v *Validator) addErrorAtRange(msg string, r ast.Range) {
+	v.errors = append(v.errors, ValidationError{
 		Message:  msg,
-		Line:     line,
-		Column:   col,
+		Range:    r,
+		Severity: SeverityError,
+	})
+}
+
+func (v *Validator) addWarningAtRange(msg string, r ast.Range, tags ...DiagnosticTag) {
+	v.errors = append(v.errors, ValidationError{
+		Message:  msg,
+		Range:    r,
 		Severity: SeverityWarning,
 		Tags:     tags,
 	})
@@ -105,7 +125,7 @@ func (v *Validator) addWarning(msg string, line, col uint32, tags ...DiagnosticT
 func (v *Validator) Validate() error {
 	errs := v.ValidateAll()
 	if len(errs) > 0 {
-		return fmt.Errorf("%s (line %d, col %d)", errs[0].Message, errs[0].Line, errs[0].Column)
+		return fmt.Errorf("%s (line %d, col %d)", errs[0].Message, errs[0].Range.Start.Line, errs[0].Range.Start.Col)
 	}
 	return nil
 }
@@ -117,7 +137,7 @@ func (v *Validator) registerDefinitions() {
 		node := v.ctx.ResourceNodes[ref]
 		name := v.ctx.GetString(node.NameRef)
 		if _, ok := v.mapResource[name]; ok {
-			v.addError(fmt.Sprintf("duplicate resource definition: %s", name), v.ctx.ResourceRanges[ref].Start.Line, v.ctx.ResourceRanges[ref].Start.Col)
+			v.addErrorAtRange(fmt.Sprintf("duplicate resource definition: %s", name), v.ctx.ResourceRanges[ref])
 		}
 		v.mapResource[name] = ref
 	}
@@ -128,7 +148,7 @@ func (v *Validator) registerDefinitions() {
 		node := v.ctx.StepBindingNodes[ref]
 		name := v.ctx.GetString(node.NameRef)
 		if _, ok := v.mapStep[name]; ok {
-			v.addError(fmt.Sprintf("duplicate step definition: %s", name), v.ctx.StepRanges[ref].Start.Line, v.ctx.StepRanges[ref].Start.Col)
+			v.addErrorAtRange(fmt.Sprintf("duplicate step definition: %s", name), v.ctx.StepRanges[ref])
 		}
 		v.mapStep[name] = ref
 	}
@@ -139,7 +159,7 @@ func (v *Validator) registerDefinitions() {
 		node := v.ctx.HandlerNodes[ref]
 		name := v.ctx.GetString(node.NameRef)
 		if _, ok := v.mapHandler[name]; ok {
-			v.addError(fmt.Sprintf("duplicate handler definition: %s", name), v.ctx.HandlerRanges[ref].Start.Line, v.ctx.HandlerRanges[ref].Start.Col)
+			v.addErrorAtRange(fmt.Sprintf("duplicate handler definition: %s", name), v.ctx.HandlerRanges[ref])
 		}
 		v.mapHandler[name] = ref
 	}
@@ -151,7 +171,7 @@ func (v *Validator) validateReferencesAll() {
 		ref := v.ctx.StepRefs[i]
 		node := v.ctx.StepBindingNodes[ref]
 		if err := v.validateFunctionRef(node.FunctionRef); err != nil {
-			v.addError(err.Error(), v.ctx.StepRanges[ref].Start.Line, v.ctx.StepRanges[ref].Start.Col)
+			v.addErrorAtRange(err.Error(), v.ctx.StepRanges[ref])
 		}
 	}
 
@@ -194,7 +214,7 @@ func (v *Validator) validateWorkflowReferencesAll(ref ast.NodeRef, wd ast.Workfl
 	if wd.TrapRef.Start != wd.TrapRef.End {
 		name := v.ctx.GetString(wd.TrapRef)
 		if _, ok := v.mapHandler[name]; !ok {
-			v.addError(fmt.Errorf("undefined handler '%s' in workflow '%s'", name, v.ctx.GetString(wd.NameRef)).Error(), v.ctx.WorkflowRanges[ref].Start.Line, v.ctx.WorkflowRanges[ref].Start.Col)
+			v.addErrorAtRange(fmt.Sprintf("undefined handler '%s' in workflow '%s'", name, v.ctx.GetString(wd.NameRef)), v.ctx.WorkflowRanges[ref])
 		}
 		v.usedHandlers[name] = true
 	}
@@ -225,7 +245,7 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 	if ps.AssignmentRef.Start != ps.AssignmentRef.End {
 		name := v.ctx.GetString(ps.AssignmentRef)
 		if _, ok := v.mapStep[name]; ok {
-			v.addError(fmt.Sprintf("variable name '%s' conflicts with a step name", name), v.ctx.CallRanges[ref].Start.Line, v.ctx.CallRanges[ref].Start.Col)
+			v.addErrorAtRange(fmt.Sprintf("variable name '%s' conflicts with a step name", name), v.ctx.CallRanges[ref])
 		}
 		v.assignments[name] = ps.ExprRef
 	}
@@ -245,7 +265,7 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 					if currentSchemas != nil {
 						if lastOutputSchema != nil && currentSchemas.Input != nil {
 							if err := schema.Compatible(lastOutputSchema, currentSchemas.Input); err != nil {
-								v.addError(fmt.Sprintf("Type mismatch: %v", err), v.ctx.CallRanges[callRef].Start.Line, v.ctx.CallRanges[callRef].Start.Col)
+								v.addErrorAtRange(fmt.Sprintf("Type mismatch: %v", err), v.ctx.CallRanges[callRef])
 							}
 						}
 						lastOutputSchema = currentSchemas.Output
@@ -304,7 +324,7 @@ func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode
 	if call.TrapRef.Start != call.TrapRef.End {
 		name := v.ctx.GetString(call.TrapRef)
 		if _, ok := v.mapHandler[name]; !ok {
-			v.addError(fmt.Errorf("undefined handler '%s' in step call", name).Error(), v.ctx.CallRanges[ref].Start.Line, v.ctx.CallRanges[ref].Start.Col)
+			v.addErrorAtRange(fmt.Sprintf("undefined handler '%s' in step call", name), v.ctx.CallRanges[ref])
 		}
 		v.usedHandlers[name] = true
 	}
@@ -321,7 +341,7 @@ func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode
 				v.usedVariables[name] = true
 			} else {
 				// undefined reference
-				v.addError(fmt.Sprintf("undefined step or variable: %s", name), v.ctx.CallRanges[ref].Start.Line, v.ctx.CallRanges[ref].Start.Col)
+				v.addErrorAtRange(fmt.Sprintf("undefined step or variable: %s", name), v.ctx.CallRanges[ref])
 			}
 		}
 	}
@@ -348,21 +368,21 @@ func (v *Validator) checkUnused() {
 	// Check unused resources
 	for name, ref := range v.mapResource {
 		if !v.usedResources[name] {
-			v.addWarning(fmt.Sprintf("unused resource: %s", name), v.ctx.ResourceRanges[ref].Start.Line, v.ctx.ResourceRanges[ref].Start.Col, TagUnnecessary)
+			v.addWarningAtRange(fmt.Sprintf("unused resource: %s", name), v.ctx.ResourceRanges[ref], TagUnnecessary)
 		}
 	}
 
 	// Check unused steps
 	for name, ref := range v.mapStep {
 		if !v.usedSteps[name] {
-			v.addWarning(fmt.Sprintf("unused step: %s", name), v.ctx.StepRanges[ref].Start.Line, v.ctx.StepRanges[ref].Start.Col, TagUnnecessary)
+			v.addWarningAtRange(fmt.Sprintf("unused step: %s", name), v.ctx.StepRanges[ref], TagUnnecessary)
 		}
 	}
 
 	// Check unused handlers
 	for name, ref := range v.mapHandler {
 		if !v.usedHandlers[name] {
-			v.addWarning(fmt.Sprintf("unused handler: %s", name), v.ctx.HandlerRanges[ref].Start.Line, v.ctx.HandlerRanges[ref].Start.Col, TagUnnecessary)
+			v.addWarningAtRange(fmt.Sprintf("unused handler: %s", name), v.ctx.HandlerRanges[ref], TagUnnecessary)
 		}
 	}
 
@@ -388,7 +408,7 @@ func (v *Validator) detectCyclesAll() {
 func (v *Validator) hasCycle(name string, visited, recStack map[string]bool) bool {
 	if recStack[name] {
 		ref := v.mapStep[name]
-		v.addError(fmt.Sprintf("recursive step definition detected: %s", name), v.ctx.StepRanges[ref].Start.Line, v.ctx.StepRanges[ref].Start.Col)
+		v.addErrorAtRange(fmt.Sprintf("recursive step definition detected: %s", name), v.ctx.StepRanges[ref])
 		return true
 	}
 	if visited[name] {

@@ -45,8 +45,13 @@ handler on_err {
     | io.stderr
 }
 
+handler alert_step_fail {
+  *
+    | <broker=kf_broker> kafka.produce { topic: "dlq_alerts" }
+}
+
 workflow main ? on_err {
-  fetch_users
+  fetch_users ? alert_step_fail
   > users
 
   users
@@ -70,8 +75,8 @@ workflow main ? on_err {
 		if ctx.GetString(step.NameRef) != "fetch_users" {
 			t.Errorf("expected step fetch_users, got %q", ctx.GetString(step.NameRef))
 		}
-		if (program.HandlerRefsEnd - program.HandlerRefsStart) != 1 {
-			t.Errorf("expected 1 handler, got %d", program.HandlerRefsEnd-program.HandlerRefsStart)
+		if (program.HandlerRefsEnd - program.HandlerRefsStart) != 2 {
+			t.Errorf("expected 2 handlers, got %d", program.HandlerRefsEnd-program.HandlerRefsStart)
 		}
 
 		// Verify Workflow
@@ -1398,4 +1403,65 @@ workflow main {
 			}
 		})
 	}
+}
+
+func TestWorkflowBlankLineSeparation(t *testing.T) {
+	input := `
+workflow hello_world ? error_print {
+  []
+    | io.print
+
+  <broker=kf_broker> kafka.consume {
+    topic: "live_transactions"
+  }
+  > tx_stream
+}
+`
+	l := lexer.New(input)
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+	p := New(l, ctx)
+	p.Parse()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("expected no errors, got %v", p.Errors())
+	}
+
+}
+
+func TestResourceRefNewline(t *testing.T) {
+	input := `
+workflow res_newline {
+  <connection=db>
+  pg.query { query: "SELECT 1" }
+}
+`
+	runParserTest(t, input, 0, nil)
+}
+
+func TestUserSpecificExample(t *testing.T) {
+	input := `
+workflow FraudDetection ? alert_on_fail {
+  <broker=kf_broker> kafka.consume {
+    topic: "live_transactions"
+  }
+  > tx_stream
+
+  tx_stream
+    | draft_final_audit
+    | <broker=kf_broker> kafka.produce {
+        topic: "fraud_audits"
+      }
+}
+`
+	l := lexer.New(input)
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+	p := New(l, ctx)
+	p.Parse()
+
+	if len(p.Errors()) > 0 {
+		t.Fatalf("expected no errors, got %v", p.Errors())
+	}
+
 }
