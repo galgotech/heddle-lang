@@ -207,11 +207,11 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 	configJSON, _ := json.Marshal(task.Step.Config)
 	req := plugin.ExecuteStepRequest{
-		WorkflowID:  task.WorkflowID,
-		TaskID:      task.TaskID,
-		StepName:    task.Step.Call[1],
-		ConfigJSON:    string(configJSON),
-		InputHandles:  inputHandles,
+		WorkflowID:   task.WorkflowID,
+		TaskID:       task.TaskID,
+		StepName:     task.Step.Call[1],
+		ConfigJSON:   string(configJSON),
+		InputHandles: inputHandles,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -256,7 +256,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 		return models.TaskResult{
 			TaskID:       resp.TaskID,
-			Status:       resp.Status,
+			Status:       string(resp.Status),
 			ErrorMessage: resp.ErrorMessage,
 		}, nil
 	}

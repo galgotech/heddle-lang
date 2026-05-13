@@ -1,9 +1,11 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFieldValue(t *testing.T) {
@@ -109,4 +111,29 @@ func TestFieldDelete(t *testing.T) {
 	bitmap := f.dirt
 	assert.NotNil(t, bitmap)
 	assert.Equal(t, uint64(2), bitmap[0]) // 1 << 1
+}
+
+type TestConfig struct {
+	Config
+}
+
+type TestInput struct {
+	HeddleFrame
+	A *Int64
+}
+
+type TestOutput struct {
+	HeddleFrame
+	B *Int64
+}
+
+func StepNewSignature(ctx context.Context, cfg TestConfig, input *TestInput, output *TestOutput) error {
+	output.B = NewInt64([]int64{1, 2, 3})
+	return nil
+}
+
+func TestRegisterStep_NewSignature(t *testing.T) {
+	p := New("test")
+	err := p.RegisterStep("test_step", StepNewSignature)
+	require.NoError(t, err)
 }

@@ -2,15 +2,12 @@ package schema
 
 import (
 	"fmt"
-
-	"github.com/apache/arrow/go/v18/arrow"
 )
 
 // FrameSchemaField represents a single column in a HeddleFrame.
 type FrameSchemaField struct {
 	Name      string `json:"name"`
 	ArrowType string `json:"arrow_type"` // e.g. "int64", "utf8", "bool"
-	Nullable  bool   `json:"nullable"`
 }
 
 // FrameSchema defines the structure of a HeddleFrame.
@@ -19,48 +16,22 @@ type FrameSchema struct {
 	IsVoid bool               `json:"is_void,omitempty"`
 }
 
-// ToArrowSchema converts a FrameSchema to an arrow.Schema.
-func (s *FrameSchema) ToArrowSchema() (*arrow.Schema, error) {
-	fields := make([]arrow.Field, len(s.Fields))
-	for i, f := range s.Fields {
-		var dt arrow.DataType
-		switch f.ArrowType {
-		case "int64":
-			dt = arrow.PrimitiveTypes.Int64
-		case "int32":
-			dt = arrow.PrimitiveTypes.Int32
-		case "int16":
-			dt = arrow.PrimitiveTypes.Int16
-		case "int8":
-			dt = arrow.PrimitiveTypes.Int8
-		case "uint64":
-			dt = arrow.PrimitiveTypes.Uint64
-		case "uint32":
-			dt = arrow.PrimitiveTypes.Uint32
-		case "uint16":
-			dt = arrow.PrimitiveTypes.Uint16
-		case "uint8":
-			dt = arrow.PrimitiveTypes.Uint8
-		case "float64":
-			dt = arrow.PrimitiveTypes.Float64
-		case "float32":
-			dt = arrow.PrimitiveTypes.Float32
-		case "bool":
-			dt = arrow.FixedWidthTypes.Boolean
-		case "utf8":
-			dt = arrow.BinaryTypes.String
-		default:
-			return nil, fmt.Errorf("unsupported arrow type: %s", f.ArrowType)
-		}
-		fields[i] = arrow.Field{Name: f.Name, Type: dt, Nullable: f.Nullable}
-	}
-	return arrow.NewSchema(fields, nil), nil
+// ConfigField represents a single field in a step configuration.
+type ConfigField struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
-// StepSchemas contains the input and output schemas for a step.
+// ResourceAndConfigSchema defines the structure of a step configuration.
+type ResourceAndConfigSchema struct {
+	Fields []ConfigField `json:"fields"`
+}
+
+// StepSchemas contains the input, output and config schemas for a step.
 type StepSchemas struct {
-	Input  *FrameSchema `json:"input,omitempty"`
-	Output *FrameSchema `json:"output,omitempty"`
+	Config *ResourceAndConfigSchema `json:"config,omitempty"`
+	Input  *FrameSchema             `json:"input,omitempty"`
+	Output *FrameSchema             `json:"output,omitempty"`
 }
 
 // Compatible checks if the output schema of one step is compatible with

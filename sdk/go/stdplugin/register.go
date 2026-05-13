@@ -13,7 +13,10 @@ func Register() <-chan struct{} {
 
 	// Then, start the "std/io" plugin
 	pIo := plugin.New("std/io")
-	pIo.RegisterStep("print", std.PrintStep)
+	err := pIo.RegisterStep("print", std.PrintStep)
+	if err != nil {
+		logger.L().Fatal("Standard library plugin (io) failed to register step print: %v", zap.Error(err))
+	}
 
 	go func() {
 		if err := pIo.Start(); err != nil {

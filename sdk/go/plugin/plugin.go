@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"strings"
 	"syscall"
 	"time"
 
@@ -22,33 +21,58 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/pkg/schema"
-	"github.com/galgotech/heddle-lang/sdk/go/core"
 )
 
 // ResourceRegistration maintains metadata and the execution handle for a Heddle Resource.
 // It allows the plugin to expose custom infrastructure or stateful components to the Heddle DSL.
 type ResourceRegistration struct {
-	Name     string
-	Resource Resource
+	Name           string
+	ResourceSchema *schema.ResourceAndConfigSchema
+	ResourceType   reflect.Type
+	Resource       Resource
 }
 
 // StepRegistration stores the execution contract for a Heddle Step.
 // It captures the function signature, inferred JSON schemas for configuration,
 // and the mapping between Arrow schemas and Go struct types.
 type StepRegistration struct {
-	Name          string
-	ConfigSchema  string // JSON schema inferred from the configuration struct for DSL-side validation
-	ConfigType    reflect.Type
-	InputType     reflect.Type
-	OutputType    reflect.Type
-	Func          reflect.Value
-	InputSchema   *schema.FrameSchema
-	OutputSchema  *schema.FrameSchema
-	IsOutputAsArg bool // True if signature is func(ctx, cfg, input, output) error
+	Name         string
+	ConfigSchema *schema.ResourceAndConfigSchema // JSON schema inferred from the configuration struct for DSL-side validation
+	ConfigType   reflect.Type
+	InputType    reflect.Type
+	OutputType   reflect.Type
+	Func         reflect.Value
+	InputSchema  *schema.FrameSchema
+	OutputSchema *schema.FrameSchema
+
+	// Pre-calculated indices for optimized initialization
+	inputHeddleFrameIndex  int
+	outputHeddleFrameIndex int
+	inputFieldsIndex       []int
+	outputFieldsIndex      []int
 }
 
-// PlanningDataHandler is a callback function that receives data from a 'std.data' step.
-type PlanningDataHandler func(data []map[string]any) error
+// NewInputOutput initializes both input and output frames using pre-calculated indices.
+// It pre-populates the HeddleFrame schema and initializes any nil field pointers.
+func (s *StepRegistration) NewInputOutput() (reflect.Value, reflect.Value) {
+	inputVal := reflect.New(s.InputType.Elem())
+	outputVal := reflect.New(s.OutputType.Elem())
+
+	s.initFrame(inputVal, s.inputFieldsIndex)
+	s.initFrame(outputVal, s.outputFieldsIndex)
+
+	return inputVal, outputVal
+}
+
+func (s *StepRegistration) initFrame(val reflect.Value, indices []int) {
+	v := val.Elem()
+
+	// Initialize all pointer fields
+	for _, i := range indices {
+		f := v.Field(i)
+		f.Set(reflect.New(f.Type().Elem()))
+	}
+}
 
 type Plugin struct {
 	Namespace     string
@@ -62,9 +86,28 @@ type Plugin struct {
 // RegisterResource adds a new resource initializer to the plugin's internal registry.
 // These resources can be referenced in .he files to manage external state or connections.
 func (p *Plugin) RegisterResource(name string, resource Resource) error {
+	typ := reflect.TypeOf(resource)
+
+	if typ.Kind() != reflect.Pointer {
+		return fmt.Errorf("resource %q must be a pointer to a struct", name)
+	}
+
+	typ = typ.Elem()
+	if typ.Kind() != reflect.Struct {
+		return fmt.Errorf("resource %q must be a pointer to a struct", name)
+	}
+
+	resourceSchema, err := ExtractResourceAndConfigSchema(typ)
+	if err != nil {
+		logger.L().Error("Failed to extract resource schema", zap.String("resource", name), zap.Error(err))
+		return fmt.Errorf("resource %q config: %w", name, err)
+	}
+
 	p.resources[name] = ResourceRegistration{
-		Name:     name,
-		Resource: resource,
+		Name:           name,
+		ResourceSchema: resourceSchema,
+		ResourceType:   typ,
+		Resource:       resource,
 	}
 
 	return nil
@@ -81,47 +124,70 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 	}
 
 	// Ensure the function signature matches one of the expected contracts:
-	// 1. func(context.Context, TConfig, TInput) (TOutput, error)
-	// 2. func(context.Context, TConfig, TInput, TOutput) error
-
-	var inputType, outputType reflect.Type
-	var isOutputAsArg bool
-
-	if typ.NumIn() == 3 && typ.NumOut() == 2 {
-		inputType = typ.In(2)
-		outputType = typ.Out(0)
-		isOutputAsArg = false
-	} else if typ.NumIn() == 4 && typ.NumOut() == 1 {
-		inputType = typ.In(2)
-		outputType = typ.In(3)
-		isOutputAsArg = true
-	} else {
-		return fmt.Errorf("step %q must have signature func(ctx, config, input) (output, error) or func(ctx, config, input, output) error", name)
+	// func(context.Context, TConfig, TInput, TOutput) error
+	if typ.NumIn() != 4 || typ.NumOut() != 1 {
+		return fmt.Errorf("step %q must have signature func(ctx, config, input, output) error", name)
 	}
 
-	inputSchema, err := ExtractSchema(inputType)
+	configType := typ.In(1)
+	inputType := typ.In(2)
+	outputType := typ.In(3)
+
+	configSchema, err := ExtractResourceAndConfigSchema(configType)
 	if err != nil {
+		logger.L().Error("Failed to extract step config schema", zap.String("step", name), zap.Error(err))
+		return fmt.Errorf("step %q config: %w", name, err)
+	}
+
+	inputSchema, err := ExtractInputOutputSchema(inputType)
+	if err != nil {
+		logger.L().Error("Failed to extract step input schema", zap.String("step", name), zap.Error(err))
 		return fmt.Errorf("step %q input: %w", name, err)
 	}
 
-	outputSchema, err := ExtractSchema(outputType)
+	outputSchema, err := ExtractInputOutputSchema(outputType)
 	if err != nil {
+		logger.L().Error("Failed to extract step output schema", zap.String("step", name), zap.Error(err))
 		return fmt.Errorf("step %q output: %w", name, err)
 	}
 
-	reg := StepRegistration{
-		Name:          name,
-		ConfigSchema:  generateJSONSchema(typ.In(1)),
-		ConfigType:    typ.In(1),
-		InputType:     inputType,
-		OutputType:    outputType,
-		Func:          reflect.ValueOf(fn),
-		InputSchema:   inputSchema,
-		OutputSchema:  outputSchema,
-		IsOutputAsArg: isOutputAsArg,
+	var inputHeddleFrameIndex int
+	inputFieldsIndex := []int{}
+	inType := inputType.Elem()
+	for i := 0; i < inType.NumField(); i++ {
+		if inType.Field(i).Type != reflect.TypeFor[HeddleFrame]() {
+			inputFieldsIndex = append(inputFieldsIndex, i)
+		} else {
+			inputHeddleFrameIndex = i
+		}
 	}
 
-	p.steps[name] = reg
+	var outputHeddleFrameIndex int
+	outputFieldsIndex := []int{}
+	outType := outputType.Elem()
+	for i := 0; i < outType.NumField(); i++ {
+		if outType.Field(i).Type != reflect.TypeFor[HeddleFrame]() {
+			outputFieldsIndex = append(outputFieldsIndex, i)
+		} else {
+			outputHeddleFrameIndex = i
+		}
+	}
+
+	logger.L().Debug("Registering step", zap.String("name", name))
+	p.steps[name] = StepRegistration{
+		Name:                   name,
+		Func:                   reflect.ValueOf(fn),
+		ConfigSchema:           configSchema,
+		ConfigType:             configType,
+		InputSchema:            inputSchema,
+		InputType:              inputType,
+		OutputSchema:           outputSchema,
+		OutputType:             outputType,
+		inputHeddleFrameIndex:  inputHeddleFrameIndex,
+		outputHeddleFrameIndex: outputHeddleFrameIndex,
+		inputFieldsIndex:       inputFieldsIndex,
+		outputFieldsIndex:      outputFieldsIndex,
+	}
 
 	return nil
 }
@@ -163,15 +229,26 @@ func (p *Plugin) Start() error {
 		client = flight.NewClientFromConn(conn, nil)
 
 		// 1.2 Register Plugin
-		capabilities := make([]string, 0, len(p.steps))
+		logger.L().Info("Preparing plugin registration", zap.Int("steps", len(p.steps)), zap.Int("resources", len(p.resources)))
+		capabilities := make([]string, 0, len(p.steps)+len(p.resources))
 		schemas := make(map[string]schema.StepSchemas)
 		for name, step := range p.steps {
 			capName := fmt.Sprintf("%s.%s", p.Namespace, name)
 			capabilities = append(capabilities, capName)
 			schemas[capName] = schema.StepSchemas{
+				Config: step.ConfigSchema,
 				Input:  step.InputSchema,
 				Output: step.OutputSchema,
 			}
+		}
+
+		for name := range p.resources {
+			capabilities = append(capabilities, fmt.Sprintf("%s.resource.%s", p.Namespace, name))
+		}
+
+		resources := make(map[string]*schema.ResourceAndConfigSchema)
+		for name, res := range p.resources {
+			resources[name] = res.ResourceSchema
 		}
 
 		reg := PluginRegistration{
@@ -180,8 +257,14 @@ func (p *Plugin) Start() error {
 			Version:      "0.1.0",
 			Capabilities: capabilities,
 			Schemas:      schemas,
+			Resources:    resources,
 		}
-		regBody, _ := json.Marshal(reg)
+		regBody, err := json.Marshal(reg)
+		if err != nil {
+			logger.L().Info("Failed to marshal plugin registration...", zap.String("target", target))
+			return err
+		}
+
 		// Submit registration via Arrow Flight DoAction.
 		// This notifies the Worker of the plugin's namespace and step capabilities.
 		res, err := client.DoAction(ctx, &flight.Action{
@@ -214,6 +297,9 @@ func (p *Plugin) Start() error {
 		}
 
 		logger.L().Info("Plugin registered", zap.String("namespace", p.Namespace))
+		logger.L().Debug("Plugin registered", zap.String("capabilities", fmt.Sprintf("%v", reg.Capabilities)))
+		logger.L().Debug("Plugin registered", zap.String("resources", fmt.Sprintf("%v", reg.Resources)))
+		logger.L().Debug("Plugin registered", zap.String("schemas", fmt.Sprintf("%v", reg.Schemas)))
 
 		// 1.3 Start Heartbeat and Execution Loop
 		// We use a separate context for each connection session
@@ -320,38 +406,31 @@ func (p *Plugin) startExecutionLoop(ctx context.Context, client flight.Client) e
 // function invocation, and result serialization back to SHM.
 func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) ExecuteStepResponse {
 	// 1. Resolve the requested step in this plugin's namespace.
-	var targetStep *StepRegistration
-	for _, s := range p.steps {
-		if s.Name == req.StepName {
-			targetStep = &s
-			break
-		}
-	}
-
-	if targetStep == nil {
+	targetStep, ok := p.steps[req.StepName]
+	if !ok {
 		return ExecuteStepResponse{
 			TaskID:       req.TaskID,
-			Status:       "FAILED",
+			Status:       StepResponseError,
 			ErrorMessage: fmt.Sprintf("step %s not found", req.StepName),
 		}
 	}
 
 	// 2. Hydrate the step configuration from the provided JSON.
 	configType := targetStep.ConfigType
-	isPtr := configType.Kind() == reflect.Pointer
-
-	var configVal reflect.Value
-	if isPtr {
-		configVal = reflect.New(configType.Elem())
-	} else {
-		configVal = reflect.New(configType)
+	if configType.Kind() == reflect.Pointer {
+		return ExecuteStepResponse{
+			TaskID:       req.TaskID,
+			Status:       StepResponseError,
+			ErrorMessage: "step config must be a struct",
+		}
 	}
 
+	configVal := reflect.New(configType)
 	if req.ConfigJSON != "" {
 		if err := json.Unmarshal([]byte(req.ConfigJSON), configVal.Interface()); err != nil {
 			return ExecuteStepResponse{
 				TaskID:       req.TaskID,
-				Status:       "FAILED",
+				Status:       StepResponseError,
 				ErrorMessage: fmt.Errorf("failed to unmarshal config: %w", err).Error(),
 			}
 		}
@@ -360,7 +439,7 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 	// 3. Prepare the Input Frame using Zero-Copy SHM access.
 	columns := make(map[string]arrow.Array)
 	for fieldName, path := range req.InputHandles {
-		arr, err := core.ReadArrowArrayFromPath(path)
+		arr, err := locality.ReadArrowArrayFromPath(path)
 		if err != nil {
 			logger.L().Error("Failed to read input from SHM", zap.Error(err), zap.String("path", path))
 		} else {
@@ -369,159 +448,103 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 		}
 	}
 
-	inputVal := reflect.New(targetStep.InputType).Elem()
-	if hasHeddleFrame(targetStep.InputType) {
-		if len(columns) > 0 {
-			if err := bind(inputVal.Addr().Interface(), columns); err != nil {
-				return ExecuteStepResponse{
-					TaskID:       req.TaskID,
-					Status:       "FAILED",
-					ErrorMessage: fmt.Sprintf("failed to bind input frame: %v", err),
-				}
+	inputVal, outputVal := targetStep.NewInputOutput()
+	if len(columns) > 0 {
+		if err := bind(inputVal, targetStep.inputFieldsIndex, columns); err != nil {
+			return ExecuteStepResponse{
+				TaskID:       req.TaskID,
+				Status:       StepResponseError,
+				ErrorMessage: fmt.Sprintf("failed to bind input frame: %v", err),
 			}
 		}
 	}
 
-	var arg1 reflect.Value
-	if isPtr {
-		arg1 = configVal
-	} else {
-		arg1 = configVal.Elem()
-	}
-
-	var outputVal reflect.Value
-	var args []reflect.Value
-
-	if targetStep.IsOutputAsArg {
-		if targetStep.OutputType.Kind() == reflect.Pointer {
-			outputVal = reflect.New(targetStep.OutputType.Elem())
-		} else {
-			outputVal = reflect.New(targetStep.OutputType).Elem()
-		}
-		args = []reflect.Value{
-			reflect.ValueOf(ctx),
-			arg1,
-			inputVal,
-			outputVal,
-		}
-	} else {
-		args = []reflect.Value{
-			reflect.ValueOf(ctx),
-			arg1,
-			inputVal,
-		}
-	}
-
-	// 4. Call the function
-	results := targetStep.Func.Call(args)
+	results := targetStep.Func.Call([]reflect.Value{
+		reflect.ValueOf(ctx),
+		configVal.Elem(),
+		inputVal,
+		outputVal,
+	})
 
 	// 5. Handle output results and commit data to SHM.
-	var errResult reflect.Value
-	if targetStep.IsOutputAsArg {
-		errResult = results[0]
-	} else {
-		outputVal = results[0]
-		errResult = results[1]
-	}
-
+	errResult := results[0]
 	if !errResult.IsNil() {
 		return ExecuteStepResponse{
 			TaskID:       req.TaskID,
-			Status:       "FAILED",
+			Status:       StepResponseError,
 			ErrorMessage: errResult.Interface().(error).Error(),
 		}
 	}
-	outputHandles := make(map[string]string)
-	dirtyHandles := make(map[string]string)
 
 	// Check if the output is a VoidFrame (explicitly no-data).
 	if targetStep.OutputType == reflect.TypeFor[VoidFrame]() {
 		return ExecuteStepResponse{
 			TaskID: req.TaskID,
-			Status: "SUCCESS",
+			Status: StepResponseSuccess,
 		}
 	}
 
-	// If the output contains a HeddleFrame, persist the Arrow data to Shared Memory.
-	if !hasHeddleFrame(targetStep.OutputType) {
-		return ExecuteStepResponse{
-			TaskID:       req.TaskID,
-			Status:       "FAILED",
-			ErrorMessage: "failed to materialize output frame",
-		}
-	}
+	outputHandles := make(map[string]string)
+	dirtyHandles := make(map[string]string)
 
-	frameField := findHeddleFrameField(outputVal)
-	if !frameField.IsValid() {
-		return ExecuteStepResponse{
-			TaskID:       req.TaskID,
-			Status:       "FAILED",
-			ErrorMessage: "output does not contain a HeddleFrame",
-		}
-	}
-
-	vVal := outputVal
-	if vVal.Kind() == reflect.Pointer {
-		vVal = vVal.Elem()
-	}
+	vVal := outputVal.Elem()
 	t := vVal.Type()
 
 	for i := 0; i < t.NumField(); i++ {
 		fValue := vVal.Field(i)
 		fieldPtr := fValue.Addr().Interface()
-
-		name := t.Field(i).Tag.Get("heddle")
-		if name == "" {
-			name = t.Field(i).Name
-		}
+		name := t.Field(i).Name
 
 		var arr arrow.Array
 		var dirt []uint64
 
-		switch df := fieldPtr.(type) {
+		switch dataFrame := fieldPtr.(type) {
 		case *Int8:
-			arr = df.arrayInt8
-			dirt = df.dirt
+			arr = dataFrame.arrayInt8
+			dirt = dataFrame.dirt
 		case *Int16:
-			arr = df.arrayInt16
-			dirt = df.dirt
+			arr = dataFrame.arrayInt16
+			dirt = dataFrame.dirt
 		case *Int32:
-			arr = df.arrayInt32
-			dirt = df.dirt
+			arr = dataFrame.arrayInt32
+			dirt = dataFrame.dirt
 		case *Int64:
-			arr = df.arrayInt64
-			dirt = df.dirt
+			arr = dataFrame.arrayInt64
+			dirt = dataFrame.dirt
 		case *Uint8:
-			arr = df.arrayUint8
-			dirt = df.dirt
+			arr = dataFrame.arrayUint8
+			dirt = dataFrame.dirt
 		case *Uint16:
-			arr = df.arrayUint16
-			dirt = df.dirt
+			arr = dataFrame.arrayUint16
+			dirt = dataFrame.dirt
 		case *Uint32:
-			arr = df.arrayUint32
-			dirt = df.dirt
+			arr = dataFrame.arrayUint32
+			dirt = dataFrame.dirt
 		case *Uint64:
-			arr = df.arrayUint64
-			dirt = df.dirt
+			arr = dataFrame.arrayUint64
+			dirt = dataFrame.dirt
 		case *Float32:
-			arr = df.arrayFloat32
-			dirt = df.dirt
+			arr = dataFrame.arrayFloat32
+			dirt = dataFrame.dirt
 		case *Float64:
-			arr = df.arrayFloat64
-			dirt = df.dirt
+			arr = dataFrame.arrayFloat64
+			dirt = dataFrame.dirt
 		case *Bool:
-			arr = df.arrayBool
-			dirt = df.dirt
+			arr = dataFrame.arrayBool
+			dirt = dataFrame.dirt
 		case *String:
-			arr = df.arrayString
-			dirt = df.dirt
+			arr = dataFrame.arrayString
+			dirt = dataFrame.dirt
 		}
 
-		if arr != nil {
-			field := arrow.Field{Name: name, Type: arr.DataType(), Nullable: true}
-			path, err := core.WriteArrowArrayToShm(field, arr)
+		if arr != nil && !reflect.ValueOf(arr).IsNil() {
+			path, err := locality.WriteArrowArrayOnlyToShm(arr)
 			if err != nil {
-				logger.L().Error("Failed to write output to SHM", zap.Error(err))
+				return ExecuteStepResponse{
+					TaskID:       req.TaskID,
+					Status:       StepResponseError,
+					ErrorMessage: fmt.Sprintf("failed to write output frame: %v", err),
+				}
 			} else {
 				outputHandles[name] = path
 			}
@@ -546,7 +569,7 @@ func (p *Plugin) executeTask(ctx context.Context, req ExecuteStepRequest) Execut
 
 	return ExecuteStepResponse{
 		TaskID:        req.TaskID,
-		Status:        "SUCCESS",
+		Status:        StepResponseSuccess,
 		OutputHandles: outputHandles,
 		DirtyHandles:  dirtyHandles,
 	}
@@ -563,147 +586,81 @@ func New(namespace string) *Plugin {
 	}
 }
 
-// generateJSONSchema performs type introspection to derive a basic JSON schema for Step/Resource configurations.
-// The Heddle DSL compiler uses this schema to validate user-provided parameters during the compilation phase.
-func generateJSONSchema(t reflect.Type) string {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Struct {
-		return fmt.Sprintf(`{"type": "%s"}`, t.Kind().String())
-	}
-
-	var schema strings.Builder
-	schema.WriteString(`{"type": "object", "properties": {`)
-	first := true
-	for field := range t.Fields() {
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "-" {
-			continue
-		}
-		name := jsonTag
-		if name == "" {
-			name = field.Name
-		} else {
-			// Handle cases like json:"name,omitempty"
-			parts := strings.Split(name, ",")
-			name = parts[0]
-			if name == "" {
-				name = field.Name
-			}
-		}
-
-		if !first {
-			schema.WriteString(", ")
-		}
-		fmt.Fprintf(&schema, `"%s": {"type": "%s"}`, name, field.Type.Kind().String())
-		first = false
-	}
-	schema.WriteString(`}}`)
-	return schema.String()
-}
-
-// hasHeddleFrame checks if a given struct type contains a HeddleFrame field.
-func hasHeddleFrame(t reflect.Type) bool {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Struct {
-		return false
-	}
-	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).Type == reflect.TypeOf(HeddleFrame{}) {
-			return true
-		}
-	}
-	return false
-}
-
-// findHeddleFrameField retrieves the reflect.Value of the HeddleFrame field within a struct.
-func findHeddleFrameField(v reflect.Value) reflect.Value {
-	if v.Kind() == reflect.Pointer {
-		v = v.Elem()
-	}
-	t := v.Type()
-	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).Type == reflect.TypeOf(HeddleFrame{}) {
-			return v.Field(i)
-		}
-	}
-	return reflect.Value{}
-}
-
 // bind maps Arrow Table columns to Go struct fields.
-func bind(v any, columns map[string]arrow.Array) error {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Pointer || rv.Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("Bind requires a pointer to a struct")
+func bind(reflectValue reflect.Value, fieldIndices []int, columns map[string]arrow.Array) error {
+	if reflectValue.Kind() != reflect.Pointer {
+		return fmt.Errorf("type %v is not a pointer", reflectValue.Type())
 	}
-	vVal := rv.Elem()
-	t := vVal.Type()
 
-	var numRows int
+	v := reflectValue.Elem()
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("type %v is not a struct", v.Type())
+	}
+
+	var numRows int = -1
 	for _, arr := range columns {
-		numRows = arr.Len()
-		break
-	}
-
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if f.Type == reflect.TypeOf(HeddleFrame{}) {
-			hf := vVal.Field(i).Addr().Interface().(*HeddleFrame)
-			hf.numRows = numRows
-			continue
-		}
-
-		fValue := vVal.Field(i)
-		fieldPtr := fValue.Addr().Interface()
-
-		name := t.Field(i).Tag.Get("heddle")
-		if name == "" {
-			name = t.Field(i).Name
-		}
-
-		if arr, ok := columns[name]; ok {
-			switch df := fieldPtr.(type) {
-			case *Int8:
-				df.arrayInt8 = arr.(*array.Int8)
-				df.dirt = []uint64{}
-			case *Int16:
-				df.arrayInt16 = arr.(*array.Int16)
-				df.dirt = []uint64{}
-			case *Int32:
-				df.arrayInt32 = arr.(*array.Int32)
-				df.dirt = []uint64{}
-			case *Int64:
-				df.arrayInt64 = arr.(*array.Int64)
-				df.dirt = []uint64{}
-			case *Uint8:
-				df.arrayUint8 = arr.(*array.Uint8)
-				df.dirt = []uint64{}
-			case *Uint16:
-				df.arrayUint16 = arr.(*array.Uint16)
-				df.dirt = []uint64{}
-			case *Uint32:
-				df.arrayUint32 = arr.(*array.Uint32)
-				df.dirt = []uint64{}
-			case *Uint64:
-				df.arrayUint64 = arr.(*array.Uint64)
-				df.dirt = []uint64{}
-			case *Float32:
-				df.arrayFloat32 = arr.(*array.Float32)
-				df.dirt = []uint64{}
-			case *Float64:
-				df.arrayFloat64 = arr.(*array.Float64)
-				df.dirt = []uint64{}
-			case *Bool:
-				df.arrayBool = arr.(*array.Boolean)
-				df.dirt = []uint64{}
-			case *String:
-				df.arrayString = arr.(*array.String)
-				df.dirt = []uint64{}
-			}
+		if numRows == -1 {
+			numRows = arr.Len()
+		} else if numRows != arr.Len() {
+			return fmt.Errorf("inconsistent column lengths")
 		}
 	}
+	if numRows == -1 {
+		numRows = 0
+	}
+
+	t := v.Type()
+	for _, i := range fieldIndices {
+		fValue := v.Field(i)
+		fieldPtr := fValue.Interface()
+
+		name := t.Field(i).Name
+		arr := columns[name]
+		if arr == nil {
+			return fmt.Errorf("column %q is required but missing", name)
+		}
+
+		switch df := fieldPtr.(type) {
+		case *Int8:
+			df.arrayInt8 = arr.(*array.Int8)
+			df.dirt = []uint64{}
+		case *Int16:
+			df.arrayInt16 = arr.(*array.Int16)
+			df.dirt = []uint64{}
+		case *Int32:
+			df.arrayInt32 = arr.(*array.Int32)
+			df.dirt = []uint64{}
+		case *Int64:
+			df.arrayInt64 = arr.(*array.Int64)
+			df.dirt = []uint64{}
+		case *Uint8:
+			df.arrayUint8 = arr.(*array.Uint8)
+			df.dirt = []uint64{}
+		case *Uint16:
+			df.arrayUint16 = arr.(*array.Uint16)
+			df.dirt = []uint64{}
+		case *Uint32:
+			df.arrayUint32 = arr.(*array.Uint32)
+			df.dirt = []uint64{}
+		case *Uint64:
+			df.arrayUint64 = arr.(*array.Uint64)
+			df.dirt = []uint64{}
+		case *Float32:
+			df.arrayFloat32 = arr.(*array.Float32)
+			df.dirt = []uint64{}
+		case *Float64:
+			df.arrayFloat64 = arr.(*array.Float64)
+			df.dirt = []uint64{}
+		case *Bool:
+			df.arrayBool = arr.(*array.Boolean)
+			df.dirt = []uint64{}
+		case *String:
+			df.arrayString = arr.(*array.String)
+			df.dirt = []uint64{}
+		default:
+			return fmt.Errorf("field name '%s' has unsupported type %v", name, fValue.Type())
+		}
+	}
+
 	return nil
 }

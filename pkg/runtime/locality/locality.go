@@ -55,7 +55,7 @@ func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, paths map[
 }
 
 // DataLocalityRegistry manages the mapping of data identifiers to their physical locations
-// in /dev/shm. Data is stored via AllocateAndWrite and accessed via ReadFromPath.
+// in /dev/shm. Data is stored via WriteArrowToShm and accessed via ReadArrowFromPath.
 // The registry tracks only Metadata (including the SHM path) — no in-process copies.
 type DataLocalityRegistry struct {
 	metadata sync.Map
@@ -130,98 +130,80 @@ func NewDataLocalityRegistry() *DataLocalityRegistry {
 	return &DataLocalityRegistry{}
 }
 
-// AllocateAndWrite creates a temporary file in /dev/shm, writes the Arrow record batch to it,
-// and returns the open file handle. The file is created with 0600 permissions and sealed
-// to 0400 after writing to ensure immutability.
-func AllocateAndWrite(batch arrow.Record) (*os.File, error) {
-	f, err := os.CreateTemp("/dev/shm", "heddle-*.arrow")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
-	}
-
-	// Layer 1: Restrict permissions immediately
-	if err := f.Chmod(0600); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to restrict shm file permissions: %w", err)
-	}
-
-	writer, err := ipc.NewFileWriter(f, ipc.WithSchema(batch.Schema()))
-	if err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to create ipc writer: %w", err)
-	}
-	if err := writer.Write(batch); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to write record batch: %w", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to close ipc writer: %w", err)
-	}
-
-	// Layer 3: Seal the file (make it read-only for owner)
-	if err := f.Chmod(0400); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to seal shm file: %w", err)
-	}
-
-	return f, nil
+// WriteArrowArrayOnlyToShm writes an Arrow Array to a temporary file in /dev/shm using a default field name.
+// This allows writing an array without the caller having to manually define an arrow.Field or arrow.Schema.
+func WriteArrowArrayOnlyToShm(arr arrow.Array) (string, error) {
+	field := arrow.Field{Name: "v", Type: arr.DataType(), Nullable: true}
+	return WriteArrowArrayToShm(field, arr)
 }
 
-// AllocateAndWriteArray creates a temporary file in /dev/shm, writes the Arrow Array to it
-// as a 1-column RecordBatch, and returns the open file handle.
-func AllocateAndWriteArray(field arrow.Field, arr arrow.Array) (*os.File, error) {
-	f, err := os.CreateTemp("/dev/shm", "heddle-*.arrow")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
-	}
-
-	if err := f.Chmod(0600); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to restrict shm file permissions: %w", err)
-	}
-
+// WriteArrowArrayToShm writes an Arrow Array to a temporary file in /dev/shm
+// as a 1-column RecordBatch, and returns the path.
+func WriteArrowArrayToShm(field arrow.Field, arr arrow.Array) (string, error) {
 	schema := arrow.NewSchema([]arrow.Field{field}, nil)
 	record := array.NewRecord(schema, []arrow.Array{arr}, int64(arr.Len()))
 	defer record.Release()
 
-	writer, err := ipc.NewFileWriter(f, ipc.WithSchema(schema))
+	return writeArrowToShm(record)
+}
+
+// WriteArrowToShm writes the record batch to a temporary file in /dev/shm and returns the path.
+// The file is created with 0600 permissions and sealed to 0400 after writing to ensure immutability.
+func writeArrowToShm(batch arrow.Record) (string, error) {
+	f, err := os.CreateTemp("/dev/shm", "heddle-*.arrow")
 	if err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to create ipc writer: %w", err)
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	if err := writer.Write(record); err != nil {
-		f.Close()
+	defer f.Close()
+
+	// Layer 1: Restrict permissions immediately
+	if err := f.Chmod(0600); err != nil {
 		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to write record batch: %w", err)
+		return "", fmt.Errorf("failed to restrict shm file permissions: %w", err)
+	}
+
+	writer, err := ipc.NewFileWriter(f, ipc.WithSchema(batch.Schema()))
+	if err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("failed to create ipc writer: %w", err)
+	}
+	if err := writer.Write(batch); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("failed to write record batch: %w", err)
 	}
 
 	if err := writer.Close(); err != nil {
-		f.Close()
 		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to close ipc writer: %w", err)
+		return "", fmt.Errorf("failed to close ipc writer: %w", err)
 	}
 
+	// Layer 3: Seal the file (make it read-only for owner)
 	if err := f.Chmod(0400); err != nil {
-		f.Close()
 		os.Remove(f.Name())
-		return nil, fmt.Errorf("failed to seal shm file: %w", err)
+		return "", fmt.Errorf("failed to seal shm file: %w", err)
 	}
 
-	return f, nil
+	return f.Name(), nil
 }
 
-// ReadFromPath mmaps the file at the given path and reconstructs the Arrow RecordBatch
-// without copying the underlying data. It validates file security before mapping.
-func ReadFromPath(path string) (arrow.Record, error) {
+// ReadArrowArrayFromPath mmaps the file at path and returns the first Arrow Array from the record batch.
+func ReadArrowArrayFromPath(path string) (arrow.Array, error) {
+	record, err := readArrowFromPath(path)
+	if err != nil {
+		return nil, err
+	}
+	if record.NumCols() == 0 {
+		return nil, fmt.Errorf("record batch has no columns")
+	}
+	arr := record.Column(0)
+	arr.Retain()
+	defer record.Release()
+
+	return arr, nil
+}
+
+// ReadArrowFromPath mmaps the file at path and returns the first Arrow record batch.
+func readArrowFromPath(path string) (arrow.Record, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -255,34 +237,6 @@ func ReadFromPath(path string) (arrow.Record, error) {
 	}
 
 	return record, nil
-}
-
-// ReadArrowArrayFromPath mmaps the file at path and returns the first Arrow Array from the record batch.
-func ReadArrowArrayFromPath(path string) (arrow.Array, error) {
-	record, err := ReadFromPath(path)
-	if err != nil {
-		return nil, err
-	}
-	if record.NumCols() == 0 {
-		return nil, fmt.Errorf("record batch has no columns")
-	}
-	arr := record.Column(0)
-	arr.Retain()
-	defer record.Release()
-
-	return arr, nil
-}
-
-// Unlink closes the file and removes it from the filesystem.
-func Unlink(f *os.File) error {
-	name := f.Name()
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("failed to close file: %w", err)
-	}
-	if err := os.Remove(name); err != nil {
-		return fmt.Errorf("failed to remove file: %w", err)
-	}
-	return nil
 }
 
 // WriteDirtyToShm writes the dirty bitmap to a temp file in /dev/shm.

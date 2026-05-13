@@ -2,7 +2,7 @@ import "std/io" io
 import "calculator" calc
 
 workflow main {
-  [{"start": 2}]
-    | calc.add { add: 2 }
+  [{ A: 2, B: 3 }]
+    | calc.add
     | io.print
 }

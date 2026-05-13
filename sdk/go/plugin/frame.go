@@ -2,12 +2,13 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/compute"
 	"github.com/apache/arrow/go/v18/arrow/memory"
-	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/apache/arrow/go/v18/arrow/scalar"
 )
 
 type arrayInt8 = array.Int8
@@ -35,6 +36,24 @@ func (f *metaField) Delete(rowIndex int) {
 		f.dirt = append(f.dirt, 0)
 	}
 	f.dirt[idx] |= (1 << (uint(rowIndex) % 64))
+}
+
+type Empty struct {
+	metaField
+	*arrayInt8
+}
+
+func NewEmpty() *Empty {
+	b := array.NewInt8Builder(pool)
+	defer b.Release()
+	return &Empty{
+		metaField: struct {
+			dirt []uint64
+		}{
+			dirt: []uint64{},
+		},
+		arrayInt8: b.NewArray().(*arrayInt8),
+	}
 }
 
 type Int8 struct {
@@ -267,40 +286,94 @@ func NewString(data []string) *String {
 }
 
 type HeddleFrame struct {
-	schema  schema.FrameSchema
-	numRows int
 }
 
-func (h *HeddleFrame) NumRows() int {
-	return h.numRows
-}
-
-func (h *HeddleFrame) NumCols() int {
-	return len(h.schema.Fields)
-}
-
-func (h *HeddleFrame) Add(ctx context.Context, a any, b any, c any) error {
-	err := h.exec(
+func (h *HeddleFrame) Add(ctx context.Context, a arrow.Array, b arrow.Array, c arrow.Array) error {
+	datumA, err := toDatum(a)
+	if err != nil {
+		return err
+	}
+	datumB, err := toDatum(b)
+	if err != nil {
+		return err
+	}
+	return h.exec(
 		ctx,
 		"add",
 		c,
-		&compute.ArrayDatum{Value: a.(arrow.Array).Data()},
-		&compute.ArrayDatum{Value: b.(arrow.Array).Data()},
+		datumA,
+		datumB,
 	)
-
-	return err
 }
 
-func (h *HeddleFrame) Subtract(ctx context.Context, a any, b any, c any) error {
-	err := h.exec(
+func (h *HeddleFrame) AddScalar(ctx context.Context, a arrow.Array, b float64, c arrow.Array) error {
+	datumA, err := toDatum(a)
+	if err != nil {
+		return err
+	}
+	return h.exec(
+		ctx,
+		"add",
+		c,
+		datumA,
+		&compute.ScalarDatum{Value: scalar.NewFloat64Scalar(b)},
+	)
+}
+
+func (h *HeddleFrame) Subtract(ctx context.Context, a arrow.Array, b arrow.Array, c arrow.Array) error {
+	datumA, err := toDatum(a)
+	if err != nil {
+		return err
+	}
+	datumB, err := toDatum(b)
+	if err != nil {
+		return err
+	}
+	return h.exec(
 		ctx,
 		"sub",
 		c,
-		&compute.ArrayDatum{Value: a.(arrow.Array).Data()},
-		&compute.ArrayDatum{Value: b.(arrow.Array).Data()},
+		datumA,
+		datumB,
 	)
+}
 
-	return err
+func (h *HeddleFrame) Multiply(ctx context.Context, a arrow.Array, b float64, c arrow.Array) error {
+	datumA, err := toDatum(a)
+	if err != nil {
+		return err
+	}
+	return h.exec(
+		ctx,
+		"multiply",
+		c,
+		datumA,
+		&compute.ScalarDatum{Value: scalar.NewFloat64Scalar(b)},
+	)
+}
+
+func (h *HeddleFrame) Divide(ctx context.Context, a arrow.Array, b float64, c arrow.Array) error {
+	datumA, err := toDatum(a)
+	if err != nil {
+		return err
+	}
+	return h.exec(
+		ctx,
+		"divide",
+		c,
+		datumA,
+		&compute.ScalarDatum{Value: scalar.NewFloat64Scalar(b)},
+	)
+}
+
+func toDatum(a any) (compute.Datum, error) {
+	if a == nil {
+		return nil, nil
+	}
+	if arr, ok := a.(arrow.Array); ok {
+		return &compute.ArrayDatum{Value: arr.Data()}, nil
+	}
+	return nil, fmt.Errorf("convert to datum error - input %T is not an arrow.Array", a)
 }
 
 func (h *HeddleFrame) exec(ctx context.Context, name string, output any, inputs ...compute.Datum) error {
@@ -318,6 +391,8 @@ func (h *HeddleFrame) exec(ctx context.Context, name string, output any, inputs 
 
 	values := outputArrayDatum.(*compute.ArrayDatum)
 	switch f := output.(type) {
+	case *Empty:
+		f.arrayInt8 = array.NewInt8Data(values.Value)
 	case *Int8:
 		f.arrayInt8 = array.NewInt8Data(values.Value)
 	case *Int16:
@@ -349,10 +424,4 @@ func (h *HeddleFrame) exec(ctx context.Context, name string, output any, inputs 
 
 type VoidFrame struct {
 	HeddleFrame
-}
-
-func NewFrame(schema FrameSchema) *HeddleFrame {
-	return &HeddleFrame{
-		schema: schema,
-	}
 }

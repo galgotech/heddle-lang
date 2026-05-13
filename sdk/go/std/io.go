@@ -14,16 +14,18 @@ type Config struct {
 type PrintFrame struct {
 	plugin.HeddleFrame
 
-	Print plugin.String
+	Print *plugin.String
 }
 
 // PrintStep implements std:io:print.
-func PrintStep(ctx context.Context, config Config, input PrintFrame) (plugin.VoidFrame, error) {
-	fmt.Printf("--- std:io:print (via Go Stdlib) ---\n")
-	fmt.Printf("Rows: %d, Cols: %d\n", input.NumRows(), input.NumCols())
+func PrintStep(ctx context.Context, config Config, input *PrintFrame, output *plugin.VoidFrame) error {
+	fmt.Printf("--- std/io.print ---\n")
 
-	fmt.Print(input.Print.Value(0))
+	a := input.Print.Value(0)
+	fmt.Println(a)
+
+	fmt.Printf("Value: %s\n", input.Print.Value(0))
 
 	fmt.Printf("-------------------\n")
-	return plugin.VoidFrame{}, nil
+	return nil
 }

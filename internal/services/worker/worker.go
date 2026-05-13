@@ -246,13 +246,12 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		for i := 0; i < int(record.NumCols()); i++ {
 			field := schema.Field(i)
 			arr := record.Column(i)
-			f, err := locality.AllocateAndWriteArray(field, arr)
+			path, err := locality.WriteArrowArrayToShm(field, arr)
 			if err != nil {
 				return models.TaskResult{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
 			}
-			paths[field.Name] = f.Name()
-			f.Close()
-			logger.L().Info("Allocated data_literal column to SHM", zap.String("handle", handle), zap.String("field", field.Name), zap.String("path", f.Name()))
+			paths[field.Name] = path
+			logger.L().Info("Allocated data_literal column to SHM", zap.String("handle", handle), zap.String("field", field.Name), zap.String("path", path))
 		}
 
 		// literal_data always is first step the tips is void -> data_type
@@ -313,13 +312,13 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 		}
 
 		mem := memory.NewGoAllocator()
-		
+
 		for fieldName, path := range meta.Paths {
 			arr, err := locality.ReadArrowArrayFromPath(path)
 			if err != nil {
 				return models.TaskResult{}, fmt.Errorf("compress: failed to read input for %s: %w", fieldName, err)
 			}
-			
+
 			validRows := make([]int, 0, arr.Len())
 			for i := 0; i < arr.Len(); i++ {
 				isDirty := (dirty[i/64] & (1 << (uint(i) % 64))) != 0
@@ -343,13 +342,12 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 			arr.Release()
 
 			field := arrow.Field{Name: fieldName, Type: newArr.DataType(), Nullable: true}
-			f, err := locality.AllocateAndWriteArray(field, newArr)
+			path, err := locality.WriteArrowArrayToShm(field, newArr)
 			if err != nil {
 				newArr.Release()
 				return models.TaskResult{}, fmt.Errorf("compress: failed to write result: %w", err)
 			}
-			resPaths[fieldName] = f.Name()
-			f.Close()
+			resPaths[fieldName] = path
 			newArr.Release()
 		}
 
