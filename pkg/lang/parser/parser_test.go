@@ -838,11 +838,245 @@ workflow main ? error {
 `,
 			expectedErrs: 1,
 		},
+		{
+			name: "invalid data_literal object only",
+			input: `
+workflow main {
+  {a: 123}
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid data_literal empty object",
+			input: `
+workflow main {
+  {}
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid data_literal nested list",
+			input: `
+workflow main {
+  [{a: []}]
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid dataframe indentation",
+			input: `
+workflow main {
+  [
+{a: 1}
+  ]
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid indentation case 1",
+			input: `
+workflow main {
+  [
+    {a: 1}]
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "invalid indentation case 2",
+			input: `
+workflow main {
+  [
+    {a: 1
+    }
+  ]
+}
+`,
+			expectedErrs: 3,
+		},
+		{
+			name: "invalid indentation case 3",
+			input: `
+workflow main {
+  [{a: 1
+    }
+  ]
+}
+`,
+			expectedErrs: 5,
+		},
+		{
+			name: "invalid indentation case 4",
+			input: `
+workflow main {
+  [{a: 1}
+  ]
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "invalid step call empty dict no space",
+			input: `
+workflow main {
+  []
+    | io.test {}
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid multiline dict misaligned closer",
+			input: `
+workflow main {
+  []
+    | io.test {
+        config: "test"
+}
+    | step_test
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid dict started same line ended new line",
+			input: `
+workflow main {
+  []
+    | io.test { config: "test"
+      }
+    | step_test
+}
+`,
+			expectedErrs: 3,
+		},
+		{
+			name: "invalid dict started same line ended new line 2",
+			input: `
+workflow main {
+  []
+    | io.test { config: "test"
+}
+    | step_test
+}
+`,
+			expectedErrs: 3,
+		},
+		{
+			name: "invalid pipe and resource ref spacing",
+			input: `
+workflow main {
+  []
+    |<test=test>io.test { config: "test" config: "test2" }
+    | step_test
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "invalid resource ref spacing",
+			input: `
+workflow main {
+  []
+    | <test=test> io.test {config: "test" config: "test2"}
+    | step_test
+}
+`,
+			expectedErrs: 1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runParserTest(t, tt.input, tt.expectedErrs, nil)
+		})
+	}
+}
+
+func TestDataLiteralSyntax(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "empty list",
+			input: `
+workflow main {
+  []
+}
+`,
+		},
+		{
+			name: "object with unquoted key",
+			input: `
+workflow main {
+  [{a: 123}]
+}
+`,
+		},
+		{
+			name: "object with unquoted key and trailing comma",
+			input: `
+workflow main {
+  [{a: 123},]
+}
+`,
+		},
+		{
+			name: "object with quoted key",
+			input: `
+workflow main {
+  [{"a": 123}]
+}
+`,
+		},
+		{
+			name: "object with quoted key and trailing comma",
+			input: `
+workflow main {
+  [{"a": 123},]
+}
+`,
+		},
+		{
+			name: "multiple objects with trailing comma",
+			input: `
+workflow main {
+  [{"a": "text"},{"b": "text"},]
+}
+`,
+		},
+		{
+			name: "multiline indentation organization 1",
+			input: `
+workflow main {
+  [{
+    "a": "a"
+  }]
+}
+`,
+		},
+		{
+			name: "multiline indentation organization 2",
+			input: `
+workflow main {
+  [
+    {
+      "a": "a"
+    }
+  ]
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runParserTest(t, tt.input, 0, nil)
 		})
 	}
 }
@@ -921,9 +1155,7 @@ workflow lit_test {
       "float": 3.14,
       "bool_true": true,
       "bool_false": false,
-      "null_val": null,
-      "list": [1, 2, 3],
-      "nested": { "a": 1 }
+      "null_val": null
     }
   ]
   > data
@@ -943,8 +1175,8 @@ workflow lit_test {
 		dictRef := ctx.DictRefs[df.DictRefsStart]
 		dict := ctx.DictNodes[dictRef]
 		pairCount := dict.PairRefsEnd - dict.PairRefsStart
-		if pairCount != 8 {
-			t.Errorf("expected 8 pairs in dict, got %d", pairCount)
+		if pairCount != 6 {
+			t.Errorf("expected 6 pairs in dict, got %d", pairCount)
 		}
 	})
 }
@@ -969,4 +1201,201 @@ workflow main {
 			t.Errorf("expected 1 workflow, got %d", program.WorkflowRefsEnd-program.WorkflowRefsStart)
 		}
 	})
+}
+
+func TestStepCallSyntax(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		expectedErrs int
+	}{
+		{
+			name: "valid empty dict with space",
+			input: `
+workflow main {
+  []
+    | io.test { }
+}
+`,
+		},
+		{
+			name: "valid dict one line",
+			input: `
+workflow main {
+  []
+    | io.test { config: "test" }
+}
+`,
+		},
+		{
+			name: "valid dict one line multiple pairs",
+			input: `
+workflow main {
+  []
+    | io.test { config: "test", config2: "test2" }
+}
+`,
+		},
+		{
+			name: "valid multiline dict",
+			input: `
+workflow main {
+  []
+    | io.test {
+        config: "test"
+        config: "test2"
+    }
+    | step_test
+}
+`,
+		},
+		{
+			name: "valid multiline dict with resource ref",
+			input: `
+workflow main {
+  []
+    | <test=test> io.test {
+        config: "test"
+        config: "test2"
+    }
+    | step_test
+}
+`,
+		},
+		{
+			name: "valid one line dict with resource ref",
+			input: `
+workflow main {
+  []
+    | <test=test> io.test { config: "test", config2: "test2" }
+}
+`,
+		},
+		{
+			name: "invalid indentation case 1",
+			input: `
+workflow main {
+  [
+    {a: 1}]
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "invalid indentation case 2",
+			input: `
+workflow main {
+  [
+    {a: 1
+    }
+  ]
+}
+`,
+			expectedErrs: 3,
+		},
+		{
+			name: "invalid indentation case 3",
+			input: `
+workflow main {
+  [{a: 1
+    }
+  ]
+}
+`,
+			expectedErrs: 5,
+		},
+		{
+			name: "invalid indentation case 4",
+			input: `
+workflow main {
+  [{a: 1}
+  ]
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "invalid step call empty dict no space",
+			input: `
+workflow main {
+  []
+    | io.test {}
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid multiline dict misaligned closer",
+			input: `
+workflow main {
+  []
+    | io.test {
+        config: "test"
+}
+    | step_test
+}
+`,
+			expectedErrs: 1,
+		},
+		{
+			name: "invalid dict started same line ended new line",
+			input: `
+workflow main {
+  []
+    | io.test { config: "test"
+      }
+    | step_test
+}
+`,
+			expectedErrs: 3,
+		},
+		{
+			name: "invalid dict started same line ended new line 2",
+			input: `
+workflow main {
+  []
+    | io.test { config: "test"
+}
+    | step_test
+}
+`,
+			expectedErrs: 3,
+		},
+		{
+			name: "invalid pipe and resource ref spacing",
+			input: `
+workflow main {
+  []
+    |<test=test>io.test { config: "test" config: "test2" }
+    | step_test
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "invalid resource ref spacing",
+			input: `
+workflow main {
+  []
+    | <test=test> io.test {config: "test" config: "test2"}
+    | step_test
+}
+`,
+			expectedErrs: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lexer.New(tt.input)
+			ctx := ast.AcquireASTContext()
+			defer ast.ReleaseASTContext(ctx)
+			p := New(l, ctx)
+			p.Parse()
+			errs := p.Errors()
+			if len(errs) != tt.expectedErrs {
+				t.Errorf("expected %d errors, got %d: %v", tt.expectedErrs, len(errs), errs)
+			}
+		})
+	}
 }

@@ -20,8 +20,13 @@ type Parser struct {
 	l          *lexer.Lexer    // Source of tokens.
 	curToken   lexer.Token     // Current token being processed.
 	peekTokens []lexer.Token   // Buffer for lookahead tokens.
-	ctx        *ast.ASTContext // Central registry for AST nodes and string pooling.
-	errors     []ParserError   // Collected diagnostic errors.
+	ctx              *ast.ASTContext // Central registry for AST nodes and string pooling.
+	errors           []ParserError   // Collected diagnostic errors.
+	prevTokenEndLine    uint32          // End line of the most recently consumed token.
+	prevTokenEndCol     uint32          // End column of the most recently consumed token.
+	curLineStartCol     uint32          // Column of the first token on the current line.
+	curLine             uint32          // Current line number being processed.
+	lineStartCols       map[uint32]uint32 // Map of line number to its first token's column.
 }
 
 // Parse executes the parsing logic to construct a ProgramNode.
@@ -212,7 +217,14 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 
 	// Optional resource_ref: [ resource_ref ]
 	if p.curTokenIs(lexer.LANGLE) {
+		// The resource ref could end on a different line if it's very long, but let's assume same line for now
 		fr.ResourcesRefRef = p.parseResourceRef()
+		// After parseResourceRef, p.curToken is the token AFTER the closing '>'
+		// We want to know the end position of the '>'
+		// Since we don't track RANGLE's end position easily, we can use p.prevTokenEndCol and p.prevTokenEndLine
+		if p.curToken.Line == int(p.prevTokenEndLine) && p.curToken.Column == int(p.prevTokenEndCol) {
+			p.curError("missing space after resource ref")
+		}
 	}
 
 	// [ IDENTIFIER "." ] IDENTIFIER
@@ -235,7 +247,7 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 
 	// [ function_config ]
 	if p.curTokenIs(lexer.LBRACE) {
-		fr.ConfigRef = p.parseDict()
+		fr.ConfigRef = p.parseDict(true)
 	}
 
 	return p.ctx.AddFunctionRefNode(fr)
@@ -480,6 +492,9 @@ func (p *Parser) parsePipeChain() ast.NodeRef {
 				p.curError("pipe cannot follow a call on the same line; use a newline")
 			}
 			p.nextToken() // Move past '|'
+			if p.curToken.Line == int(p.prevTokenEndLine) && p.curToken.Column == int(p.prevTokenEndCol) {
+				p.curError("missing space after pipe")
+			}
 			p.ctx.AddCallRef(p.parseCall())
 			continue
 		}
@@ -601,22 +616,65 @@ func (p *Parser) parseCall() ast.NodeRef {
 
 // parseDataframe parses a list of dictionaries representing a tabular data structure.
 func (p *Parser) parseDataframe() ast.NodeRef {
+	openerLine := uint32(p.curToken.Line)
+	openerColumn := uint32(p.curToken.Column)
+	openerLineStartCol := p.lineStartCols[openerLine]
 	node := ast.DataframeNode{
 		DictRefsStart: uint32(len(p.ctx.DictRefs)),
 	}
 	p.nextToken() // Skip '['
+
+	isMultiline := false
+	if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.DEDENT) {
+		isMultiline = true
+		if p.curTokenIs(lexer.DEDENT) {
+			p.curError("expected indentation after newline in dataframe")
+		} else {
+			p.nextToken() // Skip NEWLINE
+			if !p.curTokenIs(lexer.INDENT) {
+				p.curError("expected indentation after newline in dataframe")
+			} else {
+				p.nextToken() // Skip INDENT
+			}
+		}
+	}
+
+	lastContentEndLine := openerLine
 	for !p.curTokenIs(lexer.RBRACKET) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.COMMA) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+		if p.curTokenIs(lexer.NEWLINE) {
+			if !isMultiline {
+				p.curError("newline not allowed in single-line dataframe")
+			}
+			p.nextToken()
+			continue
+		}
+		if p.curTokenIs(lexer.COMMA) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}
 		if p.curTokenIs(lexer.LBRACE) {
-			p.ctx.AddDictRef(p.parseDict())
+			p.ctx.AddDictRef(p.parseDict(false))
+			lastContentEndLine = p.prevTokenEndLine
 			continue
 		}
 		p.curError("unexpected token in dataframe")
 		p.nextToken()
 	}
+
+	if isMultiline {
+		if uint32(p.curToken.Line) == lastContentEndLine && !p.curTokenIs(lexer.EOF) {
+			p.curError("closing bracket must be on a new line in multiline dataframe")
+		}
+		col := uint32(p.curToken.Column)
+		if (col < openerLineStartCol || col > openerColumn) && !p.curTokenIs(lexer.EOF) {
+			p.curError("misaligned closer")
+		}
+	} else {
+		if uint32(p.curToken.Line) != openerLine && uint32(p.curToken.Line) != lastContentEndLine && !p.curTokenIs(lexer.EOF) {
+			p.curError("closing bracket must be on the same line in single-line dataframe")
+		}
+	}
+
 	if p.curTokenIs(lexer.RBRACKET) {
 		p.nextToken()
 	}
@@ -625,13 +683,40 @@ func (p *Parser) parseDataframe() ast.NodeRef {
 }
 
 // parseDict parses a key-value dictionary block.
-func (p *Parser) parseDict() ast.NodeRef {
+func (p *Parser) parseDict(allowNested bool) ast.NodeRef {
+	openerLine := uint32(p.curToken.Line)
+	openerColumn := uint32(p.curToken.Column)
+	openerLineStartCol := p.lineStartCols[openerLine]
 	var pairs []ast.NodeRef
 	p.expectCur(lexer.LBRACE)
 	p.nextToken()
 
+	// Handle multiline indentation enforcement
+	isMultiline := false
+	if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.DEDENT) {
+		isMultiline = true
+		if p.curTokenIs(lexer.DEDENT) {
+			p.curError("expected indentation after newline in dict")
+		} else {
+			p.nextToken() // Skip NEWLINE
+			if !p.curTokenIs(lexer.INDENT) {
+				p.curError("expected indentation after newline in dict")
+			} else {
+				p.nextToken() // Skip INDENT
+			}
+		}
+	}
+
+	lastContentEndLine := openerLine
 	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+		if p.curTokenIs(lexer.NEWLINE) {
+			if !isMultiline {
+				p.curError("newline not allowed in single-line dict")
+			}
+			p.nextToken()
+			continue
+		}
+		if p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 			continue
 		}
@@ -641,19 +726,39 @@ func (p *Parser) parseDict() ast.NodeRef {
 			}
 			if p.expectPeek(lexer.COLON) {
 				p.nextToken()
-				pair.ValueRef = p.parseLiteral()
+				pair.ValueRef = p.parseLiteral(allowNested)
 			} else {
 				pair.ValueRef = 0
 				p.nextToken()
 			}
+			lastContentEndLine = p.prevTokenEndLine
 			pairs = append(pairs, p.ctx.AddPairNode(pair))
 			if p.curTokenIs(lexer.COMMA) {
 				p.nextToken()
+			} else if !isMultiline && !p.curTokenIs(lexer.RBRACE) {
+				p.curError("pairs in single-line dict must be comma-separated")
 			}
 			continue
 		}
 		p.curError("unexpected token in dict")
 		p.nextToken()
+	}
+
+	if isMultiline {
+		if uint32(p.curToken.Line) == lastContentEndLine && !p.curTokenIs(lexer.EOF) {
+			p.curError("closing brace must be on a new line in multiline dict")
+		}
+		col := uint32(p.curToken.Column)
+		if (col < openerLineStartCol || col > openerColumn) && !p.curTokenIs(lexer.EOF) {
+			p.curError("misaligned closer")
+		}
+	} else {
+		if uint32(p.curToken.Line) != openerLine && uint32(p.curToken.Line) != lastContentEndLine && !p.curTokenIs(lexer.EOF) {
+			p.curError("closing brace must be on the same line in single-line dict")
+		}
+		if len(pairs) == 0 && uint32(p.curToken.Column) == openerColumn+1 {
+			p.curError("empty single-line dict must have at least one space or be multiline")
+		}
 	}
 
 	if p.curTokenIs(lexer.RBRACE) {
@@ -671,16 +776,59 @@ func (p *Parser) parseDict() ast.NodeRef {
 }
 
 // parseList parses a square-bracketed list of literal values.
-func (p *Parser) parseList() ast.NodeRef {
+func (p *Parser) parseList(allowNested bool) ast.NodeRef {
+	openerLine := uint32(p.curToken.Line)
+	openerColumn := uint32(p.curToken.Column)
+	openerLineStartCol := p.lineStartCols[openerLine]
 	var literals []ast.NodeRef
 	p.nextToken() // Skip '['
+
+	isMultiline := false
+	if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.DEDENT) {
+		isMultiline = true
+		if p.curTokenIs(lexer.DEDENT) {
+			p.curError("expected indentation after newline in list")
+		} else {
+			p.nextToken() // Skip NEWLINE
+			if !p.curTokenIs(lexer.INDENT) {
+				p.curError("expected indentation after newline in list")
+			} else {
+				p.nextToken() // Skip INDENT
+			}
+		}
+	}
+
+	lastContentEndLine := openerLine
 	for !p.curTokenIs(lexer.RBRACKET) && !p.curTokenIs(lexer.EOF) {
-		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.COMMA) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+		if p.curTokenIs(lexer.NEWLINE) {
+			if !isMultiline {
+				p.curError("newline not allowed in single-line list")
+			}
 			p.nextToken()
 			continue
 		}
-		literals = append(literals, p.parseLiteral())
+		if p.curTokenIs(lexer.COMMA) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+			p.nextToken()
+			continue
+		}
+		literals = append(literals, p.parseLiteral(allowNested))
+		lastContentEndLine = p.prevTokenEndLine
 	}
+
+	if isMultiline {
+		if uint32(p.curToken.Line) == lastContentEndLine && !p.curTokenIs(lexer.EOF) {
+			p.curError("closing bracket must be on a new line in multiline list")
+		}
+		col := uint32(p.curToken.Column)
+		if (col < openerLineStartCol || col > openerColumn) && !p.curTokenIs(lexer.EOF) {
+			p.curError("misaligned closer")
+		}
+	} else {
+		if uint32(p.curToken.Line) != openerLine && uint32(p.curToken.Line) != lastContentEndLine && !p.curTokenIs(lexer.EOF) {
+			p.curError("closing bracket must be on the same line in single-line list")
+		}
+	}
+
 	if p.curTokenIs(lexer.RBRACKET) {
 		p.nextToken()
 	}
@@ -696,7 +844,7 @@ func (p *Parser) parseList() ast.NodeRef {
 }
 
 // parseLiteral parses primitive values, strings, numbers, booleans, nulls, or nested structures.
-func (p *Parser) parseLiteral() ast.NodeRef {
+func (p *Parser) parseLiteral(allowNested bool) ast.NodeRef {
 	node := ast.LiteralNode{}
 	switch p.curToken.Type {
 	case lexer.STRING_LIT:
@@ -724,11 +872,17 @@ func (p *Parser) parseLiteral() ast.NodeRef {
 		node.ValueRef = p.ctx.AddString("null")
 		p.nextToken()
 	case lexer.LBRACE:
+		if !allowNested {
+			p.curError("nested dictionaries are not allowed in this context")
+		}
 		node.Type = ast.LiteralDict
-		node.Ref = p.parseDict()
+		node.Ref = p.parseDict(allowNested)
 	case lexer.LBRACKET:
+		if !allowNested {
+			p.curError("nested lists are not allowed in this context")
+		}
 		node.Type = ast.LiteralList
-		node.Ref = p.parseList()
+		node.Ref = p.parseList(allowNested)
 	default:
 		p.curError("expected literal")
 		p.nextToken()
@@ -746,9 +900,48 @@ func (p *Parser) curTokenIs(t lexer.TokenType) bool {
 	return p.curToken.Type == t
 }
 
-// nextToken advances the parser to the next token from the lexer or peek buffer.
+func (p *Parser) checkWhitespace(tok lexer.Token, next lexer.Token, msg string) {
+	if next.Type == lexer.NEWLINE || next.Type == lexer.INDENT || next.Type == lexer.DEDENT || next.Type == lexer.EOF {
+		return
+	}
+	if uint32(tok.EndColumn) == uint32(next.Column) && uint32(tok.Line) == uint32(next.Line) {
+		p.errors = append(p.errors, ParserError{
+			Message: msg,
+			Line:    tok.Line,
+			Column:  tok.Column,
+		})
+	}
+}
+
+func (p *Parser) prevToken() lexer.Token {
+	// Synthesize a token with just the info we need for spacing checks
+	return lexer.Token{
+		EndColumn: int(p.prevTokenEndCol),
+		Line:      int(p.prevTokenEndLine),
+	}
+}
+
 func (p *Parser) nextToken() {
+	p.prevTokenEndLine = uint32(p.curToken.EndLine)
+	p.prevTokenEndCol = uint32(p.curToken.EndColumn)
 	p.curToken = p.peek(0)
+	if _, ok := p.lineStartCols[uint32(p.curToken.Line)]; !ok {
+		// Only track the first token that isn't a formatting token
+		if p.curToken.Type != lexer.INDENT && p.curToken.Type != lexer.DEDENT && p.curToken.Type != lexer.NEWLINE {
+			p.lineStartCols[uint32(p.curToken.Line)] = uint32(p.curToken.Column)
+		}
+	}
+	// Track the column of the first token on each line
+	if uint32(p.curToken.Line) > p.curLine {
+		p.curLine = uint32(p.curToken.Line)
+		if p.curToken.Type != lexer.INDENT && p.curToken.Type != lexer.DEDENT && p.curToken.Type != lexer.NEWLINE {
+			p.curLineStartCol = uint32(p.curToken.Column)
+		} else {
+			p.curLineStartCol = 0 // Will be set by the next meaningful token on this line
+		}
+	} else if p.curLineStartCol == 0 && p.curToken.Type != lexer.INDENT && p.curToken.Type != lexer.DEDENT && p.curToken.Type != lexer.NEWLINE {
+		p.curLineStartCol = uint32(p.curToken.Column)
+	}
 	if len(p.peekTokens) > 0 {
 		p.peekTokens = p.peekTokens[1:]
 	}
@@ -833,6 +1026,7 @@ func New(l *lexer.Lexer, ctx *ast.ASTContext) *Parser {
 		l:   l,
 		ctx: ctx,
 	}
+	p.lineStartCols = make(map[uint32]uint32)
 	p.nextToken()
 	return p
 }

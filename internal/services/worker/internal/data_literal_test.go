@@ -13,9 +13,9 @@ import (
 
 func TestExecuteDataLiteral(t *testing.T) {
 	registry := locality.NewDataLocalityRegistry()
-	data := []any{
-		map[string]any{"id": float64(1), "name": "Alice"},
-		map[string]any{"id": float64(2), "name": "Bob"},
+	data := []map[string]any{
+		{"id": float64(1), "name": "Alice"},
+		{"id": float64(2), "name": "Bob"},
 	}
 	task := models.StepExecutionTask{
 		WorkflowID: "wf-data-1",

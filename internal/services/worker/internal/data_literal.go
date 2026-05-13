@@ -23,7 +23,7 @@ func ExecuteDataLiteral(ctx context.Context, task models.StepExecutionTask, regi
 		return models.TaskResult{}, fmt.Errorf("data_literal: missing 'data' in config")
 	}
 
-	listData, ok := data.([]any)
+	listData, ok := data.([]map[string]any)
 	if !ok {
 		return models.TaskResult{}, fmt.Errorf("data_literal: 'data' must be a list of objects")
 	}
@@ -68,15 +68,12 @@ func ExecuteDataLiteral(ctx context.Context, task models.StepExecutionTask, regi
 	}, nil
 }
 
-func convertToArrowRecord(data []any) (arrow.Record, error) {
+func convertToArrowRecord(data []map[string]any) (arrow.Record, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("data is empty")
 	}
 
-	first, ok := data[0].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid data format: expected list of maps, got %T", data[0])
-	}
+	first := data[0]
 
 	// 1. Infer schema from first element
 	keys := make([]string, 0, len(first))
@@ -116,12 +113,8 @@ func convertToArrowRecord(data []any) (arrow.Record, error) {
 	}()
 
 	for _, item := range data {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
 		for i, f := range fields {
-			val := m[f.Name]
+			val := item[f.Name]
 			if val == nil {
 				builders[i].AppendNull()
 				continue
