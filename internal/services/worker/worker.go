@@ -4,13 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -18,6 +14,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
+	"github.com/galgotech/heddle-lang/internal/services/worker/internal"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
@@ -206,163 +203,13 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 	stepName := task.Step.Call[1]
 	logger.L().Info("Executing internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
 
-	switch stepName {
-	case "identity":
-		// TODO: Implement identity step
-		return models.TaskResult{
-			TaskID: task.TaskID,
-			Status: models.TaskStatusSuccess,
-		}, nil
-	case "prql":
-		// TODO: Implement PRQL execution via DataFusion
-		return models.TaskResult{
-			TaskID: task.TaskID,
-			Status: models.TaskStatusSuccess,
-		}, nil
-	case "data_literal":
-		logger.L().Info("Executing data_literal step", zap.String("task_id", task.TaskID))
-
-		data, ok := task.Step.Config["data"]
-		if !ok {
-			return models.TaskResult{}, fmt.Errorf("data_literal: missing 'data' in config")
-		}
-
-		listData, ok := data.([]any)
-		if !ok {
-			return models.TaskResult{}, fmt.Errorf("data_literal: 'data' must be a list of objects")
-		}
-
-		record, err := convertToArrowRecord(listData)
-		if err != nil {
-			return models.TaskResult{}, fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
-		}
-
-		// Store data in the locality registry for zero-copy access by plugins.
-		// The task ID serves as the handle for subsequent steps.
-		handle := task.TaskID
-
-		paths := make(map[string]string)
-		schema := record.Schema()
-		for i := 0; i < int(record.NumCols()); i++ {
-			field := schema.Field(i)
-			arr := record.Column(i)
-			path, err := locality.WriteArrowArrayToShm(field, arr)
-			if err != nil {
-				return models.TaskResult{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
-			}
-			paths[field.Name] = path
-			logger.L().Info("Allocated data_literal column to SHM", zap.String("handle", handle), zap.String("field", field.Name), zap.String("path", path))
-		}
-
-		// literal_data always is first step the tips is void -> data_type
-		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
-		if isOutputVoid {
-			logger.L().Warn("data_literal is first step and output is void, this is not expected", zap.String("handle", handle))
-		}
-
-		// Register the data in the locality registry
-		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, paths)); err != nil {
-			return models.TaskResult{}, fmt.Errorf("data_literal: failed to register in locality registry: %w", err)
-		}
-
-		return models.TaskResult{
-			TaskID: task.TaskID,
-			Status: models.TaskStatusSuccess,
-		}, nil
-
-	case "compress":
-		logger.L().Info("Executing compress step", zap.String("task_id", task.TaskID))
-
-		// 1. Resolve input metadata to get SHM path and Dirty path
-		meta, ok := w.Registry.GetMetadata(task.WorkflowID, task.PreviousTaskID, locality.Output)
-		if !ok {
-			return models.TaskResult{}, fmt.Errorf("compress: input metadata not found for task %s", task.PreviousTaskID)
-		}
-
-		if len(meta.Paths) == 0 {
-			return models.TaskResult{}, fmt.Errorf("compress: input paths are empty")
-		}
-
-		// Since compress needs the whole record, we have to construct it or do this per column.
-		// For now, let's process column by column.
-		resPaths := make(map[string]string)
-
-		// 3. Read Dirty Bitmap. Assuming compress can use any of the dirty bitmaps, or they are identical.
-		// In a column-wise setup, we might need a common dirty path or assume they are combined.
-		// Let's just grab the first one we find.
-		var dirtyPath string
-		for _, dp := range meta.DirtyPaths {
-			if dp != "" {
-				dirtyPath = dp
-				break
-			}
-		}
-
-		if dirtyPath == "" {
-			// No dirty bits, identity operation
-			if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, meta.Paths)); err != nil {
-				return models.TaskResult{}, err
-			}
-			return models.TaskResult{TaskID: task.TaskID, Status: models.TaskStatusSuccess}, nil
-		}
-
-		dirty, err := locality.ReadDirtyFromPath(dirtyPath)
-		if err != nil {
-			return models.TaskResult{}, fmt.Errorf("compress: failed to read dirty bits: %w", err)
-		}
-
-		mem := memory.NewGoAllocator()
-
-		for fieldName, path := range meta.Paths {
-			arr, err := locality.ReadArrowArrayFromPath(path)
-			if err != nil {
-				return models.TaskResult{}, fmt.Errorf("compress: failed to read input for %s: %w", fieldName, err)
-			}
-
-			validRows := make([]int, 0, arr.Len())
-			for i := 0; i < arr.Len(); i++ {
-				isDirty := (dirty[i/64] & (1 << (uint(i) % 64))) != 0
-				if !isDirty {
-					validRows = append(validRows, i)
-				}
-			}
-
-			if len(validRows) == arr.Len() {
-				resPaths[fieldName] = path
-				arr.Release()
-				continue
-			}
-
-			builder := array.NewBuilder(mem, arr.DataType())
-			for _, rowIdx := range validRows {
-				appendRecordValue(builder, arr, rowIdx)
-			}
-			newArr := builder.NewArray()
-			builder.Release()
-			arr.Release()
-
-			field := arrow.Field{Name: fieldName, Type: newArr.DataType(), Nullable: true}
-			path, err := locality.WriteArrowArrayToShm(field, newArr)
-			if err != nil {
-				newArr.Release()
-				return models.TaskResult{}, fmt.Errorf("compress: failed to write result: %w", err)
-			}
-			resPaths[fieldName] = path
-			newArr.Release()
-		}
-
-		if err := w.Registry.Put(locality.NewMetadata(task.WorkflowID, task.TaskID, locality.Output, resPaths)); err != nil {
-			return models.TaskResult{}, err
-		}
-
-		return models.TaskResult{
-			TaskID: task.TaskID,
-			Status: models.TaskStatusSuccess,
-		}, nil
+	stepFunc, ok := internal.Registry[stepName]
+	if !ok {
+		logger.L().Error("Unknown internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
+		return models.TaskResult{}, fmt.Errorf("unknown internal step: %s", stepName)
 	}
 
-	logger.L().Error("Unknown internal step", zap.String("step", stepName), zap.String("task_id", task.TaskID))
-	return models.TaskResult{}, fmt.Errorf("unknown internal step: %s", stepName)
+	return stepFunc(ctx, task, w.Registry)
 }
 
 func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) error {
@@ -441,117 +288,4 @@ func NewWorker(cpAddr string, socketPath string) (*Worker, error) {
 		Ready:                make(chan struct{}),
 		Registry:             locality.NewDataLocalityRegistry(),
 	}, nil
-}
-
-func convertToArrowRecord(data []any) (arrow.Record, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("data is empty")
-	}
-
-	first, ok := data[0].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid data format: expected list of maps, got %T", data[0])
-	}
-
-	// 1. Infer schema from first element
-	keys := make([]string, 0, len(first))
-	for k := range first {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	fields := make([]arrow.Field, 0, len(keys))
-	for _, k := range keys {
-		v := first[k]
-		var dt arrow.DataType
-		switch v.(type) {
-		case float64:
-			dt = arrow.PrimitiveTypes.Float64
-		case string:
-			dt = arrow.BinaryTypes.String
-		case bool:
-			dt = arrow.FixedWidthTypes.Boolean
-		default:
-			dt = arrow.BinaryTypes.String // Fallback
-		}
-		fields = append(fields, arrow.Field{Name: k, Type: dt})
-	}
-	schema := arrow.NewSchema(fields, nil)
-
-	// 2. Build columns
-	mem := memory.NewGoAllocator()
-	builders := make([]array.Builder, len(fields))
-	for i, f := range fields {
-		builders[i] = array.NewBuilder(mem, f.Type)
-	}
-	defer func() {
-		for _, b := range builders {
-			b.Release()
-		}
-	}()
-
-	for _, item := range data {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		for i, f := range fields {
-			val := m[f.Name]
-			if val == nil {
-				builders[i].AppendNull()
-				continue
-			}
-
-			switch b := builders[i].(type) {
-			case *array.Float64Builder:
-				if fv, ok := val.(float64); ok {
-					b.Append(fv)
-				} else {
-					b.AppendNull()
-				}
-			case *array.StringBuilder:
-				b.Append(fmt.Sprint(val))
-			case *array.BooleanBuilder:
-				if bv, ok := val.(bool); ok {
-					b.Append(bv)
-				} else {
-					b.AppendNull()
-				}
-			default:
-				builders[i].AppendNull()
-			}
-		}
-	}
-
-	cols := make([]arrow.Array, len(fields))
-	for i := range fields {
-		cols[i] = builders[i].NewArray()
-	}
-	defer func() {
-		for _, c := range cols {
-			c.Release()
-		}
-	}()
-
-	return array.NewRecord(schema, cols, int64(len(data))), nil
-}
-
-func appendRecordValue(b array.Builder, arr arrow.Array, rowIdx int) {
-	if arr.IsNull(rowIdx) {
-		b.AppendNull()
-		return
-	}
-
-	switch builder := b.(type) {
-	case *array.Int64Builder:
-		builder.Append(arr.(*array.Int64).Value(rowIdx))
-	case *array.Int32Builder:
-		builder.Append(arr.(*array.Int32).Value(rowIdx))
-	case *array.StringBuilder:
-		builder.Append(arr.(*array.String).Value(rowIdx))
-	case *array.BooleanBuilder:
-		builder.Append(arr.(*array.Boolean).Value(rowIdx))
-	case *array.Float64Builder:
-		builder.Append(arr.(*array.Float64).Value(rowIdx))
-	}
 }

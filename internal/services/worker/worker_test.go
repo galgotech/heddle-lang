@@ -95,9 +95,6 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	os.Remove(socketPath)
 	w.PluginServer = NewPluginServer(socketPath)
 
-	// Override Start logic to avoid blocking forever in startTaskLoop for this test
-	// We'll just test registration and heartbeat
-
 	go func() {
 		w.Start(ctx)
 	}()
@@ -229,6 +226,71 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	case update := <-mock.Capabilities:
 		assert.Contains(t, update.Capabilities, "test-ns.step1")
 		assert.Contains(t, update.Capabilities, "test-ns.step2")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for capability update")
+	}
+}
+
+func TestWorker_ProtectInternalNamespace(t *testing.T) {
+	mock := &mockControlPlane{
+		RegisteredWorkers: make(chan models.WorkerRegistration, 1),
+		RegisteredIDs:     make(chan string, 1),
+		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 10),
+	}
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, mock)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	socketPath := "/tmp/heddle-worker-protect-test.sock"
+	os.Remove(socketPath)
+
+	w, err := NewWorker(lis.Addr().String(), socketPath)
+	require.NoError(t, err)
+
+	go w.Start(ctx)
+
+	// Wait for initial registration
+	select {
+	case update := <-mock.Capabilities:
+		assert.Contains(t, update.Capabilities, "__internal.identity")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for initial capabilities")
+	}
+
+	// Connect as a plugin and try to register an internal capability
+	conn, err := grpc.NewClient("unix://"+socketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := flight.NewClientFromConn(conn, nil)
+
+	reg := plugin.PluginRegistration{
+		Namespace:    "evil-plugin",
+		Language:     "go",
+		Capabilities: []string{"__internal.identity", "normal-step"},
+	}
+	body, _ := json.Marshal(reg)
+	_, err = client.DoAction(ctx, &flight.Action{
+		Type: plugin.ActionRegisterPlugin,
+		Body: body,
+	})
+	require.NoError(t, err)
+
+	// Verify that normal-step was added but __internal.identity was ignored
+	select {
+	case update := <-mock.Capabilities:
+		assert.Contains(t, update.Capabilities, "normal-step")
+		// The count should be 5: identity, prql, data_literal, compress + normal-step
+		assert.Len(t, update.Capabilities, 5)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for capability update")
 	}
