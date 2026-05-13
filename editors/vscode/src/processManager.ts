@@ -24,10 +24,16 @@ export class ProcessManager {
         this.outputChannel.appendLine(`[${prefix}] Starting process: ${command} ${args.join(' ')} in ${cwd}`);
 
         try {
+            const isWindows = process.platform === 'win32';
             const child = cp.spawn(command, args, {
                 cwd,
-                shell: true // Useful for some platforms/commands
+                shell: false, // Disable shell to get the direct PID of the process
+                detached: !isWindows // Create a new process group on Unix
             });
+
+            if (child.pid) {
+                this.outputChannel.appendLine(`[${prefix}] Process started with PID: ${child.pid}`);
+            }
 
             child.stdout?.on('data', (data) => {
                 this.formatLog(prefix, data);
@@ -72,9 +78,45 @@ export class ProcessManager {
     public stop(id: string): void {
         const child = this.processes.get(id);
         if (child) {
-            this.outputChannel.appendLine(`Stopping process: ${id}`);
-            // Use a more forceful kill if necessary, but start with SIGTERM
-            child.kill();
+            const pid = child.pid;
+            this.outputChannel.appendLine(`Stopping process: ${id} (PID: ${pid})`);
+            
+            if (pid) {
+                try {
+                    if (process.platform !== 'win32') {
+                        // 1. Try to kill the entire process group with SIGTERM
+                        try {
+                            process.kill(-pid, 'SIGTERM');
+                        } catch (e) {
+                            // If group kill fails (e.g. not a leader), kill the process itself
+                            try { process.kill(pid, 'SIGTERM'); } catch (e2) {}
+                        }
+                        
+                        // 2. Set a more aggressive timeout for SIGKILL
+                        setTimeout(() => {
+                            try {
+                                // Check if process still exists
+                                process.kill(pid, 0);
+                                // If it does, be more aggressive
+                                this.outputChannel.appendLine(`Process ${id} (${pid}) still running after SIGTERM, sending SIGKILL...`);
+                                try { process.kill(-pid, 'SIGKILL'); } catch (e) {
+                                    try { process.kill(pid, 'SIGKILL'); } catch (e2) {}
+                                }
+                            } catch (e) {
+                                // Process is already gone
+                            }
+                        }, 1000);
+                    } else {
+                        // On Windows, use taskkill to kill the process tree
+                        cp.exec(`taskkill /pid ${pid} /T /F`);
+                    }
+                } catch (err: any) {
+                    this.outputChannel.appendLine(`Error killing process ${id}: ${err.message}`);
+                }
+            } else {
+                child.kill('SIGKILL');
+            }
+
             this.processes.delete(id);
             this.updateContext(id, ProcessStatus.Stopped);
             this._onStatusChange.fire(id);

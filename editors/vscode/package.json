@@ -76,6 +76,11 @@
       {
         "command": "heddle.editPluginSource",
         "title": "Edit Heddle SDK Plugin Source"
+      },
+      {
+        "command": "heddle.removePlugin",
+        "title": "Remove Plugin",
+        "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
@@ -143,6 +148,11 @@
         {
           "command": "heddle.restartPlugin",
           "when": "view == heddle-sdk-plugins && viewItem == pluginRunning",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.removePlugin",
+          "when": "view == heddle-sdk-plugins",
           "group": "inline"
         }
       ],

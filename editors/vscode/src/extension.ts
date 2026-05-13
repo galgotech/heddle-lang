@@ -152,6 +152,16 @@ export async function activate(context: ExtensionContext) {
             await commands.executeCommand('heddle.startPlugin', item);
         }
     }));
+    
+    context.subscriptions.push(commands.registerCommand('heddle.removePlugin', async (item: HeddleTreeItem) => {
+        if (item && item.path) {
+            const confirm = await window.showWarningMessage(`Are you sure you want to remove the plugin '${path.basename(item.path)}'?`, { modal: true }, 'Yes', 'No');
+            if (confirm === 'Yes') {
+                processManager.stop(item.itemId);
+                sdkPluginsProvider.removeFolder(item.path);
+            }
+        }
+    }));
 
     context.subscriptions.push(commands.registerCommand('heddle.editPluginSource', (uri: Uri) => {
         if (uri) {
