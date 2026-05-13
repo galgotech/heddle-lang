@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { workspace, ExtensionContext, debug, DebugAdapterDescriptorFactory, DebugSession, DebugAdapterDescriptor, DebugAdapterExecutable, window, commands, Uri, OutputChannel } from 'vscode';
+import { workspace, ExtensionContext, debug, DebugAdapterDescriptorFactory, DebugSession, DebugAdapterDescriptor, DebugAdapterExecutable, window, commands, Uri, OutputChannel, languages, Disposable } from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -17,29 +17,30 @@ export async function activate(context: ExtensionContext) {
     const outputChannel = window.createOutputChannel("Heddle");
     context.subscriptions.push(outputChannel);
     outputChannel.appendLine("Heddle Extension Activating...");
+    const envService = new EnvironmentService();
+    configManager = new ConfigurationManager(workspace, () => { }, envService);
 
     let providersDisposables: Disposable[] = [];
     const diagnosticCollection = languages.createDiagnosticCollection('heddle');
     context.subscriptions.push(diagnosticCollection);
 
-    const envService = new EnvironmentService();
     const terminalManager = new TerminalManager();
     context.subscriptions.push({ dispose: () => terminalManager.dispose() });
 
     const startServices = async () => {
-        let lspPath = workspace.getConfiguration('heddle').get<string>('lspPath');
-        if (!lspPath) {
-            lspPath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle-lsp');
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('lspPath') || workspace.getConfiguration('heddle').get<string>('path');
+        if (!heddlePath) {
+            heddlePath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle');
         }
-        outputChannel.appendLine(`Starting Heddle LSP from: '${lspPath}'`);
+        outputChannel.appendLine(`Starting Heddle LSP using: '${heddlePath}'`);
 
         if (client) {
             await client.stop();
         }
 
         const serverOptions: ServerOptions = {
-            command: lspPath,
-            args: [],
+            command: heddlePath,
+            args: ['development', 'lsp'],
             options: {
                 cwd: context.extensionPath
             },
@@ -80,12 +81,12 @@ export async function activate(context: ExtensionContext) {
             return;
         }
 
-        let clientPath = workspace.getConfiguration('heddle').get<string>('clientPath');
-        if (!clientPath) {
-            clientPath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle-client');
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('clientPath') || workspace.getConfiguration('heddle').get<string>('path');
+        if (!heddlePath) {
+            heddlePath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle');
         }
 
-        const cmd = `${clientPath} submit "${fileUri.fsPath}"`;
+        const cmd = `${heddlePath} run "${fileUri.fsPath}"`;
         outputChannel.appendLine(`Running command: ${cmd}`);
         terminalManager.executeCommand(cmd);
     }));
@@ -110,16 +111,16 @@ class HeddleDebugAdapterDescriptorFactory implements DebugAdapterDescriptorFacto
     }
 
     async createDebugAdapterDescriptor(session: DebugSession, executable: DebugAdapterExecutable | undefined): Promise<DebugAdapterDescriptor> {
-        let dapPath = workspace.getConfiguration('heddle').get<string>('dapPath');
-        if (!dapPath) {
-            dapPath = path.join(this.context.extensionPath, '..', '..', 'bin', 'heddle-dap');
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('dapPath') || workspace.getConfiguration('heddle').get<string>('path');
+        if (!heddlePath) {
+            heddlePath = path.join(this.context.extensionPath, '..', '..', 'bin', 'heddle');
         }
 
         const workspaceFolder = workspace.workspaceFolders?.[0]?.uri.fsPath || '';
         const cwd = workspaceFolder || this.context.extensionPath;
-        this.outputChannel.appendLine(`Launching Debug Adapter: command='${dapPath}', cwd='${cwd}'`);
+        this.outputChannel.appendLine(`Launching Debug Adapter: command='${heddlePath}', args='development dap', cwd='${cwd}'`);
 
-        return new DebugAdapterExecutable(dapPath, [], {
+        return new DebugAdapterExecutable(heddlePath, ['development', 'dap'], {
             cwd: cwd,
             env: process.env as { [key: string]: string },
         });

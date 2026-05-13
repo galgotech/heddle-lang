@@ -5,7 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/internal/services/lsp"
 	"github.com/galgotech/heddle-lang/pkg/config"
 )
 
@@ -28,7 +30,15 @@ var LspCmd = &cobra.Command{
 		return config.Init("HEDDLE_LSP", lspCfgFile)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		logger := zap.L()
+		server := lsp.NewServer(logger)
 
+		rw := stdioRW{cmd.InOrStdin(), cmd.OutOrStdout()}
+		defer rw.Close()
+
+		if err := server.Start(cmd.Context(), rw); err != nil {
+			logger.Fatal("LSP server failed", zap.Error(err))
+		}
 	},
 }
 

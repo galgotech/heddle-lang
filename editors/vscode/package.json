@@ -66,10 +66,15 @@
       "type": "object",
       "title": "Heddle",
       "properties": {
+        "heddle.path": {
+          "type": "string",
+          "default": "",
+          "description": "Optional: Custom path to the heddle CLI binary."
+        },
         "heddle.lspPath": {
           "type": "string",
           "default": "",
-          "description": "Optional: Custom path to the heddle-lsp binary."
+          "description": "Optional: Custom path to the heddle LSP binary (if you want to override heddle.path)."
         }
       }
     },

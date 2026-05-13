@@ -32,12 +32,6 @@ heddle-plugin-std: $(BINARY_DIR)
 	@echo "Building Go SDK Plugin..."
 	$(GO) build -o $(BINARY_DIR)/heddle-plugin-std ./sdk/go/cmd
 
-# Rust Service Targets
-relational-worker: $(BINARY_DIR)
-	@echo "Building Relational Worker (Rust)..."
-	cd internal/services/relational-worker && cargo build --release
-	cp internal/services/relational-worker/target/release/relational-worker $(BINARY_DIR)/heddle-relational-worker
-
 # Individual Example Targets
 calculator-example: $(BINARY_DIR)
 	@echo "Building Calculator Example..."
