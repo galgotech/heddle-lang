@@ -81,6 +81,31 @@
         "command": "heddle.removePlugin",
         "title": "Remove Plugin",
         "icon": "$(trash)"
+      },
+      {
+        "command": "heddle.addRemoteControlPlane",
+        "title": "Add Remote Control Plane",
+        "icon": "$(add)"
+      },
+      {
+        "command": "heddle.removeRemoteControlPlane",
+        "title": "Remove Remote Control Plane",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "heddle.connectRemoteControlPlane",
+        "title": "Connect to Remote Control Plane",
+        "icon": "$(link)"
+      },
+      {
+        "command": "heddle.disconnectRemoteControlPlane",
+        "title": "Disconnect from Remote Control Plane",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "heddle.connectLocalControlPlane",
+        "title": "Connect to Local Control Plane",
+        "icon": "$(link)"
       }
     ],
     "viewsContainers": {
@@ -117,22 +142,32 @@
           "command": "heddle.addPluginFolder",
           "when": "view == heddle-sdk-plugins",
           "group": "navigation"
+        },
+        {
+          "command": "heddle.addRemoteControlPlane",
+          "when": "view == heddle-control-plane",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
         {
           "command": "heddle.startControlPlane",
-          "when": "view == heddle-control-plane && viewItem == controlPlaneStopped",
+          "when": "view == heddle-control-plane && (viewItem == controlPlaneStoppedActive || viewItem == controlPlaneStoppedInactive)",
           "group": "inline"
         },
         {
           "command": "heddle.stopControlPlane",
-          "when": "view == heddle-control-plane && viewItem == controlPlaneRunning",
+          "when": "view == heddle-control-plane && (viewItem == controlPlaneRunningActive || viewItem == controlPlaneRunningInactive)",
           "group": "inline"
         },
         {
           "command": "heddle.restartControlPlane",
-          "when": "view == heddle-control-plane && viewItem == controlPlaneRunning",
+          "when": "view == heddle-control-plane && (viewItem == controlPlaneRunningActive || viewItem == controlPlaneRunningInactive)",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.connectLocalControlPlane",
+          "when": "view == heddle-control-plane && (viewItem == controlPlaneStoppedInactive || viewItem == controlPlaneRunningInactive)",
           "group": "inline"
         },
         {
@@ -153,6 +188,21 @@
         {
           "command": "heddle.removePlugin",
           "when": "view == heddle-sdk-plugins",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.removeRemoteControlPlane",
+          "when": "view == heddle-control-plane && (viewItem == remoteControlPlaneConnected || viewItem == remoteControlPlaneDisconnected)",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.connectRemoteControlPlane",
+          "when": "view == heddle-control-plane && viewItem == remoteControlPlaneDisconnected",
+          "group": "inline"
+        },
+        {
+          "command": "heddle.disconnectRemoteControlPlane",
+          "when": "view == heddle-control-plane && viewItem == remoteControlPlaneConnected",
           "group": "inline"
         }
       ],

@@ -43,7 +43,7 @@ export async function activate(context: ExtensionContext) {
     context.subscriptions.push({ dispose: () => terminalManager.dispose() });
 
     // Tree Views
-    const controlPlaneProvider = new ControlPlaneTreeDataProvider(processManager);
+    const controlPlaneProvider = new ControlPlaneTreeDataProvider(processManager, context);
     window.registerTreeDataProvider('heddle-control-plane', controlPlaneProvider);
 
     const sdkPluginsProvider = new SdkPluginsTreeDataProvider(processManager, context);
@@ -161,6 +161,50 @@ export async function activate(context: ExtensionContext) {
                 sdkPluginsProvider.removeFolder(item.path);
             }
         }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.addRemoteControlPlane', async () => {
+        const address = await window.showInputBox({
+            prompt: 'Enter the remote control plane address (e.g., localhost:50051)',
+            placeHolder: 'address:port'
+        });
+
+        if (address) {
+            controlPlaneProvider.addRemote(address);
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.removeRemoteControlPlane', async (item: HeddleTreeItem) => {
+        if (item) {
+            const address = item.label;
+            const confirm = await window.showWarningMessage(`Are you sure you want to remove the remote control plane '${address}'?`, { modal: true }, 'Yes', 'No');
+            if (confirm === 'Yes') {
+                const currentAddr = workspace.getConfiguration('heddle').get<string>('controlPlaneAddr');
+                if (currentAddr === address) {
+                    const heddlePath = getHeddlePath();
+                    terminalManager.executeCommand(`${heddlePath} client localhost:50051`);
+                    await workspace.getConfiguration('heddle').update('controlPlaneAddr', 'localhost:50051', true);
+                }
+                controlPlaneProvider.removeRemote(address);
+            }
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.connectRemoteControlPlane', async (item: HeddleTreeItem) => {
+        if (item) {
+            const address = item.label;
+            const heddlePath = getHeddlePath();
+            terminalManager.executeCommand(`${heddlePath} client ${address}`);
+            await workspace.getConfiguration('heddle').update('controlPlaneAddr', address, true);
+            window.showInformationMessage(`Connected to remote control plane at ${address}`);
+        }
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.disconnectRemoteControlPlane', async () => {
+        const heddlePath = getHeddlePath();
+        terminalManager.executeCommand(`${heddlePath} client localhost:50051`);
+        await workspace.getConfiguration('heddle').update('controlPlaneAddr', 'localhost:50051', true);
+        window.showInformationMessage('Disconnected from remote control plane (reverted to local)');
     }));
 
     context.subscriptions.push(commands.registerCommand('heddle.editPluginSource', (uri: Uri) => {
