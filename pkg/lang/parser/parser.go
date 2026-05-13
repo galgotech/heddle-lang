@@ -221,11 +221,11 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 
 	// Optional resource_ref: [ resource_ref ]
 	if p.curTokenIs(lexer.LANGLE) {
-		// The resource ref could end on a different line if it's very long, but let's assume same line for now
 		fr.ResourcesRefRef = p.parseResourceRef()
 		// After parseResourceRef, p.curToken is the token AFTER the closing '>'
-		// We want to know the end position of the '>'
-		// Since we don't track RANGLE's end position easily, we can use p.prevTokenEndCol and p.prevTokenEndLine
+		if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
+			p.curError("newline not allowed after resource ref")
+		}
 		for p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 			p.nextToken()
 		}
