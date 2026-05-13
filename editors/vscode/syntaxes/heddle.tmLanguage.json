@@ -45,6 +45,11 @@
                 {
                     "name": "comment.line.double-slash.heddle",
                     "match": "//.*"
+                },
+                {
+                    "name": "comment.block.heddle",
+                    "begin": "/\\*",
+                    "end": "\\*/"
                 }
             ]
         },
@@ -66,10 +71,6 @@
         "keywords": {
             "patterns": [
                 {
-                    "name": "keyword.control.import.heddle",
-                    "match": "\\b(import)\\b"
-                },
-                {
                     "name": "keyword.control.heddle",
                     "match": "\\b(resource|schema|step|handler|workflow)\\b"
                 }
@@ -81,6 +82,20 @@
         },
         "definitions": {
             "patterns": [
+                {
+                    "match": "\\b(import)\\s+((?:\"[^\"]*\")|(?:'[^']*'))(?:\\s+([a-zA-Z_][a-zA-Z0-9_]*))?",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.control.import.heddle"
+                        },
+                        "2": {
+                            "name": "string.quoted.heddle"
+                        },
+                        "3": {
+                            "name": "entity.name.namespace.heddle"
+                        }
+                    }
+                },
                 {
                     "match": "\\b(resource)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
                     "captures": {
@@ -115,6 +130,17 @@
                     }
                 },
                 {
+                    "match": "<\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*>",
+                    "captures": {
+                        "1": {
+                            "name": "variable.parameter.heddle"
+                        },
+                        "2": {
+                            "name": "entity.name.variable.heddle"
+                        }
+                    }
+                },
+                {
                     "match": "\\b(handler)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
                     "captures": {
                         "1": {
@@ -141,7 +167,7 @@
         "pipeline": {
             "patterns": [
                 {
-                    "match": "(>|=|\\||->)",
+                    "match": "(>|=|\\|)",
                     "name": "keyword.operator.heddle"
                 },
                 {
@@ -163,7 +189,7 @@
             "name": "support.type.heddle"
         },
         "operators": {
-            "match": "[=:]",
+            "match": "[=:\\*]",
             "name": "keyword.operator.heddle"
         },
         "punctuation": {
@@ -263,7 +289,7 @@
         },
         "prql-keyword-operator": {
             "name": "keyword.operator",
-            "match": "==|~=|\\+|-|\\*|!=|->|=>|<=|>=|&&|<|>"
+            "match": "==|~=|\\+|-|\\*|!=|=>|<=|>=|&&|<|>"
         },
         "prql-time-units": {
             "name": "keyword.other.unit",

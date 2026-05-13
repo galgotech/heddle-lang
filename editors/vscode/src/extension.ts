@@ -1,13 +1,23 @@
 import * as path from 'path';
-import * as fs from 'fs';
-import { workspace, ExtensionContext, debug, DebugAdapterDescriptorFactory, DebugSession, DebugAdapterDescriptor, DebugAdapterExecutable, window, commands, Uri, OutputChannel, languages, Disposable } from 'vscode';
+import {
+    workspace,
+    ExtensionContext,
+    debug,
+    DebugAdapterDescriptorFactory,
+    DebugSession,
+    DebugAdapterDescriptor,
+    DebugAdapterExecutable,
+    window,
+    commands,
+    Uri,
+    OutputChannel,
+} from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
 } from 'vscode-languageclient/node';
 import { ConfigurationManager } from './configuration';
-import { EnvironmentService } from './environmentService';
 import { TerminalManager } from './terminalManager';
 
 let client: LanguageClient;
@@ -16,23 +26,27 @@ let configManager: ConfigurationManager;
 export async function activate(context: ExtensionContext) {
     const outputChannel = window.createOutputChannel("Heddle");
     context.subscriptions.push(outputChannel);
-    outputChannel.appendLine("Heddle Extension Activating...");
-    const envService = new EnvironmentService();
-    configManager = new ConfigurationManager(workspace, () => { }, envService);
-
-    let providersDisposables: Disposable[] = [];
-    const diagnosticCollection = languages.createDiagnosticCollection('heddle');
-    context.subscriptions.push(diagnosticCollection);
+    configManager = new ConfigurationManager(workspace, () => {
+        startServices();
+    });
 
     const terminalManager = new TerminalManager();
     context.subscriptions.push({ dispose: () => terminalManager.dispose() });
+
+    // Status Bar Item for AOT Validation
+    const aotStatus = window.createStatusBarItem(2, 100); // StatusBarAlignment.Right
+    aotStatus.text = "$(shield) Heddle AOT: Active";
+    aotStatus.tooltip = "Heddle Ahead-Of-Time Type Checking is active";
+    aotStatus.show();
+    context.subscriptions.push(aotStatus);
 
     const startServices = async () => {
         let heddlePath = workspace.getConfiguration('heddle').get<string>('lspPath') || workspace.getConfiguration('heddle').get<string>('path');
         if (!heddlePath) {
             heddlePath = path.join(context.extensionPath, '..', '..', 'bin', 'heddle');
         }
-        outputChannel.appendLine(`Starting Heddle LSP using: '${heddlePath}'`);
+        const cpAddr = configManager.getControlPlaneAddr();
+        outputChannel.appendLine(`Starting Heddle LSP using: '${heddlePath}' at ${cpAddr}`);
 
         if (client) {
             await client.stop();
@@ -40,7 +54,7 @@ export async function activate(context: ExtensionContext) {
 
         const serverOptions: ServerOptions = {
             command: heddlePath,
-            args: ['development', 'lsp'],
+            args: ['development', 'lsp', '--control-plane-addr', cpAddr],
             options: {
                 cwd: context.extensionPath
             },

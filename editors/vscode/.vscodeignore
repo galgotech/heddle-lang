@@ -1,0 +1,13 @@
+.vscode/**
+.vscode-test/**
+.gitignore
+vsc-extension-quickstart.md
+GEMINI.md
+mkdocs.yml
+poetry.lock
+pyproject.toml
+docs/
+site/
+examples/
+conductor/
+node_modules/

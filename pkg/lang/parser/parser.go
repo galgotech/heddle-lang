@@ -17,16 +17,16 @@ type ParserError struct {
 // Parser maintains the state of the parsing process, including the lexer,
 // lookahead tokens, and the AST context for node allocation.
 type Parser struct {
-	l          *lexer.Lexer    // Source of tokens.
-	curToken   lexer.Token     // Current token being processed.
-	peekTokens []lexer.Token   // Buffer for lookahead tokens.
-	ctx              *ast.ASTContext // Central registry for AST nodes and string pooling.
-	errors           []ParserError   // Collected diagnostic errors.
-	prevTokenEndLine    uint32          // End line of the most recently consumed token.
-	prevTokenEndCol     uint32          // End column of the most recently consumed token.
-	curLineStartCol     uint32          // Column of the first token on the current line.
-	curLine             uint32          // Current line number being processed.
-	lineStartCols       map[uint32]uint32 // Map of line number to its first token's column.
+	l                *lexer.Lexer      // Source of tokens.
+	curToken         lexer.Token       // Current token being processed.
+	peekTokens       []lexer.Token     // Buffer for lookahead tokens.
+	ctx              *ast.ASTContext   // Central registry for AST nodes and string pooling.
+	errors           []ParserError     // Collected diagnostic errors.
+	prevTokenEndLine uint32            // End line of the most recently consumed token.
+	prevTokenEndCol  uint32            // End column of the most recently consumed token.
+	curLineStartCol  uint32            // Column of the first token on the current line.
+	curLine          uint32            // Current line number being processed.
+	lineStartCols    map[uint32]uint32 // Map of line number to its first token's column.
 }
 
 // Parse executes the parsing logic to construct a ProgramNode.
@@ -168,7 +168,8 @@ func (p *Parser) parseImport() ast.NodeRef {
 	if p.expectPeek(lexer.STRING_LIT) {
 		node.PathRef = p.ctx.AddString(p.curToken.Literal)
 	}
-	if p.expectPeek(lexer.IDENTIFIER) {
+	if p.peekTokenIs(lexer.IDENTIFIER) {
+		p.nextToken()
 		node.AliasRef = p.ctx.AddString(p.curToken.Literal)
 	}
 	p.nextToken()

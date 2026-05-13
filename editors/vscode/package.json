@@ -75,6 +75,11 @@
           "type": "string",
           "default": "",
           "description": "Optional: Custom path to the heddle LSP binary (if you want to override heddle.path)."
+        },
+        "heddle.controlPlaneAddr": {
+          "type": "string",
+          "default": "localhost:50051",
+          "description": "The address of the Heddle Control Plane."
         }
       }
     },
@@ -134,7 +139,11 @@
       "[heddle]": {
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
-        "editor.formatOnType": true
+        "editor.formatOnType": true,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        }
       }
     }
   },

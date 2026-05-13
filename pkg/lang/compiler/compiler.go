@@ -27,7 +27,7 @@ func (c *Compiler) Compile(source string) (*ir.Program, error) {
 	}
 
 	// 2. Semantic Validation
-	v := NewValidator(program, ctx)
+	v := NewValidator(program, ctx, nil)
 	if err := v.Validate(); err != nil {
 		return nil, err
 	}

@@ -3,13 +3,15 @@
 # Variables
 BINARY_DIR=bin
 GO=go
+NPM=npm
+VSCODE_DIR=editors/vscode
 
 # Services (Main build target)
 SERVICES=heddle heddle-plugin-go
 RUST_SERVICES=relational-worker
 EXAMPLES=calculator-example
 
-.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit docs-serve docs-build
+.PHONY: all build clean test $(SERVICES) $(RUST_SERVICES) $(EXAMPLES) run-server submit docs-serve docs-build vscode\:prepublish vsce\:package vsce\:publish
 
 # Default target
 all: build
@@ -65,6 +67,19 @@ docs-build:
 	@echo "Building documentation..."
 	mkdocs build
 
+# VS Code Extension
+vscode\:prepublish:
+	@echo "Prepublishing VS Code extension..."
+	cd $(VSCODE_DIR) && $(NPM) run vscode:prepublish
+
+vsce\:package:
+	@echo "Packaging VS Code extension..."
+	cd $(VSCODE_DIR) && $(NPM) run vsce:package
+
+vsce\:publish:
+	@echo "Publishing VS Code extension..."
+	cd $(VSCODE_DIR) && $(NPM) run vsce:publish
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning up..."
@@ -77,12 +92,11 @@ help:
 	@echo "Heddle Build Targets:"
 	@echo "  make all           	 - Build all services"
 	@echo "  make build         	 - Alias for all"
-	@echo "  make relational-worker  - Build only the Rust relational worker"
-	@echo "  make calculator-example - Build only the calculator example"
-	@echo "  make test-calculator    - Run tests for the calculator example"
-	@echo "  make run-server         - Build and start the control plane"
-	@echo "  make submit FILE=f.he   - Build and submit a heddle file"
+	@echo "  make heddle - Build only the heddle cli"
 	@echo "  make test               - Run all tests"
 	@echo "  make docs-serve         - Start MkDocs development server"
 	@echo "  make docs-build         - Build MkDocs static documentation"
+	@echo "  make vscode:prepublish  - Run VS Code extension prepublish script"
+	@echo "  make vsce:package       - Package the VS Code extension"
+	@echo "  make vsce:publish       - Publish the VS Code extension"
 	@echo "  make clean              - Remove build artifacts"

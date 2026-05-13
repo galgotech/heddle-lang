@@ -112,6 +112,14 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		logger.L().Info("Workflow compiled and queued", zap.String("task_id", task.ID))
 		return stream.Send(&flight.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
 
+	case models.ActionGetRegistry:
+		info := s.Registry.GetRegistryInfo()
+		body, err := json.Marshal(info)
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to marshal registry info: %v", err)
+		}
+		return stream.Send(&flight.Result{Body: body})
+
 	default:
 		return status.Errorf(codes.Unimplemented, "action %s not implemented", action.Type)
 	}

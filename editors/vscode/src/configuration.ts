@@ -1,5 +1,4 @@
 import type { WorkspaceConfiguration, ConfigurationChangeEvent, Disposable } from 'vscode';
-import { EnvironmentService } from './environmentService';
 
 export interface IWorkspaceAdapter {
     getConfiguration(section: string): WorkspaceConfiguration;
@@ -9,32 +8,19 @@ export interface IWorkspaceAdapter {
 export class ConfigurationManager {
     constructor(
         private adapter: IWorkspaceAdapter, 
-        private onPythonPathChange: (newPath: string) => void,
-        private envService?: EnvironmentService
+        private onRestartRequired: () => void
     ) {
         this.adapter.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('heddle.pythonPath')) {
-                // We just notify that something changed, the consumer should call getPythonPath
-                // But wait, onPythonPathChange expects a string.
-                // We should probably re-evaluate here?
-                // For now let's keep existing logic but we might need to change what we pass
-                const config = this.adapter.getConfiguration('heddle');
-                const newPath = config.get<string>('pythonPath', 'python');
-                if (newPath) {
-                    this.onPythonPathChange(newPath);
-                }
+            if (e.affectsConfiguration('heddle.path') || 
+                e.affectsConfiguration('heddle.lspPath') || 
+                e.affectsConfiguration('heddle.controlPlaneAddr')) {
+                this.onRestartRequired();
             }
         });
     }
 
-    async getPythonPath(workspaceFolder: string): Promise<string> {
-        if (this.envService) {
-            const detected = await this.envService.getPoetryInterpreterPath(workspaceFolder);
-            if (detected) {
-                return detected;
-            }
-        }
+    getControlPlaneAddr(): string {
         const config = this.adapter.getConfiguration('heddle');
-        return config.get<string>('pythonPath', 'python') || 'python';
+        return config.get<string>('controlPlaneAddr', 'localhost:50051') || 'localhost:50051';
     }
 }

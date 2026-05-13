@@ -33,7 +33,7 @@ workflow main {
 	prog := p.Parse()
 	require.Empty(t, p.Errors())
 
-	v := NewValidator(prog, ctx)
+	v := NewValidator(prog, ctx, nil)
 	err := v.Validate()
 
 	assert.NoError(t, err)
@@ -57,7 +57,7 @@ workflow main {
 	prog := p.Parse()
 	require.Empty(t, p.Errors())
 
-	v := NewValidator(prog, ctx)
+	v := NewValidator(prog, ctx, nil)
 	err := v.Validate()
 
 	require.Error(t, err)
@@ -84,7 +84,7 @@ workflow main ? err_log {
 	prog := p.Parse()
 	require.Empty(t, p.Errors())
 
-	v := NewValidator(prog, ctx)
+	v := NewValidator(prog, ctx, nil)
 	err := v.Validate()
 
 	assert.NoError(t, err)
@@ -104,7 +104,7 @@ workflow main ? missing_handler {
 	prog := p.Parse()
 	require.Empty(t, p.Errors())
 
-	v := NewValidator(prog, ctx)
+	v := NewValidator(prog, ctx, nil)
 	err := v.Validate()
 
 	require.Error(t, err)

@@ -108,6 +108,26 @@ func (r *WorkerRegistry) FindWorkerForStep(capability string) *WorkerInfo {
 	return best
 }
 
+func (r *WorkerRegistry) GetRegistryInfo() models.RegistryInfo {
+	info := models.RegistryInfo{
+		Steps: make(map[string]schema.StepSchemas),
+	}
+
+	threshold := time.Now().Add(-30 * time.Second)
+
+	r.workers.Range(func(key, value interface{}) bool {
+		w := value.(*WorkerInfo)
+		if w.LastSeen.After(threshold) {
+			for cap, schemas := range w.Schemas {
+				info.Steps[cap] = schemas
+			}
+		}
+		return true
+	})
+
+	return info
+}
+
 func NewWorkerRegistry() *WorkerRegistry {
 	return &WorkerRegistry{}
 }

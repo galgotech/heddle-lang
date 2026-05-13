@@ -15,7 +15,13 @@ const (
 	ActionUpdateCapabilities = "update-capabilities"
 	ActionPurgeWorkflow      = "purge-workflow"
 	ActionPurgeAck           = "purge-ack"
+	ActionGetRegistry        = "get-registry"
 )
+
+// RegistryInfo contains the metadata about all registered steps in the cluster.
+type RegistryInfo struct {
+	Steps map[string]schema.StepSchemas `json:"steps"`
+}
 
 // Task Statuses
 const (

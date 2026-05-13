@@ -31,7 +31,8 @@ var LspCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		logger := zap.L()
-		server := lsp.NewServer(logger)
+		cpAddr, _ := cmd.Flags().GetString("control-plane-addr")
+		server := lsp.NewServer(logger, cpAddr)
 
 		rw := stdioRW{cmd.InOrStdin(), cmd.OutOrStdout()}
 		defer rw.Close()
@@ -45,5 +46,7 @@ var LspCmd = &cobra.Command{
 func init() {
 	LspCmd.PersistentFlags().StringVar(&lspCfgFile, "config", "", "config file (default is ./heddle-lsp.yaml)")
 	LspCmd.Flags().String("log-path", "/tmp/heddle-lsp.log", "Path to log file")
+	LspCmd.Flags().String("control-plane-addr", "localhost:50051", "Address of the Heddle Control Plane")
 	viper.BindPFlag("log-path", LspCmd.Flags().Lookup("log-path"))
+	viper.BindPFlag("control-plane-addr", LspCmd.Flags().Lookup("control-plane-addr"))
 }

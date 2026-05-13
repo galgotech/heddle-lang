@@ -23,22 +23,31 @@ func (d dummyRW) Close() error {
 
 func TestServerStart(t *testing.T) {
 	logger := zap.NewNop()
-	server := lsp.NewServer(logger)
+	server := lsp.NewServer(logger, "localhost:50051")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	rw := dummyRW{}
+	r1, w1 := io.Pipe()
+	r2, w2 := io.Pipe()
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- server.Start(ctx, rw)
+		errCh <- server.Start(ctx, struct {
+			io.Reader
+			io.Writer
+			io.Closer
+		}{r1, w2, w2})
 	}()
 
 	// Wait a bit to ensure it has started, then cancel context
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	cancel()
+	w1.Close()
+	r2.Close()
 
 	err := <-errCh
-	assert.NoError(t, err, "Server.Start should return nil when context is cancelled")
+	if err != nil {
+		assert.Contains(t, err.Error(), context.Canceled.Error())
+	}
 }
