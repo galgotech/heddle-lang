@@ -2,6 +2,8 @@ package dev
 
 import (
 	"github.com/spf13/cobra"
+
+	devservice "github.com/galgotech/heddle-lang/internal/services/dev"
 )
 
 // DevCmd is the root command for development and debugging tools.
@@ -11,9 +13,24 @@ var DevCmd = &cobra.Command{
 	Long:  `Development tools include the Heddle Language Server (LSP) and the Debug Adapter (DAP).`,
 }
 
+var WatchCmd = &cobra.Command{
+	Use:   "watch",
+	Short: "Start the local development orchestrator with hot-reload",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		maestro, err := devservice.NewMaestro()
+		if err != nil {
+			return err
+		}
+		return maestro.Run(cmd.Context())
+	},
+}
+
 func init() {
+	DevCmd.AddCommand(WatchCmd)
 	DevCmd.AddCommand(LspCmd)
 	DevCmd.AddCommand(DapCmd)
+	DevCmd.AddCommand(WorkerCmd)
+	DevCmd.AddCommand(InitCmd)
 	DevCmd.AddCommand(completionCmd)
 }
 
