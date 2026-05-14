@@ -19,13 +19,13 @@ func TestScaffoldService_Init(t *testing.T) {
 	}
 
 	// Verify structure
-	if _, err := os.Stat("workflows"); os.IsNotExist(err) {
-		t.Error("expected workflows directory to be created")
+	if _, err := os.Stat("flows"); os.IsNotExist(err) {
+		t.Error("expected flows directory to be created")
 	}
 	if _, err := os.Stat("workers"); os.IsNotExist(err) {
 		t.Error("expected workers directory to be created")
 	}
-	if _, err := os.Stat(filepath.Join("workflows", "helloworld.he")); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join("flows", "helloworld.he")); os.IsNotExist(err) {
 		t.Error("expected helloworld.he to be created")
 	}
 	if _, err := os.Stat("heddle.toml"); os.IsNotExist(err) {
@@ -59,6 +59,18 @@ func TestScaffoldService_WorkerAdd_Valid(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(baseDir, "go.mod")); os.IsNotExist(err) {
 		t.Error("expected go.mod to be created")
 	}
+
+	if _, err := os.Stat(filepath.Join(baseDir, "config", "config.go")); os.IsNotExist(err) {
+		t.Error("expected config/config.go to be created")
+	}
+
+	if _, err := os.Stat(filepath.Join(baseDir, "steps", "helloworld.go")); os.IsNotExist(err) {
+		t.Error("expected steps/helloworld.go to be created")
+	}
+
+	if _, err := os.Stat(filepath.Join(baseDir, "resource", "resource.go")); os.IsNotExist(err) {
+		t.Error("expected resource/resource.go to be created")
+	}
 }
 
 func TestScaffoldService_WorkerAdd_InvalidNamespace(t *testing.T) {
@@ -90,7 +102,7 @@ func TestScaffoldService_WorkerValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error during validation, got %v", err)
 	}
-	
+
 	if count != 1 {
 		t.Errorf("expected 1 valid worker, got %d", count)
 	}

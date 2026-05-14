@@ -1,0 +1,27 @@
+package main
+
+import (
+	"os"
+
+	"go.uber.org/zap"
+
+	"{{.ModName}}/steps"
+	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/sdk/go/plugin"
+)
+
+func main() {
+	p := plugin.New("{{.Namespace}}")
+
+	if addr := os.Getenv("HEDDLE_WORKER_ADDRESS"); addr != "" {
+		p.WorkerAddress = addr
+	}
+
+	// Register your steps here:
+	// p.RegisterStep("print_message", steps.PrintMessage)
+
+	logger.L().Info("Starting worker...", zap.String("namespace", "{{.Namespace}}"))
+	if err := p.Start(); err != nil {
+		logger.L().Fatal("Worker failed", zap.Error(err))
+	}
+}

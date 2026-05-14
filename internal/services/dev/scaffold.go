@@ -1,17 +1,22 @@
 package dev
 
 import (
+	"bytes"
+	"embed"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"text/template"
 
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
+
+//go:embed templates/*
+var templatesFS embed.FS
 
 var namespaceRegex = regexp.MustCompile(`^[a-z0-9_]+/[a-z0-9_]+$`)
 
@@ -23,8 +28,9 @@ func NewScaffoldService() *ScaffoldService {
 
 func (s *ScaffoldService) Init(projectName string) error {
 	dirs := []string{
-		"workflows",
+		"flows",
 		"workers",
+		"tests",
 	}
 
 	for _, dir := range dirs {
@@ -33,27 +39,28 @@ func (s *ScaffoldService) Init(projectName string) error {
 		}
 	}
 
-	workflowPath := filepath.Join("workflows", "helloworld.he")
-	workflowContent := `import "std/io" io
-
-workflow hello_world {
-  []
-    | io.print
-}
-`
-	if err := os.WriteFile(workflowPath, []byte(workflowContent), 0644); err != nil {
+	workflowPath := filepath.Join("flows", "helloworld.he")
+	workflowContent, err := templatesFS.ReadFile("templates/init/helloworld.he.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read helloworld.he template: %w", err)
+	}
+	if err := os.WriteFile(workflowPath, workflowContent, 0644); err != nil {
 		return err
 	}
 
 	heddleTomlPath := "heddle.toml"
-	heddleTomlContent := fmt.Sprintf(`[project]
-name = "%s"
-version = "0.1.0"
+	tmpl, err := template.ParseFS(templatesFS, "templates/init/heddle.toml.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to parse heddle.toml template: %w", err)
+	}
 
-[dev]
-workers_dir = "workers"
-`, projectName)
-	if err := os.WriteFile(heddleTomlPath, []byte(heddleTomlContent), 0644); err != nil {
+	var buf bytes.Buffer
+	data := struct{ ProjectName string }{ProjectName: projectName}
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to execute heddle.toml template: %w", err)
+	}
+
+	if err := os.WriteFile(heddleTomlPath, buf.Bytes(), 0644); err != nil {
 		return err
 	}
 
@@ -74,8 +81,8 @@ func (s *ScaffoldService) WorkerAdd(language, fullName string) error {
 
 	dirs := []string{
 		filepath.Join(baseDir, "steps"),
-		filepath.Join(baseDir, "configs"),
-		filepath.Join(baseDir, "resources"),
+		filepath.Join(baseDir, "config"),
+		filepath.Join(baseDir, "resource"),
 		filepath.Join(baseDir, "tests"),
 	}
 
@@ -86,67 +93,33 @@ func (s *ScaffoldService) WorkerAdd(language, fullName string) error {
 	}
 
 	workerTomlPath := filepath.Join(baseDir, "worker.toml")
-	workerTomlContent := fmt.Sprintf(`[worker]
-name = "%s"
-namespace = "%s"
-runtime = "%s"
-sdk_version = "0.1.0"
-`, workerName, namespace, language)
+	workerTomlTmpl, err := template.ParseFS(templatesFS, "templates/worker.toml.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to parse worker.toml template: %w", err)
+	}
 
-	if err := os.WriteFile(workerTomlPath, []byte(workerTomlContent), 0644); err != nil {
+	var workerTomlBuf bytes.Buffer
+	workerData := struct {
+		WorkerName string
+		Namespace  string
+		Language   string
+	}{
+		WorkerName: workerName,
+		Namespace:  namespace,
+		Language:   language,
+	}
+	if err := workerTomlTmpl.Execute(&workerTomlBuf, workerData); err != nil {
+		return fmt.Errorf("failed to execute worker.toml template: %w", err)
+	}
+
+	if err := os.WriteFile(workerTomlPath, workerTomlBuf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write worker.toml: %w", err)
 	}
 
 	if language == "go" {
-		mainGoPath := filepath.Join(baseDir, "main.go")
-		mainGoContent := fmt.Sprintf(`package main
-
-import (
-	"os"
-
-	"go.uber.org/zap"
-
-	"github.com/galgotech/heddle-lang/pkg/logger"
-	"github.com/galgotech/heddle-lang/sdk/go/plugin"
-)
-
-func main() {
-	p := plugin.New("%s")
-
-	if addr := os.Getenv("HEDDLE_WORKER_ADDRESS"); addr != "" {
-		p.WorkerAddress = addr
-	}
-
-	// Register your steps here:
-	// p.RegisterStep("my_step", steps.MyStep)
-
-	logger.L().Info("Starting worker...", zap.String("namespace", "%s"))
-	if err := p.Start(); err != nil {
-		logger.L().Fatal("Worker failed", zap.Error(err))
-	}
-}
-`, namespace, namespace)
-
-		if err := os.WriteFile(mainGoPath, []byte(mainGoContent), 0644); err != nil {
-			return fmt.Errorf("failed to write main.go: %w", err)
+		if err := s.scaffoldGoWorker(baseDir, namespace, workerName); err != nil {
+			return err
 		}
-
-		// Initialize go module
-		modName := fmt.Sprintf("%s/%s", namespace, workerName)
-		goModCmd := exec.Command("go", "mod", "init", modName)
-		goModCmd.Dir = baseDir
-		goModCmd.Stdout = os.Stdout
-		goModCmd.Stderr = os.Stderr
-		if err := goModCmd.Run(); err != nil {
-			return fmt.Errorf("failed to run go mod init: %w", err)
-		}
-
-		// Run go mod tidy in the background
-		go func() {
-			tidyCmd := exec.Command("go", "mod", "tidy")
-			tidyCmd.Dir = baseDir
-			tidyCmd.Run()
-		}()
 	}
 
 	logger.L().Info("Worker scaffolded successfully", zap.String("path", baseDir))
@@ -169,22 +142,22 @@ func (s *ScaffoldService) WorkerValidate() (int, error) {
 		if !info.IsDir() && info.Name() == "worker.toml" {
 			dir := filepath.Dir(path)
 			rel, _ := filepath.Rel(workersDir, dir)
-			
+
 			parts := strings.Split(rel, string(os.PathSeparator))
 			if len(parts) != 2 {
 				logger.L().Error("Invalid worker directory depth", zap.String("path", dir))
 				return nil
 			}
-			
+
 			namespace := parts[0]
 			workerName := parts[1]
-			
+
 			fullName := fmt.Sprintf("%s/%s", namespace, workerName)
 			if !namespaceRegex.MatchString(fullName) {
 				logger.L().Error("Invalid worker name format", zap.String("name", fullName))
 				return nil
 			}
-			
+
 			validCount++
 		}
 		return nil
