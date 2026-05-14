@@ -147,7 +147,10 @@ func (p *Parser) getEndPos() ast.Position {
 func (p *Parser) getRange(start ast.Position) ast.Range {
 	return ast.Range{
 		Start: start,
-		End:   p.getEndPos(),
+		End: ast.Position{
+			Line: p.prevTokenEndLine,
+			Col:  p.prevTokenEndCol,
+		},
 	}
 }
 

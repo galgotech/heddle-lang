@@ -110,3 +110,40 @@ workflow main ? missing_handler {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "undefined handler 'missing_handler'")
 }
+
+func TestValidator_UnusedStepRange(t *testing.T) {
+	input := `step unused_step = openai.prompt {
+  system: "You are a specialized agent."
+}
+
+step used_step = openai.prompt {
+  system: "I am used."
+}
+
+workflow main {
+  used_step
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var unusedDiag *ValidationError
+	for _, err := range errs {
+		if err.Message == "unused step: unused_step" {
+			unusedDiag = &err
+			break
+		}
+	}
+
+	require.NotNil(t, unusedDiag)
+	assert.Equal(t, uint32(1), unusedDiag.Range.Start.Line)
+	assert.Equal(t, uint32(3), unusedDiag.Range.End.Line)
+}
