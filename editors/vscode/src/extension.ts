@@ -19,21 +19,13 @@ import {
 } from 'vscode-languageclient/node';
 import { ConfigurationManager } from './configuration';
 import { TerminalManager } from './terminalManager';
-import { ProcessManager } from './processManager';
-import { ControlPlaneTreeDataProvider, SdkPluginsTreeDataProvider, HeddleTreeItem } from './treeViews';
 
 let client: LanguageClient;
 let configManager: ConfigurationManager;
-let processManager: ProcessManager;
 
 export async function activate(context: ExtensionContext) {
     const outputChannel = window.createOutputChannel("Heddle");
-    const processOutputChannel = window.createOutputChannel("Heddle Logs");
     context.subscriptions.push(outputChannel);
-    context.subscriptions.push(processOutputChannel);
-
-    processManager = new ProcessManager(processOutputChannel);
-    context.subscriptions.push({ dispose: () => processManager.stopAll() });
 
     configManager = new ConfigurationManager(workspace, () => {
         startServices();
@@ -41,13 +33,6 @@ export async function activate(context: ExtensionContext) {
 
     const terminalManager = new TerminalManager();
     context.subscriptions.push({ dispose: () => terminalManager.dispose() });
-
-    // Tree Views
-    const controlPlaneProvider = new ControlPlaneTreeDataProvider(processManager, context);
-    window.registerTreeDataProvider('heddle-control-plane', controlPlaneProvider);
-
-    const sdkPluginsProvider = new SdkPluginsTreeDataProvider(processManager, context);
-    window.registerTreeDataProvider('heddle-sdk-plugins', sdkPluginsProvider);
 
     // Status Bar Item for AOT Validation
     const aotStatus = window.createStatusBarItem(2, 100); // StatusBarAlignment.Right
@@ -104,115 +89,6 @@ export async function activate(context: ExtensionContext) {
 
     await startServices();
 
-    // Register Commands
-    context.subscriptions.push(commands.registerCommand('heddle.startControlPlane', async () => {
-        const heddlePath = getHeddlePath();
-        const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath || context.extensionPath;
-        await processManager.start('control-plane', heddlePath, ['local', 'start'], cwd, 'Control Plane');
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.stopControlPlane', () => {
-        processManager.stop('control-plane');
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.restartControlPlane', async () => {
-        processManager.stop('control-plane');
-        await commands.executeCommand('heddle.startControlPlane');
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.addPluginFolder', async () => {
-        const folders = await window.showOpenDialog({
-            canSelectFiles: false,
-            canSelectFolders: true,
-            canSelectMany: false,
-            openLabel: 'Select Plugin Folder'
-        });
-
-        if (folders && folders.length > 0) {
-            sdkPluginsProvider.addFolder(folders[0].fsPath);
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.startPlugin', async (item: HeddleTreeItem) => {
-        if (item && item.path) {
-            const heddlePath = getHeddlePath();
-            await processManager.start(item.itemId, heddlePath, ['local', 'start'], item.path, `Plugin: ${path.basename(item.path)}`);
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.stopPlugin', (item: HeddleTreeItem) => {
-        if (item) {
-            processManager.stop(item.itemId);
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.restartPlugin', async (item: HeddleTreeItem) => {
-        if (item) {
-            processManager.stop(item.itemId);
-            await commands.executeCommand('heddle.startPlugin', item);
-        }
-    }));
-    
-    context.subscriptions.push(commands.registerCommand('heddle.removePlugin', async (item: HeddleTreeItem) => {
-        if (item && item.path) {
-            const confirm = await window.showWarningMessage(`Are you sure you want to remove the plugin '${path.basename(item.path)}'?`, { modal: true }, 'Yes', 'No');
-            if (confirm === 'Yes') {
-                processManager.stop(item.itemId);
-                sdkPluginsProvider.removeFolder(item.path);
-            }
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.addRemoteControlPlane', async () => {
-        const address = await window.showInputBox({
-            prompt: 'Enter the remote control plane address (e.g., localhost:50051)',
-            placeHolder: 'address:port'
-        });
-
-        if (address) {
-            controlPlaneProvider.addRemote(address);
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.removeRemoteControlPlane', async (item: HeddleTreeItem) => {
-        if (item) {
-            const address = item.label;
-            const confirm = await window.showWarningMessage(`Are you sure you want to remove the remote control plane '${address}'?`, { modal: true }, 'Yes', 'No');
-            if (confirm === 'Yes') {
-                const currentAddr = workspace.getConfiguration('heddle').get<string>('controlPlaneAddr');
-                if (currentAddr === address) {
-                    const heddlePath = getHeddlePath();
-                    terminalManager.executeCommand(`${heddlePath} client localhost:50051`);
-                    await workspace.getConfiguration('heddle').update('controlPlaneAddr', 'localhost:50051', true);
-                }
-                controlPlaneProvider.removeRemote(address);
-            }
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.connectRemoteControlPlane', async (item: HeddleTreeItem) => {
-        if (item) {
-            const address = item.label;
-            const heddlePath = getHeddlePath();
-            terminalManager.executeCommand(`${heddlePath} client ${address}`);
-            await workspace.getConfiguration('heddle').update('controlPlaneAddr', address, true);
-            window.showInformationMessage(`Connected to remote control plane at ${address}`);
-        }
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.disconnectRemoteControlPlane', async () => {
-        const heddlePath = getHeddlePath();
-        terminalManager.executeCommand(`${heddlePath} client localhost:50051`);
-        await workspace.getConfiguration('heddle').update('controlPlaneAddr', 'localhost:50051', true);
-        window.showInformationMessage('Disconnected from remote control plane (reverted to local)');
-    }));
-
-    context.subscriptions.push(commands.registerCommand('heddle.editPluginSource', (uri: Uri) => {
-        if (uri) {
-            commands.executeCommand('vscode.openFolder', uri, true);
-        }
-    }));
-
     // Register Debug Adapter
     const factory = new HeddleDebugAdapterDescriptorFactory(context, configManager, outputChannel);
     context.subscriptions.push(debug.registerDebugAdapterDescriptorFactory('heddle-debug', factory));
@@ -233,9 +109,6 @@ export async function activate(context: ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    if (processManager) {
-        processManager.stopAll();
-    }
     if (!client) {
         return undefined;
     }
