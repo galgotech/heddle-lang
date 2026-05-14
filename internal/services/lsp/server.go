@@ -68,6 +68,7 @@ func (s *Server) handle(conn jsonrpc2.Conn) jsonrpc2.Handler {
 					DocumentSymbolProvider:     true,
 					SelectionRangeProvider:     true,
 					WorkspaceSymbolProvider:    true,
+					CodeLensProvider:           &protocol.CodeLensOptions{ResolveProvider: false},
 				},
 			}, nil)
 		case protocol.MethodTextDocumentDidOpen:
@@ -102,6 +103,8 @@ func (s *Server) handle(conn jsonrpc2.Conn) jsonrpc2.Handler {
 			return s.handleSelectionRange(ctx, reply, req)
 		case protocol.MethodWorkspaceSymbol:
 			return s.handleWorkspaceSymbol(ctx, reply, req)
+		case protocol.MethodTextDocumentCodeLens:
+			return s.handleCodeLens(ctx, reply, req)
 		}
 		return jsonrpc2.MethodNotFoundHandler(ctx, reply, req)
 	}

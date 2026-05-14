@@ -106,6 +106,25 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine(`Running command: ${cmd}`);
         terminalManager.executeCommand(cmd);
     }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.runWorkflow', async (args: { uri: string, workflow: string }) => {
+        const fileUri = Uri.parse(args.uri);
+        let heddlePath = workspace.getConfiguration('heddle').get<string>('clientPath') || getHeddlePath();
+        const cmd = `${heddlePath} run "${fileUri.fsPath}" --workflow "${args.workflow}"`;
+        outputChannel.appendLine(`Running workflow command: ${cmd}`);
+        terminalManager.executeCommand(cmd);
+    }));
+
+    context.subscriptions.push(commands.registerCommand('heddle.debugWorkflow', async (args: { uri: string, workflow: string }) => {
+        const fileUri = Uri.parse(args.uri);
+        debug.startDebugging(workspace.getWorkspaceFolder(fileUri), {
+            type: 'heddle-debug',
+            name: `Debug ${args.workflow}`,
+            request: 'launch',
+            program: fileUri.fsPath,
+            workflow: args.workflow
+        });
+    }));
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -142,4 +161,3 @@ class HeddleDebugAdapterDescriptorFactory implements DebugAdapterDescriptorFacto
         });
     }
 }
-

@@ -1,10 +1,16 @@
 package dev
 
 import (
+	"context"
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/internal/services/dap"
 	"github.com/galgotech/heddle-lang/pkg/config"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var dapCfgFile string
@@ -17,7 +23,23 @@ var DapCmd = &cobra.Command{
 		return config.Init("HEDDLE_DAP", dapCfgFile)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		log := logger.L()
+		cpAddr := viper.GetString("control-plane-addr")
+		if cpAddr == "" {
+			cpAddr = "localhost:50051"
+		}
 
+		server := dap.NewServer(log, viper.GetString("addr"), cpAddr)
+
+		if viper.GetBool("server") {
+			if err := server.Start(context.Background()); err != nil {
+				log.Fatal("DAP server failed", zap.Error(err))
+			}
+		} else {
+			if err := server.StartStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
+				log.Fatal("DAP stdio failed", zap.Error(err))
+			}
+		}
 	},
 }
 

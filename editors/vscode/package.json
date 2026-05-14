@@ -37,6 +37,16 @@
         "command": "heddle.runFile",
         "title": "Run Heddle File",
         "icon": "$(play)"
+      },
+      {
+        "command": "heddle.runWorkflow",
+        "title": "Run Heddle Workflow",
+        "icon": "$(play)"
+      },
+      {
+        "command": "heddle.debugWorkflow",
+        "title": "Debug Heddle Workflow",
+        "icon": "$(debug)"
       }
     ],
     "menus": {
@@ -86,7 +96,7 @@
     "debuggers": [
       {
         "type": "heddle-debug",
-        "label": "Heddle Debugger",
+        "label": "Heddle Debuger",
         "configurationAttributes": {
           "launch": {
             "required": [
