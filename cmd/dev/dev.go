@@ -1,20 +1,20 @@
-package development
+package dev
 
 import (
 	"github.com/spf13/cobra"
 )
 
-// DevelopmentCmd is the root command for development and debugging tools.
-var DevelopmentCmd = &cobra.Command{
-	Use:   "development",
+// DevCmd is the root command for development and debugging tools.
+var DevCmd = &cobra.Command{
+	Use:   "dev",
 	Short: "Development and debugging tools",
 	Long:  `Development tools include the Heddle Language Server (LSP) and the Debug Adapter (DAP).`,
 }
 
 func init() {
-	DevelopmentCmd.AddCommand(LspCmd)
-	DevelopmentCmd.AddCommand(DapCmd)
-	DevelopmentCmd.AddCommand(completionCmd)
+	DevCmd.AddCommand(LspCmd)
+	DevCmd.AddCommand(DapCmd)
+	DevCmd.AddCommand(completionCmd)
 }
 
 var completionCmd = &cobra.Command{
@@ -24,10 +24,10 @@ var completionCmd = &cobra.Command{
 
 Bash:
 
-  $ source <(heddle development completion bash)
+  $ source <(heddle dev completion bash)
 
   # To load completions for each session, add to your ~/.bashrc:
-  $ heddle development completion bash > /etc/bash_completion.d/heddle
+  $ heddle dev completion bash > /etc/bash_completion.d/heddle
 
 Zsh:
 
@@ -37,23 +37,23 @@ Zsh:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
   # To load completions for each session, execute once:
-  $ heddle development completion zsh > "${fpath[1]}/_heddle"
+  $ heddle dev completion zsh > "${fpath[1]}/_heddle"
 
   # You will need to start a new shell for this setup to take effect.
 
 Fish:
 
-  $ heddle development completion fish | source
+  $ heddle dev completion fish | source
 
   # To load completions for each session, execute once:
-  $ heddle development completion fish > ~/.config/fish/completions/heddle.fish
+  $ heddle dev completion fish > ~/.config/fish/completions/heddle.fish
 
 PowerShell:
 
-  PS> heddle development completion powershell | Out-String | Invoke-Expression
+  PS> heddle dev completion powershell | Out-String | Invoke-Expression
 
   # To load completions for every new session, run:
-  PS> heddle development completion powershell > heddle.ps1
+  PS> heddle dev completion powershell > heddle.ps1
   # and source this file from your PowerShell profile.
 `,
 	DisableFlagsInUseLine: true,

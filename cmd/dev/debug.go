@@ -1,4 +1,4 @@
-package development
+package dev
 
 import (
 	"github.com/spf13/cobra"

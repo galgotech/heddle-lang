@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/galgotech/heddle-lang/cmd/cluster"
-	"github.com/galgotech/heddle-lang/cmd/development"
+	"github.com/galgotech/heddle-lang/cmd/dev"
 	"github.com/galgotech/heddle-lang/cmd/inspect"
 	"github.com/galgotech/heddle-lang/cmd/local"
 	"github.com/galgotech/heddle-lang/cmd/run"
@@ -60,7 +60,7 @@ func init() {
 	rootCmd.AddCommand(inspect.InspectCmd)
 	rootCmd.AddCommand(local.LocalCmd)
 	rootCmd.AddCommand(cluster.ClusterCmd)
-	rootCmd.AddCommand(development.DevelopmentCmd)
+	rootCmd.AddCommand(dev.DevCmd)
 }
 
 func main() {
