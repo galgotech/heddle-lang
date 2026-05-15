@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	baseplugin "github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
@@ -284,7 +285,7 @@ func (p *Plugin) Start() error {
 			resources[name] = res.ResourceSchema
 		}
 
-		reg := PluginRegistration{
+		reg := baseplugin.PluginRegistration{
 			Namespace:    p.Namespace,
 			Language:     p.Language,
 			Version:      "0.1.0",
@@ -301,7 +302,7 @@ func (p *Plugin) Start() error {
 		// Submit registration via Arrow Flight DoAction.
 		// This notifies the Worker of the plugin's namespace and step capabilities.
 		res, err := client.DoAction(ctx, &flight.Action{
-			Type: ActionRegisterPlugin,
+			Type: baseplugin.ActionRegisterPlugin,
 			Body: regBody,
 		})
 		if err != nil {
@@ -382,7 +383,7 @@ func (p *Plugin) startHeartbeat(ctx context.Context, client flight.Client) {
 			}
 			body, _ := json.Marshal(hb)
 			_, err := client.DoAction(ctx, &flight.Action{
-				Type: ActionPluginHeartbeat,
+				Type: baseplugin.ActionPluginHeartbeat,
 				Body: body,
 			})
 			if err != nil {

@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
-	"github.com/galgotech/heddle-lang/sdk/go/plugin"
+	"github.com/galgotech/heddle-lang/pkg/plugin"
 )
 
 type mockControlPlane struct {
