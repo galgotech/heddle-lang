@@ -38,7 +38,12 @@ var startCmd = &cobra.Command{
 		}
 
 		fmt.Println("Starting Heddle local services in foreground...")
-		startLocalServices()
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+		StartLocalServices(ctx)
+		select {
+		case <-ctx.Done():
+		}
 	},
 }
 
@@ -79,10 +84,7 @@ func init() {
 	LocalCmd.AddCommand(stopCmd)
 }
 
-func startLocalServices() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func StartLocalServices(ctx context.Context) {
 	defer logger.Sync()
 
 	cpSocket := "unix:///tmp/heddle-cp.sock"
@@ -113,6 +115,5 @@ func startLocalServices() {
 	// 3. Start Standard Library Plugins (std and std/io)
 	<-stdplugin.Register()
 
-	logger.L().Info("Heddle is running in local mode. Press Ctrl+C to exit.")
-	select {}
+	logger.L().Info("Heddle is running in local mode.")
 }

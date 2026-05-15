@@ -1,8 +1,7 @@
-package dev
+package scaffold
 
 import (
 	"bytes"
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,9 +13,6 @@ import (
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
-
-//go:embed templates/*
-var templatesFS embed.FS
 
 var namespaceRegex = regexp.MustCompile(`^[a-z0-9_]+/[a-z0-9_]+$`)
 
@@ -79,17 +75,9 @@ func (s *ScaffoldService) WorkerAdd(language, fullName string) error {
 
 	baseDir := filepath.Join("workers", namespace, workerName)
 
-	dirs := []string{
-		filepath.Join(baseDir, "steps"),
-		filepath.Join(baseDir, "config"),
-		filepath.Join(baseDir, "resource"),
-		filepath.Join(baseDir, "tests"),
-	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
+	// Create base directory
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return fmt.Errorf("failed to create worker directory %s: %w", baseDir, err)
 	}
 
 	workerTomlPath := filepath.Join(baseDir, "worker.toml")

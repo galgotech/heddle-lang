@@ -1,4 +1,4 @@
-package dev
+package scaffold
 
 import (
 	"os"
@@ -52,8 +52,8 @@ func TestScaffoldService_WorkerAdd_Valid(t *testing.T) {
 		t.Error("expected worker.toml to be created")
 	}
 
-	if _, err := os.Stat(filepath.Join(baseDir, "main.go")); os.IsNotExist(err) {
-		t.Error("expected main.go to be created")
+	if _, err := os.Stat(filepath.Join(baseDir, "cmd", "main.go")); os.IsNotExist(err) {
+		t.Error("expected main.go to be created in cmd/")
 	}
 
 	if _, err := os.Stat(filepath.Join(baseDir, "go.mod")); os.IsNotExist(err) {

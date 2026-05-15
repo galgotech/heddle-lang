@@ -3,7 +3,7 @@ package dev
 import (
 	"github.com/spf13/cobra"
 
-	devservice "github.com/galgotech/heddle-lang/internal/services/dev"
+	"github.com/galgotech/heddle-lang/internal/services/dev/scaffold"
 )
 
 var InitCmd = &cobra.Command{
@@ -12,7 +12,7 @@ var InitCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectName := args[0]
-		s := devservice.NewScaffoldService()
+		s := scaffold.NewScaffoldService()
 		return s.Init(projectName)
 	},
 }

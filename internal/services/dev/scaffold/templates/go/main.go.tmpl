@@ -18,7 +18,7 @@ func main() {
 	}
 
 	// Register your steps here:
-	// p.RegisterStep("print_message", steps.PrintMessage)
+	p.RegisterStep("print_message", steps.PrintMessage)
 
 	logger.L().Info("Starting worker...", zap.String("namespace", "{{.Namespace}}"))
 	if err := p.Start(); err != nil {
