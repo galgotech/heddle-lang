@@ -17,6 +17,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/services/worker/internal"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 type Worker struct {
@@ -24,6 +25,7 @@ type Worker struct {
 	ControlPlane         flight.Client
 	SocketPath           string
 	Capabilities         []string
+	Schemas              map[string]schema.StepSchemas
 	PluginServer         *PluginServer
 	updateCapabilitiesCh chan func(context.Context)
 	Ready                chan struct{}
@@ -61,7 +63,7 @@ func (w *Worker) Start(ctx context.Context) error {
 		internalCaps = append(internalCaps, "__internal."+k)
 	}
 
-	if err := w.updateCapabilities(ctx, internalCaps, true); err != nil {
+	if err := w.updateCapabilities(ctx, internalCaps, nil, true); err != nil {
 		return fmt.Errorf("failed to sync internal capabilities: %w", err)
 	}
 
@@ -212,11 +214,11 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 	return stepFunc(ctx, task, w.Registry)
 }
 
-func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string) error {
-	return w.updateCapabilities(ctx, capabilities, false)
+func (w *Worker) UpdateCapabilities(ctx context.Context, capabilities []string, schemas map[string]schema.StepSchemas) error {
+	return w.updateCapabilities(ctx, capabilities, schemas, false)
 }
 
-func (w *Worker) updateCapabilities(ctx context.Context, capabilities []string, isInternal bool) error {
+func (w *Worker) updateCapabilities(ctx context.Context, capabilities []string, schemas map[string]schema.StepSchemas, isInternal bool) error {
 	errCh := make(chan error, 1)
 	w.updateCapabilitiesCh <- func(mctx context.Context) {
 		// Merge unique capabilities
@@ -239,14 +241,23 @@ func (w *Worker) updateCapabilities(ctx context.Context, capabilities []string, 
 			}
 		}
 
-		if !newCaps {
+		if !newCaps && len(schemas) == 0 {
 			errCh <- nil
 			return
+		}
+
+		// Update schemas
+		if w.Schemas == nil {
+			w.Schemas = make(map[string]schema.StepSchemas)
+		}
+		for k, v := range schemas {
+			w.Schemas[k] = v
 		}
 
 		// Notify Control Plane
 		update := models.WorkerCapabilitiesUpdate{
 			Capabilities: w.Capabilities,
+			Schemas:      w.Schemas,
 		}
 		body, _ := json.Marshal(update)
 		res, err := w.ControlPlane.DoAction(mctx, &flight.Action{

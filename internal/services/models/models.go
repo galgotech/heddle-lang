@@ -61,8 +61,9 @@ type WorkerHeartbeat struct {
 
 // Task represents a unit of work dispatched to a worker.
 type Task struct {
-	ID      string      `json:"id"`
-	Program *ir.Program `json:"program"`
+	ID             string      `json:"id"`
+	Program        *ir.Program `json:"program"`
+	TargetWorkflow string      `json:"target_workflow,omitempty"`
 }
 
 // TaskResult is the response from a worker after executing a task.
@@ -74,7 +75,8 @@ type TaskResult struct {
 
 // WorkflowSubmission contains the source code of a Heddle program to be compiled and executed.
 type WorkflowSubmission struct {
-	Source string `json:"source"`
+	Source       string `json:"source"`
+	WorkflowName string `json:"workflow_name,omitempty"`
 }
 
 // WorkflowPurge is sent by the control plane to a worker after workflow termination.

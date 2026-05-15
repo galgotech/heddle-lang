@@ -21,6 +21,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
 )
 
@@ -28,7 +29,7 @@ type PluginServer struct {
 	flight.BaseFlightServer
 	SocketPath           string
 	Plugins              sync.Map // map[string]*PluginInfo
-	OnCapabilitiesUpdate func(ctx context.Context, capabilities []string) error
+	OnCapabilitiesUpdate func(ctx context.Context, capabilities []string, schemas map[string]schema.StepSchemas) error
 	Ready                chan struct{}
 	Registry             *locality.DataLocalityRegistry
 }
@@ -89,7 +90,7 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 		logger.L().Info("Plugin registered", zap.String("namespace", reg.Namespace), zap.String("language", reg.Language))
 
 		if s.OnCapabilitiesUpdate != nil {
-			if err := s.OnCapabilitiesUpdate(stream.Context(), reg.Capabilities); err != nil {
+			if err := s.OnCapabilitiesUpdate(stream.Context(), reg.Capabilities, reg.Schemas); err != nil {
 				logger.L().Error("Failed to update capabilities", zap.Error(err))
 			}
 		}

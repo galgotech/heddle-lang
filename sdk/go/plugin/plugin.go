@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/signal"
 	"reflect"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -30,6 +34,10 @@ type ResourceRegistration struct {
 	ResourceSchema *schema.ResourceAndConfigSchema
 	ResourceType   reflect.Type
 	Resource       Resource
+	Documentation  string
+	SourceCode     string
+	SourceFile     string
+	SourceLine     int
 }
 
 // StepRegistration stores the execution contract for a Heddle Step.
@@ -44,6 +52,11 @@ type StepRegistration struct {
 	Func         reflect.Value
 	InputSchema  *schema.FrameSchema
 	OutputSchema *schema.FrameSchema
+
+	Documentation string
+	SourceCode    string
+	SourceFile    string
+	SourceLine    int
 
 	// Pre-calculated indices for optimized initialization
 	inputHeddleFrameIndex  int
@@ -103,11 +116,21 @@ func (p *Plugin) RegisterResource(name string, resource Resource) error {
 		return fmt.Errorf("resource %q config: %w", name, err)
 	}
 
+	var fnPtr uintptr
+	if v := reflect.ValueOf(resource).MethodByName("Start"); v.IsValid() {
+		fnPtr = v.Pointer()
+	}
+	doc, code, file, line := extractMetadata(fnPtr)
+
 	p.resources[name] = ResourceRegistration{
 		Name:           name,
 		ResourceSchema: resourceSchema,
 		ResourceType:   typ,
 		Resource:       resource,
+		Documentation:  doc,
+		SourceCode:     code,
+		SourceFile:     file,
+		SourceLine:     line,
 	}
 
 	return nil
@@ -173,6 +196,8 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 		}
 	}
 
+	doc, code, file, line := extractMetadata(reflect.ValueOf(fn).Pointer())
+
 	logger.L().Debug("Registering step", zap.String("name", name))
 	p.steps[name] = StepRegistration{
 		Name:                   name,
@@ -183,6 +208,10 @@ func (p *Plugin) RegisterStep(name string, fn any) error {
 		InputType:              inputType,
 		OutputSchema:           outputSchema,
 		OutputType:             outputType,
+		Documentation:          doc,
+		SourceCode:             code,
+		SourceFile:             file,
+		SourceLine:             line,
 		inputHeddleFrameIndex:  inputHeddleFrameIndex,
 		outputHeddleFrameIndex: outputHeddleFrameIndex,
 		inputFieldsIndex:       inputFieldsIndex,
@@ -236,9 +265,13 @@ func (p *Plugin) Start() error {
 			capName := fmt.Sprintf("%s.%s", p.Namespace, name)
 			capabilities = append(capabilities, capName)
 			schemas[capName] = schema.StepSchemas{
-				Config: step.ConfigSchema,
-				Input:  step.InputSchema,
-				Output: step.OutputSchema,
+				Config:        step.ConfigSchema,
+				Input:         step.InputSchema,
+				Output:        step.OutputSchema,
+				Documentation: step.Documentation,
+				SourceCode:    step.SourceCode,
+				SourceFile:    step.SourceFile,
+				SourceLine:    step.SourceLine,
 			}
 		}
 
@@ -670,4 +703,63 @@ func bind(reflectValue reflect.Value, fieldIndices []int, columns map[string]arr
 	}
 
 	return nil
+}
+
+func extractMetadata(fnPtr uintptr) (doc string, code string, file string, line int) {
+	f := runtime.FuncForPC(fnPtr)
+	if f == nil {
+		return
+	}
+	file, line = f.FileLine(fnPtr)
+
+	// Try to read the source file
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return
+	}
+
+	fset := token.NewFileSet()
+	// Parse the file to get AST and comments
+	node, err := parser.ParseFile(fset, file, data, parser.ParseComments)
+	if err != nil {
+		return
+	}
+
+	for _, decl := range node.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			// Check if this function corresponds to our line
+			startLine := fset.Position(d.Pos()).Line
+			endLine := fset.Position(d.End()).Line
+			if startLine <= line && endLine >= line {
+				if d.Doc != nil {
+					doc = d.Doc.Text()
+				}
+				// Extract source code of the function
+				start := fset.Position(d.Pos()).Offset
+				end := fset.Position(d.End()).Offset
+				code = string(data[start:end])
+				return
+			}
+		case *ast.GenDecl:
+			// Handle types (Resources)
+			for _, spec := range d.Specs {
+				if tSpec, ok := spec.(*ast.TypeSpec); ok {
+					startLine := fset.Position(tSpec.Pos()).Line
+					endLine := fset.Position(tSpec.End()).Line
+					if startLine <= line && endLine >= line {
+						if d.Doc != nil {
+							doc = d.Doc.Text()
+						}
+						// Extract source code of the type declaration
+						start := fset.Position(d.Pos()).Offset
+						end := fset.Position(d.End()).Offset
+						code = string(data[start:end])
+						return
+					}
+				}
+			}
+		}
+	}
+	return
 }

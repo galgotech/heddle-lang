@@ -69,8 +69,14 @@ export async function activate(context: ExtensionContext) {
         console.log(serverOptions);
 
         const clientOptions: LanguageClientOptions = {
-            documentSelector: [{ scheme: 'file', language: 'heddle' }],
-            outputChannel: outputChannel
+            documentSelector: [
+                { scheme: 'file', language: 'heddle' },
+                { scheme: 'untitled', language: 'heddle' }
+            ],
+            outputChannel: outputChannel,
+            synchronize: {
+                fileEvents: workspace.createFileSystemWatcher('**/*.he')
+            }
         };
 
         client = new LanguageClient(

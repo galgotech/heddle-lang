@@ -251,7 +251,7 @@ workflow hello_world {
     | io.print
 }
 `
-	result, err := c.SubmitWorkflow(ctx, source)
+	result, err := c.SubmitWorkflow(ctx, source, "")
 	// The compiler might still fail if std/io is not registered, but it shouldn't panic
 	if err != nil {
 		// Compilation error is fine as long as it's not a panic
@@ -260,4 +260,41 @@ workflow hello_world {
 		assert.Contains(t, result, "QUEUED")
 		assert.Equal(t, 1, s.Queue.Len())
 	}
+}
+
+func TestControlPlane_WorkflowFiltering(t *testing.T) {
+	s := NewControlPlaneServer()
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpc.NewServer()
+	flight.RegisterFlightServiceServer(srv, s)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	ctx := context.Background()
+	c, err := client.NewControlPlaneClient(lis.Addr().String())
+	require.NoError(t, err)
+
+	source := `
+import "std/io" io
+
+workflow w1 {
+  []
+    | io.print
+}
+
+workflow w2 {
+  []
+    | io.print
+}
+`
+	// Submit only w2
+	_, err = c.SubmitWorkflow(ctx, source, "w2")
+	require.NoError(t, err)
+
+	task := s.Queue.Pop()
+	assert.Equal(t, "w2", task.TargetWorkflow)
 }

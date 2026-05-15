@@ -16,9 +16,10 @@ type ControlPlaneClient struct {
 	client flight.Client
 }
 
-func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, source string) (string, error) {
+func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, source string, workflowName string) (string, error) {
 	sub := models.WorkflowSubmission{
-		Source: source,
+		Source:       source,
+		WorkflowName: workflowName,
 	}
 	body, err := json.Marshal(sub)
 	if err != nil {

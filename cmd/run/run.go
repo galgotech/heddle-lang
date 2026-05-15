@@ -91,7 +91,9 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			return fmt.Errorf("failed to connect to control plane: %w", err)
 		}
 
-		res, err := c.SubmitWorkflow(ctx, string(content))
+		workflowName, _ := cmd.Flags().GetString("workflow")
+
+		res, err := c.SubmitWorkflow(ctx, string(content), workflowName)
 		if err != nil {
 			return fmt.Errorf("submission failed: %w", err)
 		}
@@ -105,8 +107,10 @@ func init() {
 	RunCmd.Flags().String("timeout", "30s", "Timeout for plugin handshake (e.g., 30s)")
 	RunCmd.Flags().String("mode", "local", "Defines the execution mode: 'local' or 'remote'")
 	RunCmd.Flags().String("target", "", "Control Plane address (Required if --mode=remote and absent in config)")
-	
+	RunCmd.Flags().String("workflow", "", "Specific workflow name to execute")
+
 	viper.BindPFlag("client.mode", RunCmd.Flags().Lookup("mode"))
 	viper.BindPFlag("client.target", RunCmd.Flags().Lookup("target"))
 	viper.BindPFlag("client.workflow.timeout", RunCmd.Flags().Lookup("timeout"))
+	viper.BindPFlag("client.workflow.name", RunCmd.Flags().Lookup("workflow"))
 }

@@ -210,3 +210,21 @@ func TestStepRegistration_NewInputOutput(t *testing.T) {
 	output := outputVal.Interface().(*TestRegistrationOutput)
 	assert.NotNil(t, output.Result, "Output field Result should be initialized")
 }
+
+// MyDocComment is a test doc comment.
+func MyTestStep(ctx context.Context, config struct{}, input *TestRegistrationInput, output *TestRegistrationOutput) error {
+	return nil
+}
+
+func TestRegisterStepMetadata(t *testing.T) {
+	p := New("test")
+	err := p.RegisterStep("my_step", MyTestStep)
+	require.NoError(t, err)
+
+	reg, ok := p.steps["my_step"]
+	require.True(t, ok)
+	assert.Equal(t, "MyDocComment is a test doc comment.\n", reg.Documentation)
+	assert.Contains(t, reg.SourceCode, "func MyTestStep")
+	assert.Contains(t, reg.SourceCode, "return nil")
+	assert.Contains(t, reg.SourceFile, "plugin_test.go")
+}

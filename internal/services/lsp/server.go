@@ -66,6 +66,7 @@ func (s *Server) handle(conn jsonrpc2.Conn) jsonrpc2.Handler {
 					DocumentSymbolProvider:     true,
 					SelectionRangeProvider:     true,
 					WorkspaceSymbolProvider:    true,
+					HoverProvider:              true,
 					CodeLensProvider:           &protocol.CodeLensOptions{ResolveProvider: false},
 				},
 			}, nil)
@@ -93,6 +94,8 @@ func (s *Server) handle(conn jsonrpc2.Conn) jsonrpc2.Handler {
 			return s.handleCodeAction(ctx, reply, req)
 		case protocol.MethodTextDocumentDefinition:
 			return s.handleDefinition(ctx, reply, req)
+		case protocol.MethodTextDocumentHover:
+			return s.handleHover(ctx, reply, req)
 		case protocol.MethodTextDocumentReferences:
 			return s.handleReferences(ctx, reply, req)
 		case protocol.MethodTextDocumentDocumentSymbol:

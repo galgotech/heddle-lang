@@ -35,17 +35,34 @@ func (s *Server) handleDefinition(ctx context.Context, reply jsonrpc2.Replier, r
 
 	nav := compiler.NewNavigator(astCtx)
 	defRange := nav.DefinitionAt(prog, params.Position.Line+1, params.Position.Character+1)
-	if defRange == nil {
-		return reply(ctx, nil, nil)
+	if defRange != nil {
+		return reply(ctx, protocol.Location{
+			URI: uri,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: defRange.Start.Line - 1, Character: defRange.Start.Col - 1},
+				End:   protocol.Position{Line: defRange.End.Line - 1, Character: defRange.End.Col - 1},
+			},
+		}, nil)
 	}
 
-	return reply(ctx, protocol.Location{
-		URI: uri,
-		Range: protocol.Range{
-			Start: protocol.Position{Line: defRange.Start.Line - 1, Character: defRange.Start.Col - 1},
-			End:   protocol.Position{Line: defRange.End.Line - 1, Character: defRange.End.Col - 1},
-		},
-	}, nil)
+	// If no local definition, check registry for external steps/resources
+	symbolName, _ := nav.SymbolAt(prog, params.Position.Line+1, params.Position.Character+1)
+	if symbolName != "" {
+		registry, _ := s.getRegistry(ctx)
+		if registry != nil {
+			if step, ok := registry.Steps[symbolName]; ok && step.SourceFile != "" {
+				return reply(ctx, protocol.Location{
+					URI: protocol.DocumentURI("file://" + step.SourceFile),
+					Range: protocol.Range{
+						Start: protocol.Position{Line: uint32(step.SourceLine - 1), Character: 0},
+						End:   protocol.Position{Line: uint32(step.SourceLine - 1), Character: 0},
+					},
+				}, nil)
+			}
+		}
+	}
+
+	return reply(ctx, nil, nil)
 }
 
 func (s *Server) handleReferences(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
@@ -240,4 +257,57 @@ func containsFold(s, substr string) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+func (s *Server) handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	var params protocol.HoverParams
+	if err := json.Unmarshal(req.Params(), &params); err != nil {
+		return reply(ctx, nil, err)
+	}
+
+	uri := params.TextDocument.URI
+	text, ok := s.files.Load(uri)
+	if !ok {
+		return reply(ctx, nil, nil)
+	}
+
+	astCtx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(astCtx)
+
+	l := lexer.New(text.(string))
+	p := parser.New(l, astCtx)
+	prog := p.Parse()
+
+	nav := compiler.NewNavigator(astCtx)
+	symbolName, _ := nav.SymbolAt(prog, params.Position.Line+1, params.Position.Character+1)
+	if symbolName == "" {
+		return reply(ctx, nil, nil)
+	}
+
+	// Check registry for step metadata
+	registry, _ := s.getRegistry(ctx)
+	if registry != nil {
+		if step, ok := registry.Steps[symbolName]; ok {
+			var markdown strings.Builder
+			if step.Documentation != "" {
+				markdown.WriteString(step.Documentation)
+				markdown.WriteString("\n\n")
+			}
+			if step.SourceCode != "" {
+				markdown.WriteString("```go\n")
+				markdown.WriteString(step.SourceCode)
+				markdown.WriteString("\n```")
+			}
+
+			if markdown.Len() > 0 {
+				return reply(ctx, protocol.Hover{
+					Contents: protocol.MarkupContent{
+						Kind:  protocol.Markdown,
+						Value: markdown.String(),
+					},
+				}, nil)
+			}
+		}
+	}
+
+	return reply(ctx, nil, nil)
 }

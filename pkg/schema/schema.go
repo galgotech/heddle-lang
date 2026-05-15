@@ -27,11 +27,16 @@ type ResourceAndConfigSchema struct {
 	Fields []ConfigField `json:"fields"`
 }
 
-// StepSchemas contains the input, output and config schemas for a step.
+// StepSchemas contains the input, output and config schemas for a step,
+// as well as metadata for developer experience (LSP).
 type StepSchemas struct {
-	Config *ResourceAndConfigSchema `json:"config,omitempty"`
-	Input  *FrameSchema             `json:"input,omitempty"`
-	Output *FrameSchema             `json:"output,omitempty"`
+	Config        *ResourceAndConfigSchema `json:"config,omitempty"`
+	Input         *FrameSchema             `json:"input,omitempty"`
+	Output        *FrameSchema             `json:"output,omitempty"`
+	Documentation string                   `json:"documentation,omitempty"`
+	SourceCode    string                   `json:"source_code,omitempty"`
+	SourceFile    string                   `json:"source_file,omitempty"`
+	SourceLine    int                      `json:"source_line,omitempty"`
 }
 
 // Compatible checks if the output schema of one step is compatible with

@@ -104,8 +104,9 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		// 2. Queue
 		task := models.Task{
-			ID:      uuid.New().String(),
-			Program: program,
+			ID:             uuid.New().String(),
+			Program:        program,
+			TargetWorkflow: sub.WorkflowName,
 		}
 		s.Queue.Push(task)
 
@@ -190,6 +191,12 @@ func (s *ControlPlaneServer) orchestrateTask(ctx context.Context, task models.Ta
 	program := task.Program
 	for _, flowID := range program.Workflows {
 		flow := program.Instructions[flowID].(*ir.FlowInstruction)
+
+		// Filter by workflow name if specified
+		if task.TargetWorkflow != "" && flow.Name != task.TargetWorkflow {
+			continue
+		}
+
 		for _, headID := range flow.Heads {
 			if err := s.executeStepRecursive(ctx, task.ID, program, headID, ""); err != nil {
 				logger.L().Error("Task failed", zap.Error(err))
