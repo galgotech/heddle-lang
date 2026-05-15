@@ -8,10 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	controlplane "github.com/galgotech/heddle-lang/internal/services/control-plane"
-	"github.com/galgotech/heddle-lang/internal/services/worker"
+	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
+	"github.com/galgotech/heddle-lang/internal/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
-	"github.com/galgotech/heddle-lang/sdk/go/stdplugin"
 )
 
 const pidFile = "/tmp/heddle.pid"
@@ -129,9 +128,6 @@ func StartLocalServices(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-
-	// 3. Start Standard Library Plugins (std and std/io)
-	<-stdplugin.Register()
 
 	logger.L().Info("Heddle is running in local mode.")
 	return nil

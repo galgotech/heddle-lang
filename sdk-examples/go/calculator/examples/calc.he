@@ -1,8 +1,0 @@
-import "std/io" io
-import "calculator" calc
-
-workflow main {
-  [{ A: 2, B: 3 }]
-    | calc.add
-    | io.print
-}

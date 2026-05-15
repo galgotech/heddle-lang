@@ -1,2 +1,0 @@
-# Heddle Plugin Calculator
-

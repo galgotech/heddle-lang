@@ -5,7 +5,6 @@ go 1.26.2
 require (
 	github.com/apache/arrow/go/v18 v18.0.0-20241007013041-ab95a4d25142
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/galgotech/heddle-lang/sdk/go v0.0.0-20260515190150-878172fed6e2
 	github.com/google/go-dap v0.12.0
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
@@ -19,7 +18,6 @@ require (
 )
 
 require (
-	github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect

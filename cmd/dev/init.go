@@ -3,7 +3,7 @@ package dev
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/galgotech/heddle-lang/internal/services/dev/scaffold"
+	"github.com/galgotech/heddle-lang/internal/dev/scaffold"
 )
 
 var InitCmd = &cobra.Command{

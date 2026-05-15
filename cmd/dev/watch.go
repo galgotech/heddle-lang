@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/galgotech/heddle-lang/cmd/local"
-	"github.com/galgotech/heddle-lang/internal/services/dev/maestro"
+	"github.com/galgotech/heddle-lang/internal/dev/maestro"
 )
 
 var WatchCmd = &cobra.Command{
