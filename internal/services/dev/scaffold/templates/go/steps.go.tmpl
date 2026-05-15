@@ -3,9 +3,10 @@ package steps
 import (
 	"context"
 	"fmt"
-	"{{.ModName}}/config"
 
 	"github.com/galgotech/heddle-lang/sdk/go/plugin"
+
+	"{{.ModName}}/config"
 )
 
 func PrintMessage(ctx context.Context, cfg config.HelloConfig, input *plugin.VoidFrame, output *plugin.VoidFrame) error {
