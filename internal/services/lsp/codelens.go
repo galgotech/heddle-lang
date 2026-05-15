@@ -34,7 +34,7 @@ func (s *Server) handleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-	var lenses []protocol.CodeLens
+	lenses := []protocol.CodeLens{}
 
 	// Workflows
 	for i := prog.WorkflowRefsStart; i < prog.WorkflowRefsEnd; i++ {

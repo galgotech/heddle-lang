@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
@@ -34,8 +31,11 @@ func (s *Server) handleCompletion(ctx context.Context, reply jsonrpc2.Replier, r
 	// Fetch registry from Control Plane
 	registry, err := s.getRegistry(ctx)
 	if err != nil {
-		s.logger.Error("Failed to get registry from control plane", zap.Error(err))
-		// Fallback to empty registry or local cache if we had one
+		s.logger.Warn("Failed to get registry from control plane", zap.Error(err))
+	}
+
+	if registry == nil {
+		// Fallback to empty registry if disconnected or error
 		registry = &models.RegistryInfo{Steps: make(map[string]schema.StepSchemas)}
 	}
 
@@ -46,34 +46,6 @@ func (s *Server) handleCompletion(ctx context.Context, reply jsonrpc2.Replier, r
 		IsIncomplete: false,
 		Items:        items,
 	}, nil)
-}
-
-func (s *Server) getRegistry(ctx context.Context) (*models.RegistryInfo, error) {
-	conn, err := grpc.NewClient(s.cpAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	client := flight.NewClientFromConn(conn, nil)
-	res, err := client.DoAction(ctx, &flight.Action{
-		Type: models.ActionGetRegistry,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := res.Recv()
-	if err != nil {
-		return nil, err
-	}
-
-	var info models.RegistryInfo
-	if err := json.Unmarshal(resp.Body, &info); err != nil {
-		return nil, err
-	}
-
-	return &info, nil
 }
 
 func (s *Server) getCompletionItems(source string, pos protocol.Position, registry *models.RegistryInfo) []protocol.CompletionItem {
@@ -88,7 +60,7 @@ func (s *Server) getCompletionItems(source string, pos protocol.Position, regist
 	// 2. Identify context based on line/column
 	lines := strings.Split(source, "\n")
 	if int(pos.Line) >= len(lines) {
-		return nil
+		return []protocol.CompletionItem{}
 	}
 	line := lines[pos.Line]
 	prefix := ""
@@ -96,7 +68,7 @@ func (s *Server) getCompletionItems(source string, pos protocol.Position, regist
 		prefix = line[:pos.Character]
 	}
 
-	var items []protocol.CompletionItem
+	items := []protocol.CompletionItem{}
 
 	// Check if we are inside a workflow or handler to suggest steps
 	inWorkflow := false

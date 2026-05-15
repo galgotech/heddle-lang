@@ -12,7 +12,9 @@ var WatchCmd = &cobra.Command{
 	Short: "Start the local development orchestrator with hot-reload",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// 1. Start local services (Control Plane, Core Worker, Std Plugins)
-		local.StartLocalServices(cmd.Context())
+		if err := local.StartLocalServices(cmd.Context()); err != nil {
+			return err
+		}
 
 		// 2. Start Maestro for hot-reload of SDK workers
 		m, err := maestro.NewMaestro()

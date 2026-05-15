@@ -7,12 +7,12 @@ export interface IWorkspaceAdapter {
 
 export class ConfigurationManager {
     constructor(
-        private adapter: IWorkspaceAdapter, 
+        private adapter: IWorkspaceAdapter,
         private onRestartRequired: () => void
     ) {
         this.adapter.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('heddle.path') || 
-                e.affectsConfiguration('heddle.lspPath') || 
+            if (e.affectsConfiguration('heddle.path') ||
+                e.affectsConfiguration('heddle.lspPath') ||
                 e.affectsConfiguration('heddle.controlPlaneAddr')) {
                 this.onRestartRequired();
             }
@@ -21,6 +21,6 @@ export class ConfigurationManager {
 
     getControlPlaneAddr(): string {
         const config = this.adapter.getConfiguration('heddle');
-        return config.get<string>('controlPlaneAddr', 'localhost:50051') || 'localhost:50051';
+        return config.get<string>('controlPlaneAddr', '/tmp/heddle-cp.sock');
     }
 }

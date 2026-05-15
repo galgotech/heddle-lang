@@ -60,11 +60,13 @@ export async function activate(context: ExtensionContext) {
 
         const serverOptions: ServerOptions = {
             command: heddlePath,
-            args: ['development', 'lsp', '--control-plane-addr', cpAddr],
+            args: ['dev', 'lsp', '--control-plane-addr', cpAddr],
             options: {
                 cwd: context.extensionPath
             },
         };
+
+        console.log(serverOptions);
 
         const clientOptions: LanguageClientOptions = {
             documentSelector: [{ scheme: 'file', language: 'heddle' }],

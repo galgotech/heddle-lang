@@ -19,25 +19,38 @@ var dapCfgFile string
 var DapCmd = &cobra.Command{
 	Use:   "dap",
 	Short: "Start the Heddle Debug Adapter",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return config.Init("HEDDLE_DAP", dapCfgFile)
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		if err := config.Init("HEDDLE_DAP", dapCfgFile); err != nil {
+			return err
+		}
+
+		logPath, err := cmd.Flags().GetString("log-path")
+		if err != nil {
+			return err
+		}
+
+		return logger.Init(logger.Config{
+			OutputPaths: []string{logPath},
+			Level:       "debug",
+			Development: true,
+		})
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		log := logger.L()
+		l := logger.L()
 		cpAddr := viper.GetString("control-plane-addr")
 		if cpAddr == "" {
 			cpAddr = "localhost:50051"
 		}
 
-		server := dap.NewServer(log, viper.GetString("addr"), cpAddr)
+		server := dap.NewServer(l, viper.GetString("addr"), cpAddr)
 
 		if viper.GetBool("server") {
 			if err := server.Start(context.Background()); err != nil {
-				log.Fatal("DAP server failed", zap.Error(err))
+				l.Fatal("DAP server failed", zap.Error(err))
 			}
 		} else {
 			if err := server.StartStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
-				log.Fatal("DAP stdio failed", zap.Error(err))
+				l.Fatal("DAP stdio failed", zap.Error(err))
 			}
 		}
 	},
@@ -47,7 +60,9 @@ func init() {
 	DapCmd.PersistentFlags().StringVar(&dapCfgFile, "config", "", "config file (default is ./heddle-dap.yaml)")
 	DapCmd.Flags().Bool("server", false, "Start in server mode")
 	DapCmd.Flags().String("addr", "localhost:4711", "Address to listen on in server mode")
+	DapCmd.Flags().String("log-path", "/tmp/heddle-dap.log", "Path to log file")
 
 	viper.BindPFlag("server", DapCmd.Flags().Lookup("server"))
 	viper.BindPFlag("addr", DapCmd.Flags().Lookup("addr"))
+	viper.BindPFlag("log-path", DapCmd.Flags().Lookup("log-path"))
 }

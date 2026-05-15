@@ -13,7 +13,7 @@ describe('ConfigurationManager', () => {
             getConfiguration: sinon.stub(),
             onDidChangeConfiguration: sinon.stub().callsFake((cb: any) => {
                 changeCallback = cb;
-                return { dispose: () => {} };
+                return { dispose: () => { } };
             })
         };
         onChangeSpy = sinon.spy();
@@ -21,12 +21,12 @@ describe('ConfigurationManager', () => {
 
     it('should trigger callback when controlPlaneAddr changes', () => {
         new ConfigurationManager(adapter, onChangeSpy);
-        
+
         // Simulate event
         const event = {
             affectsConfiguration: (section: string) => section === 'heddle.controlPlaneAddr'
         };
-        
+
         changeCallback(event);
 
         expect(onChangeSpy.called).to.be.true;
@@ -34,12 +34,12 @@ describe('ConfigurationManager', () => {
 
     it('should trigger callback when lspPath changes', () => {
         new ConfigurationManager(adapter, onChangeSpy);
-        
+
         // Simulate event
         const event = {
             affectsConfiguration: (section: string) => section === 'heddle.lspPath'
         };
-        
+
         changeCallback(event);
 
         expect(onChangeSpy.called).to.be.true;
@@ -47,11 +47,11 @@ describe('ConfigurationManager', () => {
 
     it('should NOT trigger callback when unrelated config changes', () => {
         new ConfigurationManager(adapter, onChangeSpy);
-        
+
         const event = {
             affectsConfiguration: sinon.stub().returns(false)
         };
-        
+
         changeCallback(event);
 
         expect(onChangeSpy.called).to.be.false;

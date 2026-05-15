@@ -6,11 +6,10 @@ import (
 	"go.lsp.dev/protocol"
 	"go.uber.org/zap"
 
-	"github.com/galgotech/heddle-lang/internal/services/client"
-	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 // getSyntaxDiagnostics converts parser errors into LSP diagnostic format.
@@ -35,16 +34,16 @@ func getSemanticDiagnostics(ctx context.Context, s *Server, prog ast.ProgramNode
 	diagnostics := []protocol.Diagnostic{}
 
 	// Fetch schemas from Control Plane
-	var regInfo models.RegistryInfo
-	if cpClient, err := client.NewControlPlaneClient(s.cpAddr); err == nil {
-		if info, err := cpClient.GetRegistry(ctx); err == nil {
-			regInfo = info
-		} else {
-			s.logger.Warn("Failed to fetch registry for AOT validation", zap.Error(err))
-		}
+	var steps map[string]schema.StepSchemas
+	registry, err := s.getRegistry(ctx)
+	if err != nil {
+		s.logger.Warn("Failed to fetch registry for AOT validation", zap.Error(err))
+	}
+	if registry != nil {
+		steps = registry.Steps
 	}
 
-	val := compiler.NewValidator(prog, astCtx, regInfo.Steps)
+	val := compiler.NewValidator(prog, astCtx, steps)
 	if errs := val.ValidateAll(); len(errs) > 0 {
 		for _, vErr := range errs {
 			severity := protocol.DiagnosticSeverityError

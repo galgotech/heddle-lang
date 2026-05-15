@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
@@ -160,7 +161,7 @@ func (s *Server) handleSelectionRange(ctx context.Context, reply jsonrpc2.Replie
 	prog := p.Parse()
 
 	nav := compiler.NewNavigator(astCtx)
-	
+
 	results := []protocol.SelectionRange{}
 	for _, pos := range params.Positions {
 		ranges := nav.SelectionRanges(prog, pos.Line+1, pos.Character+1)
@@ -235,5 +236,8 @@ func (s *Server) handleWorkspaceSymbol(ctx context.Context, reply jsonrpc2.Repli
 }
 
 func containsFold(s, substr string) bool {
-	return len(substr) == 0 || (len(s) >= len(substr) && (s == substr || (len(s) > 0 && len(substr) > 0))) // simplified
+	if substr == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

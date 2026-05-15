@@ -9,6 +9,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/services/lsp"
 	"github.com/galgotech/heddle-lang/pkg/config"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 var lspCfgFile string
@@ -26,19 +27,31 @@ func (stdioRW) Close() error {
 var LspCmd = &cobra.Command{
 	Use:   "lsp",
 	Short: "Start the Heddle Language Server",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return config.Init("HEDDLE_LSP", lspCfgFile)
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		if err := config.Init("HEDDLE_LSP", lspCfgFile); err != nil {
+			return err
+		}
+		logPath, err := cmd.Flags().GetString("log-path")
+		if err != nil {
+			return err
+		}
+
+		return logger.Init(logger.Config{
+			OutputPaths: []string{logPath},
+			Level:       "debug",
+			Development: true,
+		})
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		logger := zap.L()
+		l := logger.L()
 		cpAddr, _ := cmd.Flags().GetString("control-plane-addr")
-		server := lsp.NewServer(logger, cpAddr)
+		server := lsp.NewServer(l, cpAddr)
 
 		rw := stdioRW{cmd.InOrStdin(), cmd.OutOrStdout()}
 		defer rw.Close()
 
 		if err := server.Start(cmd.Context(), rw); err != nil {
-			logger.Fatal("LSP server failed", zap.Error(err))
+			l.Fatal("LSP server failed", zap.Error(err))
 		}
 	},
 }

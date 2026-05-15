@@ -10,6 +10,7 @@ import (
 	"go.lsp.dev/protocol"
 	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/internal/services/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
@@ -17,32 +18,29 @@ import (
 
 // Server represents the Heddle Language Server.
 type Server struct {
-	logger *zap.Logger
-	cpAddr string
-	files  sync.Map // map[protocol.DocumentURI]string
-}
-
-// NewServer creates a new instance of the LSP Server.
-func NewServer(logger *zap.Logger, cpAddr string) *Server {
-	return &Server{
-		logger: logger,
-		cpAddr: cpAddr,
-		files:  sync.Map{},
-	}
+	logger       *zap.Logger
+	controlPlane *ControlPlaneLSPClient
+	files        sync.Map // map[protocol.DocumentURI]string
 }
 
 // Start begins processing language server requests.
 func (s *Server) Start(ctx context.Context, rw io.ReadWriteCloser) error {
-	s.logger.Info("Heddle Language Server starting on stdio", zap.String("control_plane", s.cpAddr))
+	s.logger.Info("Heddle Language Server starting on stdio", zap.String("control_plane", s.controlPlane.addr))
 
 	stream := jsonrpc2.NewStream(rw)
 	conn := jsonrpc2.NewConn(stream)
+
+	// Pre-connect to control plane
+	if err := s.controlPlane.Connect(ctx); err != nil {
+		s.logger.Warn("Initial connection to control plane failed (will retry on demand)", zap.Error(err))
+	}
 
 	handler := s.handle(conn)
 	conn.Go(ctx, handler)
 
 	<-conn.Done()
 	s.logger.Info("Heddle Language Server shutting down")
+	s.controlPlane.Close()
 	return nil
 }
 
@@ -119,7 +117,7 @@ func (s *Server) validate(ctx context.Context, conn jsonrpc2.Conn, uri protocol.
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-	var diagnostics []protocol.Diagnostic
+	diagnostics := []protocol.Diagnostic{}
 
 	// Syntax Errors
 	diagnostics = append(diagnostics, getSyntaxDiagnostics(p.Errors())...)
@@ -134,4 +132,20 @@ func (s *Server) validate(ctx context.Context, conn jsonrpc2.Conn, uri protocol.
 		URI:         uri,
 		Diagnostics: diagnostics,
 	})
+}
+
+// NewServer creates a new instance of the LSP Server.
+func NewServer(logger *zap.Logger, cpAddr string) *Server {
+	return &Server{
+		logger:       logger,
+		controlPlane: NewControlPlaneLSPClient(cpAddr),
+		files:        sync.Map{},
+	}
+}
+
+func (s *Server) getRegistry(ctx context.Context) (*models.RegistryInfo, error) {
+	if s.controlPlane == nil || !s.controlPlane.IsConnected() {
+		return nil, nil
+	}
+	return s.controlPlane.GetRegistry(ctx)
 }

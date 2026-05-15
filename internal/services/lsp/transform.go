@@ -168,7 +168,7 @@ func (s *Server) handleCodeAction(ctx context.Context, reply jsonrpc2.Replier, r
 func (s *Server) organizeImports(ctx context.Context, uri protocol.DocumentURI) []protocol.TextEdit {
 	text, ok := s.files.Load(uri)
 	if !ok {
-		return nil
+		return []protocol.TextEdit{}
 	}
 
 	astCtx := ast.AcquireASTContext()
@@ -179,7 +179,7 @@ func (s *Server) organizeImports(ctx context.Context, uri protocol.DocumentURI) 
 	prog := p.Parse()
 
 	if len(p.Errors()) > 0 {
-		return nil
+		return []protocol.TextEdit{}
 	}
 
 	// We'll use the formatter logic but focused only on the import section

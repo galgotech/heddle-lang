@@ -40,9 +40,9 @@ var startCmd = &cobra.Command{
 		fmt.Println("Starting Heddle local services in foreground...")
 		ctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
-		StartLocalServices(ctx)
-		select {
-		case <-ctx.Done():
+		if err := StartLocalServices(ctx); err != nil {
+			logger.L().Error("Failed to start local services", zap.Error(err))
+			return
 		}
 	},
 }
@@ -84,36 +84,55 @@ func init() {
 	LocalCmd.AddCommand(stopCmd)
 }
 
-func StartLocalServices(ctx context.Context) {
+func StartLocalServices(ctx context.Context) error {
 	defer logger.Sync()
 
 	cpSocket := "unix:///tmp/heddle-cp.sock"
 	workerSocket := "/tmp/heddle-worker.sock"
+
+	errCh := make(chan error, 2)
 
 	// 1. Start Control Plane
 	cp := controlplane.NewControlPlaneServer()
 	go func() {
 		defer logger.Sync()
 		if err := cp.Listen(cpSocket); err != nil {
-			logger.L().Fatal("Control Plane failed", zap.Error(err))
+			errCh <- fmt.Errorf("control plane failed: %w", err)
 		}
 	}()
-	<-cp.Ready
+
+	select {
+	case <-cp.Ready:
+		// CP is ready
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	// 2. Start Worker
 	w, err := worker.NewWorker(cpSocket, workerSocket)
 	if err != nil {
-		logger.L().Fatal("Failed to create worker", zap.Error(err))
+		return fmt.Errorf("failed to create worker: %w", err)
 	}
 	go func() {
 		if err := w.Start(ctx); err != nil {
-			logger.L().Fatal("Worker failed", zap.Error(err))
+			errCh <- fmt.Errorf("worker failed: %w", err)
 		}
 	}()
-	<-w.Ready
+
+	select {
+	case <-w.Ready:
+		// Worker is ready
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	// 3. Start Standard Library Plugins (std and std/io)
 	<-stdplugin.Register()
 
 	logger.L().Info("Heddle is running in local mode.")
+	return nil
 }

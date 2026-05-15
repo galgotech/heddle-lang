@@ -66,6 +66,7 @@ func Init(cfg Config) error {
 	}
 
 	globalLogger = logger
+	zap.ReplaceGlobals(logger)
 	return nil
 }
 
