@@ -109,6 +109,62 @@ workflow main {
 				},
 			},
 		},
+		{
+			name: "format complex user snippet",
+			setupFiles: func(m *sync.Map) {
+				m.Store(testURI, `import "std/io" io
+import "kafka/broker" kafka
+
+resource kafka = kafka.broker {
+  bootstrap_servers: "localhost:9092"
+}
+
+step test = <broker=kafka> io.print {
+  config: "teste"
+}
+
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}`)
+			},
+			expectedEdits: []protocol.TextEdit{
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 0, Character: 0},
+						End:   protocol.Position{Line: 100000, Character: 0},
+					},
+					NewText: `import "std/io" io
+import "kafka/broker" kafka
+
+resource kafka = kafka.broker {
+  bootstrap_servers: "localhost:9092"
+}
+
+step test = <broker=kafka> io.print {
+  config: "teste"
+}
+
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -312,6 +368,53 @@ workflow hello_world ? error_print {
 }
 `,
 			expectErrors: true,
+		},
+		{
+			name: "UserSnippet",
+			before: `import "std/io" io
+import "kafka/broker" kafka
+
+resource kafka = kafka.broker {
+  bootstrap_servers: "localhost:9092"
+}
+
+step test = <broker=kafka> io.print {
+  config: "teste"
+}
+
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
+			after: `import "std/io" io
+import "kafka/broker" kafka
+
+resource kafka = kafka.broker {
+  bootstrap_servers: "localhost:9092"
+}
+
+step test = <broker=kafka> io.print {
+  config: "teste"
+}
+
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
 		},
 	}
 
