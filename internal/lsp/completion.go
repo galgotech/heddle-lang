@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
@@ -16,22 +17,22 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
-func (s *Server) handleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+func HandleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error), logger *zap.Logger) error {
 	var params protocol.CompletionParams
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
 		return reply(ctx, nil, err)
 	}
 
-	content, ok := s.files.Load(params.TextDocument.URI)
+	content, ok := files.Load(params.TextDocument.URI)
 	if !ok {
 		return reply(ctx, protocol.CompletionList{}, nil)
 	}
 	source := content.(string)
 
 	// Fetch registry from Control Plane
-	registry, err := s.getRegistry(ctx)
+	registry, err := registryGetter(ctx)
 	if err != nil {
-		s.logger.Warn("Failed to get registry from control plane", zap.Error(err))
+		logger.Warn("Failed to get registry from control plane", zap.Error(err))
 	}
 
 	if registry == nil {
@@ -40,7 +41,7 @@ func (s *Server) handleCompletion(ctx context.Context, reply jsonrpc2.Replier, r
 	}
 
 	// Analyze context and return completion items
-	items := s.getCompletionItems(source, params.Position, registry)
+	items := getCompletionItems(source, params.Position, registry)
 
 	return reply(ctx, protocol.CompletionList{
 		IsIncomplete: false,
@@ -48,7 +49,7 @@ func (s *Server) handleCompletion(ctx context.Context, reply jsonrpc2.Replier, r
 	}, nil)
 }
 
-func (s *Server) getCompletionItems(source string, pos protocol.Position, registry *models.RegistryInfo) []protocol.CompletionItem {
+func getCompletionItems(source string, pos protocol.Position, registry *models.RegistryInfo) []protocol.CompletionItem {
 	// 1. Acquire AST context and parse (Partial parse is fine)
 	ctxAST := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(ctxAST)
@@ -84,7 +85,7 @@ func (s *Server) getCompletionItems(source string, pos protocol.Position, regist
 	if inWorkflow || strings.TrimSpace(prefix) == "" {
 		if strings.HasSuffix(prefix, ".") {
 			// Suggest steps in namespace
-			lastWord := s.getLastWord(prefix)
+			lastWord := getLastWord(prefix)
 			ns := strings.TrimSuffix(lastWord, ".")
 			for cap := range registry.Steps {
 				if strings.HasPrefix(cap, ns+".") {
@@ -120,7 +121,7 @@ func (s *Server) getCompletionItems(source string, pos protocol.Position, regist
 	return items
 }
 
-func (s *Server) getLastWord(line string) string {
+func getLastWord(line string) string {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
 		return ""

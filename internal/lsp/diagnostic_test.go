@@ -76,7 +76,7 @@ func TestGetSemanticDiagnostics_Basics(t *testing.T) {
 
 	t.Run("Empty Program handles gracefully", func(t *testing.T) {
 		prog := ast.ProgramNode{}
-		diagnostics := getSemanticDiagnostics(ctx, s, prog, astCtx)
+		diagnostics := getSemanticDiagnostics(ctx, prog, astCtx, s.getRegistry, logger)
 		// Even if the Control Plane is unreachable, it should return an empty slice rather than crashing
 		assert.NotNil(t, diagnostics)
 		assert.Len(t, diagnostics, 0)

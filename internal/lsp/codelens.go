@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
@@ -13,14 +14,14 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-func (s *Server) handleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+func HandleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
 	var params protocol.CodeLensParams
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
 		return reply(ctx, nil, err)
 	}
 
 	uri := params.TextDocument.URI
-	val, ok := s.files.Load(uri)
+	val, ok := files.Load(uri)
 	if !ok {
 		return reply(ctx, []protocol.CodeLens{}, nil)
 	}
@@ -43,7 +44,7 @@ func (s *Server) handleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req
 		workflowRange := astCtx.WorkflowRanges[workflowRef]
 		name := astCtx.GetString(workflow.NameRef)
 
-		lenses = append(lenses, s.createCodeLenses(uri, name, workflowRange, "workflow")...)
+		lenses = append(lenses, createCodeLenses(uri, name, workflowRange, "workflow")...)
 	}
 
 	// Handlers
@@ -53,13 +54,13 @@ func (s *Server) handleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req
 		handlerRange := astCtx.HandlerRanges[handlerRef]
 		name := astCtx.GetString(handler.NameRef)
 
-		lenses = append(lenses, s.createCodeLenses(uri, name, handlerRange, "handler")...)
+		lenses = append(lenses, createCodeLenses(uri, name, handlerRange, "handler")...)
 	}
 
 	return reply(ctx, lenses, nil)
 }
 
-func (s *Server) createCodeLenses(uri protocol.DocumentURI, name string, r ast.Range, kind string) []protocol.CodeLens {
+func createCodeLenses(uri protocol.DocumentURI, name string, r ast.Range, kind string) []protocol.CodeLens {
 	// Start line of the block
 	line := uint32(r.Start.Line)
 	if line > 0 {

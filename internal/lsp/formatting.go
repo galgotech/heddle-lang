@@ -1,20 +1,56 @@
-package formatter
+package lsp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+
+	"go.lsp.dev/jsonrpc2"
+	"go.lsp.dev/protocol"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
+	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
+	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
+
+func HandleFormatting(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
+	var params protocol.DocumentFormattingParams
+	if err := json.Unmarshal(req.Params(), &params); err != nil {
+		return reply(ctx, nil, err)
+	}
+
+	uri := params.TextDocument.URI
+	text, ok := files.Load(uri)
+	if !ok {
+		return reply(ctx, nil, nil)
+	}
+
+	astCtx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(astCtx)
+
+	l := lexer.New(text.(string))
+	p := parser.New(l, astCtx)
+	prog := p.Parse()
+
+	f := NewFormatter(astCtx)
+	formatted := f.Format(prog)
+
+	return reply(ctx, []protocol.TextEdit{
+		{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 100000, Character: 0},
+			},
+			NewText: formatted,
+		},
+	}, nil)
+}
 
 // Formatter handles pretty-printing of Heddle source code.
 type Formatter struct {
 	ctx *ast.ASTContext
-}
-
-// New creates a new Formatter.
-func New(ctx *ast.ASTContext) *Formatter {
-	return &Formatter{ctx: ctx}
 }
 
 // Format takes a ProgramNode and returns a formatted string.
@@ -294,4 +330,9 @@ func (f *Formatter) writeIndent(sb *strings.Builder, indent int) {
 	for range indent {
 		sb.WriteString("  ")
 	}
+}
+
+// NewFormatter creates a new Formatter.
+func NewFormatter(ctx *ast.ASTContext) *Formatter {
+	return &Formatter{ctx: ctx}
 }

@@ -112,6 +112,43 @@ func (n *Navigator) DocumentSymbols(program ast.ProgramNode) []SymbolInfo {
 
 // SymbolAt returns the name of the symbol at the given position and its type.
 func (n *Navigator) SymbolAt(program ast.ProgramNode, line, col uint32) (string, string) {
+	// Check Imports (aliases)
+	for i := program.ImportRefsStart; i < program.ImportRefsEnd; i++ {
+		ref := n.ctx.ImportRefs[i]
+		r := n.ctx.ImportRanges[ref]
+		if n.inRange(r, line, col) {
+			node := n.ctx.ImportNodes[ref]
+			return n.ctx.GetString(node.AliasRef), "import"
+		}
+	}
+
+	// Check Assignments (> identifier)
+	for i := 0; i < len(n.ctx.PipelineStatementNodes); i++ {
+		ref := ast.NodeRef(i)
+		r := n.ctx.AssignmentRanges[ref]
+		if n.inRange(r, line, col) {
+			node := n.ctx.PipelineStatementNodes[ref]
+			return n.ctx.GetString(node.AssignmentRef), "assignment"
+		}
+	}
+
+	// Check Calls (references)
+	for i := 0; i < len(n.ctx.CallNodes); i++ {
+		ref := ast.NodeRef(i)
+		r := n.ctx.CallRanges[ref]
+		if n.inRange(r, line, col) {
+			node := n.ctx.CallNodes[ref]
+			if !node.IsPrql {
+				if node.NameRef.Start != node.NameRef.End {
+					return n.ctx.GetString(node.NameRef), "reference"
+				}
+				if node.TrapRef.Start != node.TrapRef.End {
+					return n.ctx.GetString(node.TrapRef), "reference"
+				}
+			}
+		}
+	}
+
 	// Check Resources
 	for i := program.ResourceRefsStart; i < program.ResourceRefsEnd; i++ {
 		ref := n.ctx.ResourceRefs[i]
@@ -142,28 +179,83 @@ func (n *Navigator) SymbolAt(program ast.ProgramNode, line, col uint32) (string,
 		}
 	}
 
-	// Check Calls (references)
-	for i := 0; i < len(n.ctx.CallNodes); i++ {
-		ref := ast.NodeRef(i)
-		r := n.ctx.CallRanges[ref]
-		if n.inRange(r, line, col) {
-			node := n.ctx.CallNodes[ref]
-			if !node.IsPrql {
-				if node.NameRef.Start != node.NameRef.End {
-					return n.ctx.GetString(node.NameRef), "reference"
-				}
-			}
-		}
-	}
-
 	return "", ""
 }
 
 // FindAllOccurrences returns all source ranges where the given symbol is used.
-func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName string) []ast.Range {
+func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName string, symbolType string, line, col uint32) []ast.Range {
 	ranges := []ast.Range{}
 
+	// If it's a reference, try to resolve it to "assignment" or "step/resource/workflow/handler"
+	if symbolType == "reference" {
+		// Find workflow containing (line, col)
+		for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
+			wfRef := n.ctx.WorkflowRefs[i]
+			wfRange := n.ctx.WorkflowRanges[wfRef]
+			if n.inRange(wfRange, line, col) {
+				wf := n.ctx.WorkflowNodes[wfRef]
+				// Look for assignment before this position
+				foundAssignment := false
+				for j := wf.StatementRefsStart; j < wf.StatementRefsEnd; j++ {
+					stmtRef := n.ctx.StatementRefs[j]
+					stmt := n.ctx.PipelineStatementNodes[stmtRef]
+					stmtRange := n.ctx.AssignmentRanges[stmtRef]
+					if n.ctx.GetString(stmt.AssignmentRef) == symbolName {
+						// Assignment is available for subsequent statements.
+						// If this statement ends before our position, it might be the definition.
+						if stmtRange.End.Line < line || (stmtRange.End.Line == line && stmtRange.End.Col < col) {
+							foundAssignment = true
+							break
+						}
+					}
+				}
+				if foundAssignment {
+					symbolType = "assignment"
+				} else {
+					symbolType = "step" // Or resource/workflow/handler, but they all share global scope
+				}
+				break
+			}
+		}
+		if symbolType == "reference" {
+			symbolType = "step"
+		}
+	}
+
+	if symbolType == "assignment" {
+		// Local to workflow
+		for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
+			wfRef := n.ctx.WorkflowRefs[i]
+			wfRange := n.ctx.WorkflowRanges[wfRef]
+			if n.inRange(wfRange, line, col) {
+				wf := n.ctx.WorkflowNodes[wfRef]
+				foundDef := false
+				for j := wf.StatementRefsStart; j < wf.StatementRefsEnd; j++ {
+					stmtRef := n.ctx.StatementRefs[j]
+					stmt := n.ctx.PipelineStatementNodes[stmtRef]
+					stmtRange := n.ctx.AssignmentRanges[stmtRef]
+
+					isThisDef := false
+					if n.ctx.GetString(stmt.AssignmentRef) == symbolName {
+						if (stmtRange.Start.Line == line && stmtRange.Start.Col <= col && stmtRange.End.Col >= col) || foundDef {
+							ranges = append(ranges, stmtRange)
+							foundDef = true
+							isThisDef = true
+						}
+					}
+
+					if foundDef && !isThisDef {
+						n.addCallUsages(stmt.ExprRef, symbolName, &ranges)
+					}
+				}
+				return ranges
+			}
+		}
+	}
+
+	// Default: Global symbols
 	// Definitions
+	// Resources
 	for i := program.ResourceRefsStart; i < program.ResourceRefsEnd; i++ {
 		ref := n.ctx.ResourceRefs[i]
 		node := n.ctx.ResourceNodes[ref]
@@ -171,6 +263,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 			ranges = append(ranges, n.ctx.ResourceRanges[ref])
 		}
 	}
+	// Steps
 	for i := program.StepRefsStart; i < program.StepRefsEnd; i++ {
 		ref := n.ctx.StepRefs[i]
 		node := n.ctx.StepBindingNodes[ref]
@@ -178,6 +271,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 			ranges = append(ranges, n.ctx.StepRanges[ref])
 		}
 	}
+	// Handlers
 	for i := program.HandlerRefsStart; i < program.HandlerRefsEnd; i++ {
 		ref := n.ctx.HandlerRefs[i]
 		node := n.ctx.HandlerNodes[ref]
@@ -185,6 +279,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 			ranges = append(ranges, n.ctx.HandlerRanges[ref])
 		}
 	}
+	// Workflows
 	for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
 		ref := n.ctx.WorkflowRefs[i]
 		node := n.ctx.WorkflowNodes[ref]
@@ -192,17 +287,100 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 			ranges = append(ranges, n.ctx.WorkflowRanges[ref])
 		}
 	}
+	// Imports
+	for i := program.ImportRefsStart; i < program.ImportRefsEnd; i++ {
+		ref := n.ctx.ImportRefs[i]
+		node := n.ctx.ImportNodes[ref]
+		if n.ctx.GetString(node.AliasRef) == symbolName {
+			ranges = append(ranges, n.ctx.ImportRanges[ref])
+		}
+	}
 
-	// Usages
-	for i := 0; i < len(n.ctx.CallNodes); i++ {
-		ref := ast.NodeRef(i)
-		node := n.ctx.CallNodes[ref]
-		if !node.IsPrql && n.ctx.GetString(node.NameRef) == symbolName {
-			ranges = append(ranges, n.ctx.CallRanges[ref])
+	// Usages (only those not shadowed)
+	for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
+		wfRef := n.ctx.WorkflowRefs[i]
+		wf := n.ctx.WorkflowNodes[wfRef]
+		shadowed := false
+		for j := wf.StatementRefsStart; j < wf.StatementRefsEnd; j++ {
+			stmtRef := n.ctx.StatementRefs[j]
+			stmt := n.ctx.PipelineStatementNodes[stmtRef]
+
+			if !shadowed {
+				n.addCallUsages(stmt.ExprRef, symbolName, &ranges)
+			}
+
+			if n.ctx.GetString(stmt.AssignmentRef) == symbolName {
+				shadowed = true
+			}
+		}
+	}
+
+	// Also check calls outside workflows (e.g. in handlers)
+	for i := program.HandlerRefsStart; i < program.HandlerRefsEnd; i++ {
+		hRef := n.ctx.HandlerRefs[i]
+		h := n.ctx.HandlerNodes[hRef]
+		for j := h.HandlerStatementRefsStart; j < h.HandlerStatementRefsEnd; j++ {
+			hsRef := n.ctx.HandlerStatementRefs[j]
+			hs := n.ctx.HandlerStatementNodes[hsRef]
+			stmt := n.ctx.PipelineStatementNodes[hs.StmtRef]
+			n.addCallUsages(stmt.ExprRef, symbolName, &ranges)
 		}
 	}
 
 	return ranges
+}
+
+func (n *Navigator) addCallUsages(exprRef ast.NodeRef, symbolName string, ranges *[]ast.Range) {
+	if exprRef == 0 {
+		return
+	}
+
+	// Could be PipeChainNode or DataframeNode
+	// Let's assume PipeChainNode for now as DataframeNode doesn't contain named references to steps/assignments
+	// (Actually it might if we add support for variables in dicts, but not yet)
+
+	// Check if it's a PipeChainNode
+	// We don't have a way to check type easily without adding a field or checking all slices.
+	// But our context has PipeChainNodes.
+
+	// A better way is to iterate over all CallNodes and check if they belong to this expression.
+	// But PipeChainNode has CallRefsStart/End.
+
+	// Let's find if exprRef is a PipeChainNode
+	// In a real implementation we might have a node type field.
+	// Here we can try to find it in PipeChainNodes.
+
+	// Actually, let's just use the fact that PipelineStatementNode.ExprRef points to something.
+	// If we had a generic visitor it would be easier.
+
+	// For now, let's look at all CallNodes and see if their range is within the statement?
+	// No, that's slow.
+
+	// Let's just iterate over ALL CallNodes for now, but only if they are not shadowed.
+	// Wait, I already did that in the caller for workflows.
+
+	// Let's implement addCallUsages by checking PipeChainNodes.
+	for i := 0; i < len(n.ctx.PipeChainNodes); i++ {
+		pRef := ast.NodeRef(i)
+		if pRef == exprRef {
+			pc := n.ctx.PipeChainNodes[pRef]
+			for k := pc.CallRefsStart; k < pc.CallRefsEnd; k++ {
+				cRef := n.ctx.CallRefs[k]
+				call := n.ctx.CallNodes[cRef]
+				if !call.IsPrql {
+					if n.ctx.GetString(call.NameRef) == symbolName {
+						*ranges = append(*ranges, n.ctx.CallRanges[cRef])
+					}
+					if n.ctx.GetString(call.TrapRef) == symbolName {
+						// This is slightly wrong as CallRanges covers the whole call,
+						// but without specific TrapRanges it's the best we can do.
+						*ranges = append(*ranges, n.ctx.CallRanges[cRef])
+					}
+				}
+			}
+			return
+		}
+	}
 }
 
 func (n *Navigator) SelectionRanges(program ast.ProgramNode, line, col uint32) []ast.Range {

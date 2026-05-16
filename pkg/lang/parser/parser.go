@@ -181,12 +181,21 @@ func (p *Parser) parseImport() ast.NodeRef {
 	if p.expectPeek(lexer.STRING_LIT) {
 		node.PathRef = p.ctx.AddString(p.curToken.Literal)
 	}
+	var aliasRange ast.Range
 	if p.peekTokenIs(lexer.IDENTIFIER) {
 		p.nextToken()
+		aliasRange = ast.Range{
+			Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+			End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+		}
 		node.AliasRef = p.ctx.AddString(p.curToken.Literal)
 	}
 	p.nextToken()
-	return p.ctx.AddImportNode(node)
+	ref := p.ctx.AddImportNode(node)
+	if node.AliasRef.Start != node.AliasRef.End {
+		p.ctx.SetImportRange(ref, aliasRange)
+	}
+	return ref
 }
 
 // parseResource handles 'resource' declarations for stateful external dependencies (e.g., databases).
@@ -194,10 +203,12 @@ func (p *Parser) parseResource() ast.NodeRef {
 	start := p.getPos()
 	node := ast.ResourceBindingNode{}
 	if !p.expectPeek(lexer.IDENTIFIER) {
+		p.nextToken()
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
 	if !p.expectPeek(lexer.ASSIGN) {
+		p.nextToken()
 		return 0
 	}
 	p.nextToken()
@@ -212,10 +223,12 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 	start := p.getPos()
 	node := ast.StepBindingNode{}
 	if !p.expectPeek(lexer.IDENTIFIER) {
+		p.nextToken()
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
 	if !p.expectPeek(lexer.ASSIGN) {
+		p.nextToken()
 		return 0
 	}
 	p.nextToken()
@@ -317,6 +330,7 @@ func (p *Parser) parseHandler() ast.NodeRef {
 		HandlerStatementRefsStart: uint32(len(p.ctx.HandlerStatementRefs)),
 	}
 	if !p.expectPeek(lexer.IDENTIFIER) {
+		p.nextToken()
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
@@ -328,6 +342,7 @@ func (p *Parser) parseHandler() ast.NodeRef {
 		}
 	}
 	if !p.expectPeek(lexer.LBRACE) {
+		p.nextToken()
 		return 0
 	}
 	p.nextToken() // Move past '{'
@@ -380,12 +395,21 @@ func (p *Parser) parseHandlerStatement() ast.NodeRef {
 				}
 				if p.curTokenIs(lexer.IDENTIFIER) {
 					ps.AssignmentRef = p.ctx.AddString(p.curToken.Literal)
+					identRange := ast.Range{
+						Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+						End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+					}
 					p.nextToken()
+					ref := p.ctx.AddPipelineStatementNode(ps)
+					p.ctx.SetAssignmentRange(ref, identRange)
+					hs.StmtRef = ref
 				} else {
 					p.curError("expected identifier after '>'")
+					hs.StmtRef = p.ctx.AddPipelineStatementNode(ps)
 				}
 				break
 			}
+
 			if p.curTokenIs(lexer.NEWLINE) || p.curTokenIs(lexer.INDENT) || p.curTokenIs(lexer.DEDENT) {
 				isNextRangle := false
 				for n := 0; ; n++ {
@@ -403,9 +427,9 @@ func (p *Parser) parseHandlerStatement() ast.NodeRef {
 					continue
 				}
 			}
+			hs.StmtRef = p.ctx.AddPipelineStatementNode(ps)
 			break
 		}
-		hs.StmtRef = p.ctx.AddPipelineStatementNode(ps)
 	} else {
 		hs.StmtRef = p.parsePipelineStatement()
 	}
@@ -419,6 +443,7 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 		StatementRefsStart: uint32(len(p.ctx.StatementRefs)),
 	}
 	if !p.expectPeek(lexer.IDENTIFIER) {
+		p.nextToken()
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
@@ -476,7 +501,14 @@ func (p *Parser) parsePipelineStatement() ast.NodeRef {
 			}
 			if p.curTokenIs(lexer.IDENTIFIER) {
 				ps.AssignmentRef = p.ctx.AddString(p.curToken.Literal)
+				identRange := ast.Range{
+					Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+					End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+				}
 				p.nextToken()
+				ref := p.ctx.AddPipelineStatementNode(ps)
+				p.ctx.SetAssignmentRange(ref, identRange)
+				return ref
 			} else {
 				p.curError("expected identifier after '>'")
 			}
@@ -677,10 +709,10 @@ func (p *Parser) parseDataframe() ast.NodeRef {
 			p.curError("expected indentation after newline in dataframe")
 		} else {
 			p.nextToken() // Skip NEWLINE
-			if !p.curTokenIs(lexer.INDENT) {
-				p.curError("expected indentation after newline in dataframe")
-			} else {
+			if p.curTokenIs(lexer.INDENT) {
 				p.nextToken() // Skip INDENT
+			} else if !p.curTokenIs(lexer.RBRACKET) {
+				p.curError("expected indentation after newline in dataframe")
 			}
 		}
 	}
@@ -746,10 +778,10 @@ func (p *Parser) parseDict(allowNested bool) ast.NodeRef {
 			p.curError("expected indentation after newline in dict")
 		} else {
 			p.nextToken() // Skip NEWLINE
-			if !p.curTokenIs(lexer.INDENT) {
-				p.curError("expected indentation after newline in dict")
-			} else {
+			if p.curTokenIs(lexer.INDENT) {
 				p.nextToken() // Skip INDENT
+			} else if !p.curTokenIs(lexer.RBRACE) {
+				p.curError("expected indentation after newline in dict")
 			}
 		}
 	}

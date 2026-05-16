@@ -5,15 +5,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 func TestGetCompletionItems(t *testing.T) {
-	logger := zap.NewNop()
-	server := NewServer(logger, "localhost:50051")
+	// logger := zap.NewNop() // No longer needed
 
 	registry := &models.RegistryInfo{
 		Steps: map[string]schema.StepSchemas{
@@ -45,7 +43,7 @@ func TestGetCompletionItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			items := server.getCompletionItems(tt.source, tt.pos, registry)
+			items := getCompletionItems(tt.source, tt.pos, registry)
 			var labels []string
 			for _, item := range items {
 				labels = append(labels, item.Label)

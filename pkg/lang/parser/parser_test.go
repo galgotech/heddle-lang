@@ -325,6 +325,31 @@ workflow main {
 			expectedErrs: 1,
 		},
 		{
+			name: "workflow without name",
+			input: `
+workflow {
+  step1
+}
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "step binding without name",
+			input: `
+import "std/io" io
+step = io.print
+`,
+			expectedErrs: 2,
+		},
+		{
+			name: "resource binding without name",
+			input: `
+import "std/io" io
+resource = io.resource
+`,
+			expectedErrs: 3,
+		},
+		{
 			name: "resource ref with newline",
 			input: `
 workflow res_newline {

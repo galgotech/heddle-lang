@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"sync"
 
@@ -21,6 +20,7 @@ type Server struct {
 	logger       *zap.Logger
 	controlPlane *ControlPlaneLSPClient
 	files        sync.Map // map[protocol.DocumentURI]string
+	trace        protocol.TraceValue
 }
 
 // Start begins processing language server requests.
@@ -48,70 +48,47 @@ func (s *Server) handle(conn jsonrpc2.Conn) jsonrpc2.Handler {
 	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {
 		case protocol.MethodInitialize:
-			return reply(ctx, protocol.InitializeResult{
-				Capabilities: protocol.ServerCapabilities{
-					CompletionProvider: &protocol.CompletionOptions{
-						TriggerCharacters: []string{".", ":", " ", ">"},
-						ResolveProvider:   false,
-					},
-					TextDocumentSync: protocol.TextDocumentSyncOptions{
-						OpenClose: true,
-						Change:    protocol.TextDocumentSyncKindFull,
-					},
-					DocumentFormattingProvider: true,
-					RenameProvider:             true,
-					CodeActionProvider:         true,
-					DefinitionProvider:         true,
-					ReferencesProvider:         true,
-					DocumentSymbolProvider:     true,
-					SelectionRangeProvider:     true,
-					WorkspaceSymbolProvider:    true,
-					HoverProvider:              true,
-					CodeLensProvider:           &protocol.CodeLensOptions{ResolveProvider: false},
-				},
-			}, nil)
+			return HandleInitialize(ctx, reply, req)
+		case protocol.MethodSetTrace:
+			trace, err := HandleSetTrace(ctx, req, s.logger)
+			if err == nil {
+				s.trace = trace
+			}
+			return err
 		case protocol.MethodTextDocumentDidOpen:
-			var params protocol.DidOpenTextDocumentParams
-			if err := json.Unmarshal(req.Params(), &params); err == nil {
-				s.files.Store(params.TextDocument.URI, params.TextDocument.Text)
-				go s.validate(ctx, conn, params.TextDocument.URI, params.TextDocument.Text)
-			}
-			return nil
+			return HandleDidOpen(ctx, req, conn, &s.files, s.validate)
 		case protocol.MethodTextDocumentDidChange:
-			var params protocol.DidChangeTextDocumentParams
-			if err := json.Unmarshal(req.Params(), &params); err == nil && len(params.ContentChanges) > 0 {
-				s.files.Store(params.TextDocument.URI, params.ContentChanges[0].Text)
-				go s.validate(ctx, conn, params.TextDocument.URI, params.ContentChanges[0].Text)
-			}
-			return nil
+			return HandleDidChange(ctx, req, conn, &s.files, s.validate)
 		case protocol.MethodTextDocumentCompletion:
-			return s.handleCompletion(ctx, reply, req)
+			return HandleCompletion(ctx, reply, req, &s.files, s.getRegistry, s.logger)
 		case protocol.MethodTextDocumentFormatting:
-			return s.handleFormatting(ctx, reply, req)
+			return HandleFormatting(ctx, reply, req, &s.files)
 		case protocol.MethodTextDocumentRename:
-			return s.handleRename(ctx, reply, req)
+			return HandleRename(ctx, reply, req, &s.files)
 		case protocol.MethodTextDocumentCodeAction:
-			return s.handleCodeAction(ctx, reply, req)
+			return HandleCodeAction(ctx, reply, req, &s.files)
 		case protocol.MethodTextDocumentDefinition:
-			return s.handleDefinition(ctx, reply, req)
+			return HandleDefinition(ctx, reply, req, &s.files, s.getRegistry)
 		case protocol.MethodTextDocumentHover:
-			return s.handleHover(ctx, reply, req)
+			return HandleHover(ctx, reply, req, &s.files, s.getRegistry)
 		case protocol.MethodTextDocumentReferences:
-			return s.handleReferences(ctx, reply, req)
+			return HandleReferences(ctx, reply, req, &s.files)
 		case protocol.MethodTextDocumentDocumentSymbol:
-			return s.handleDocumentSymbol(ctx, reply, req)
+			return HandleDocumentSymbol(ctx, reply, req, &s.files)
 		case "textDocument/selectionRange":
-			return s.handleSelectionRange(ctx, reply, req)
+			return HandleSelectionRange(ctx, reply, req, &s.files)
 		case protocol.MethodWorkspaceSymbol:
-			return s.handleWorkspaceSymbol(ctx, reply, req)
+			return HandleWorkspaceSymbol(ctx, reply, req, &s.files)
 		case protocol.MethodTextDocumentCodeLens:
-			return s.handleCodeLens(ctx, reply, req)
+			return HandleCodeLens(ctx, reply, req, &s.files)
 		}
 		return jsonrpc2.MethodNotFoundHandler(ctx, reply, req)
 	}
 }
 
 func (s *Server) validate(ctx context.Context, conn jsonrpc2.Conn, uri protocol.DocumentURI, text string) {
+	s.logTrace(ctx, conn, "Validating document: "+string(uri), true)
+
 	// Parse the document
 	astCtx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(astCtx)
@@ -127,13 +104,32 @@ func (s *Server) validate(ctx context.Context, conn jsonrpc2.Conn, uri protocol.
 
 	// Semantic & Type Validation (only if syntax is ok)
 	if len(p.Errors()) == 0 {
-		diagnostics = append(diagnostics, getSemanticDiagnostics(ctx, s, prog, astCtx)...)
+		diagnostics = append(diagnostics, getSemanticDiagnostics(ctx, prog, astCtx, s.getRegistry, s.logger)...)
 	}
 
 	// Publish Diagnostics
 	conn.Notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, protocol.PublishDiagnosticsParams{
 		URI:         uri,
 		Diagnostics: diagnostics,
+	})
+}
+
+func (s *Server) getRegistry(ctx context.Context) (*models.RegistryInfo, error) {
+	if s.controlPlane == nil || !s.controlPlane.IsConnected() {
+		return nil, nil
+	}
+	return s.controlPlane.GetRegistry(ctx)
+}
+
+func (s *Server) logTrace(ctx context.Context, conn jsonrpc2.Conn, message string, verbose bool) {
+	if s.trace == "off" || s.trace == "" {
+		return
+	}
+	if verbose && s.trace != "verbose" {
+		return
+	}
+	conn.Notify(ctx, "$/logTrace", protocol.LogTraceParams{
+		Message: message,
 	})
 }
 
@@ -144,11 +140,4 @@ func NewServer(logger *zap.Logger, cpAddr string) *Server {
 		controlPlane: NewControlPlaneLSPClient(cpAddr),
 		files:        sync.Map{},
 	}
-}
-
-func (s *Server) getRegistry(ctx context.Context) (*models.RegistryInfo, error) {
-	if s.controlPlane == nil || !s.controlPlane.IsConnected() {
-		return nil, nil
-	}
-	return s.controlPlane.GetRegistry(ctx)
 }

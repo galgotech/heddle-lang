@@ -56,12 +56,14 @@ type ASTContext struct {
 
 	// Parallel slices for source location tracking.
 	// These map 1:1 to their corresponding node slices.
-	ResourceRanges []Range
-	StepRanges     []Range
-	HandlerRanges  []Range
-	WorkflowRanges []Range
-	CallRanges     []Range
-	DictRanges     []Range
+	ResourceRanges   []Range
+	StepRanges       []Range
+	HandlerRanges    []Range
+	WorkflowRanges   []Range
+	CallRanges       []Range
+	DictRanges       []Range
+	ImportRanges     []Range
+	AssignmentRanges []Range
 }
 
 // Reset clears the context for reuse. It truncates slices to their initial state
@@ -112,6 +114,8 @@ func (ctx *ASTContext) Reset() {
 	ctx.WorkflowRanges = ctx.WorkflowRanges[:1]
 	ctx.CallRanges = ctx.CallRanges[:1]
 	ctx.DictRanges = ctx.DictRanges[:1]
+	ctx.ImportRanges = ctx.ImportRanges[:1]
+	ctx.AssignmentRanges = ctx.AssignmentRanges[:1]
 }
 
 // AddString appends a string to the internal buffer and returns a StringRef
@@ -135,7 +139,13 @@ func (ctx *ASTContext) GetString(ref StringRef) string {
 func (ctx *ASTContext) AddImportNode(n ImportNode) NodeRef {
 	idx := uint32(len(ctx.ImportNodes))
 	ctx.ImportNodes = append(ctx.ImportNodes, n)
+	ctx.ImportRanges = append(ctx.ImportRanges, Range{})
 	return NodeRef(idx)
+}
+
+// SetImportRange updates the source location metadata for an import alias.
+func (ctx *ASTContext) SetImportRange(ref NodeRef, r Range) {
+	ctx.ImportRanges[ref] = r
 }
 
 // AddResourceNode appends a ResourceNode and allocates its corresponding source range.
@@ -222,7 +232,13 @@ func (ctx *ASTContext) SetWorkflowRange(ref NodeRef, r Range) {
 func (ctx *ASTContext) AddPipelineStatementNode(n PipelineStatementNode) NodeRef {
 	idx := uint32(len(ctx.PipelineStatementNodes))
 	ctx.PipelineStatementNodes = append(ctx.PipelineStatementNodes, n)
+	ctx.AssignmentRanges = append(ctx.AssignmentRanges, Range{})
 	return NodeRef(idx)
+}
+
+// SetAssignmentRange updates the source location metadata for an assignment identifier.
+func (ctx *ASTContext) SetAssignmentRange(ref NodeRef, r Range) {
+	ctx.AssignmentRanges[ref] = r
 }
 
 // AddPipeChainNode appends a PipeChainNode.
@@ -399,12 +415,14 @@ var astContextPool = sync.Pool{
 			CommentRefs:          make([]NodeRef, 0, 16),
 
 			// Initialize range slices with an empty element for NilNode alignment.
-			ResourceRanges: []Range{{}},
-			StepRanges:     []Range{{}},
-			HandlerRanges:  []Range{{}},
-			WorkflowRanges: []Range{{}},
-			CallRanges:     []Range{{}},
-			DictRanges:     []Range{{}},
+			ResourceRanges:   []Range{{}},
+			StepRanges:       []Range{{}},
+			HandlerRanges:    []Range{{}},
+			WorkflowRanges:   []Range{{}},
+			CallRanges:       []Range{{}},
+			DictRanges:       []Range{{}},
+			ImportRanges:     []Range{{}},
+			AssignmentRanges: []Range{{}},
 		}
 	},
 }
