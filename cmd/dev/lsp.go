@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/internal/lsp"
-	"github.com/galgotech/heddle-lang/pkg/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 

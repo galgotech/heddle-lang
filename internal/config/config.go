@@ -13,7 +13,6 @@ type LogConfig struct {
 	Format string `mapstructure:"format"`
 }
 
-
 // HeddleConfig represents the unified configuration for Heddle components.
 type HeddleConfig struct {
 	Log          LogConfig          `mapstructure:"log"`

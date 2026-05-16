@@ -289,8 +289,8 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	select {
 	case update := <-mock.Capabilities:
 		assert.Contains(t, update.Capabilities, "normal-step")
-		// The count should be 5: identity, prql, data_literal, compress + normal-step
-		assert.Len(t, update.Capabilities, 5)
+		// The count should be 6: identity, prql, data_literal, compress, std/io:print + normal-step
+		assert.Len(t, update.Capabilities, 6)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for capability update")
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/galgotech/heddle-lang/internal/client"
-	"github.com/galgotech/heddle-lang/pkg/config"
+	"github.com/galgotech/heddle-lang/internal/config"
 )
 
 // RunCmd implements the 'run' command.

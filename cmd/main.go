@@ -12,7 +12,7 @@ import (
 	"github.com/galgotech/heddle-lang/cmd/local"
 	"github.com/galgotech/heddle-lang/cmd/run"
 	"github.com/galgotech/heddle-lang/cmd/workflow"
-	"github.com/galgotech/heddle-lang/pkg/config"
+	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
