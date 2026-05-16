@@ -86,7 +86,6 @@ func organizeImports(ctx context.Context, uri protocol.DocumentURI, files *sync.
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-
 	f := NewFormatter(astCtx)
 	formatted := f.Format(prog)
 

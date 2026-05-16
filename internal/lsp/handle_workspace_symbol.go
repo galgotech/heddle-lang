@@ -23,7 +23,7 @@ func HandleWorkspaceSymbol(ctx context.Context, reply jsonrpc2.Replier, req json
 
 	// For now, we'll search symbols in all open files
 	allSymbols := []protocol.SymbolInformation{}
-	files.Range(func(key, value interface{}) bool {
+	files.Range(func(key, value any) bool {
 		uri := key.(protocol.DocumentURI)
 		text := value.(string)
 
