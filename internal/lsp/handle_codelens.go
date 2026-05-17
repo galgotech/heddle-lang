@@ -14,31 +14,37 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
+// HandleCodeLens processes a textDocument/codeLens request. It parses the target document
+// and returns executable actions (run/debug) for all defined workflows and handlers.
 func HandleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
 	var params protocol.CodeLensParams
+	// Unmarshal the incoming JSON-RPC request parameters into standard LSP CodeLensParams.
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
 		return reply(ctx, nil, err)
 	}
 
 	uri := params.TextDocument.URI
+	// Look up the document text from the virtual file system sync.Map.
 	val, ok := files.Load(uri)
 	if !ok {
 		return reply(ctx, []protocol.CodeLens{}, nil)
 	}
 	text := val.(string)
 
-	// Parse the document
+	// Acquire an AST context from the VictoriaMetrics-style sync.Pool to minimize GC allocation overhead.
 	astCtx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(astCtx)
 
+	// Lex and parse the current source code to build a pointerless AST representation.
 	l := lexer.New(text)
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
 	lenses := []protocol.CodeLens{}
 
-	// Workflows
+	// Iterate over all workflow nodes identified in the parsed AST program to generate lenses.
 	for i := prog.WorkflowRefsStart; i < prog.WorkflowRefsEnd; i++ {
+		// Resolve workflow metadata and range coordinates from the AST context using stored references.
 		workflowRef := astCtx.WorkflowRefs[i]
 		workflow := astCtx.WorkflowNodes[workflowRef]
 		workflowRange := astCtx.WorkflowRanges[workflowRef]
@@ -47,8 +53,9 @@ func HandleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Re
 		lenses = append(lenses, createCodeLenses(uri, name, workflowRange, "workflow")...)
 	}
 
-	// Handlers
+	// Iterate over all handler nodes identified in the parsed AST program to generate lenses.
 	for i := prog.HandlerRefsStart; i < prog.HandlerRefsEnd; i++ {
+		// Resolve handler metadata and range coordinates from the AST context using stored references.
 		handlerRef := astCtx.HandlerRefs[i]
 		handler := astCtx.HandlerNodes[handlerRef]
 		handlerRange := astCtx.HandlerRanges[handlerRef]
@@ -60,11 +67,12 @@ func HandleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Re
 	return reply(ctx, lenses, nil)
 }
 
+// createCodeLenses constructs both "Run" and "Debug" command-action CodeLenses for a given code block.
 func createCodeLenses(uri protocol.DocumentURI, name string, r ast.Range, kind string) []protocol.CodeLens {
-	// Start line of the block
+	// Convert the 1-indexed AST start line coordinates to LSP's 0-indexed protocol standard.
 	line := uint32(r.Start.Line)
 	if line > 0 {
-		line-- // protocol is 0-indexed
+		line--
 	}
 
 	protocolRange := protocol.Range{
@@ -72,6 +80,7 @@ func createCodeLenses(uri protocol.DocumentURI, name string, r ast.Range, kind s
 		End:   protocol.Position{Line: line, Character: 0},
 	}
 
+	// Return CodeLenses targeting the custom client commands for workflow execution and debugging.
 	return []protocol.CodeLens{
 		{
 			Range: protocolRange,
