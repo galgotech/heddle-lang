@@ -56,16 +56,16 @@ type ASTContext struct {
 
 	// Parallel slices for source location tracking.
 	// These map 1:1 to their corresponding node slices.
-	ResourceRanges     []Range
-	ResourceNameRanges []Range
-	StepRanges         []Range
-	StepNameRanges     []Range
-	HandlerRanges      []Range
-	HandlerNameRanges  []Range
-	WorkflowRanges     []Range
-	WorkflowNameRanges []Range
-	CallRanges         []Range
-	DictRanges         []Range
+	ResourceRanges          []Range
+	ResourceNameRanges      []Range
+	StepRanges              []Range
+	StepNameRanges          []Range
+	HandlerRanges           []Range
+	HandlerNameRanges       []Range
+	WorkflowRanges          []Range
+	WorkflowNameRanges      []Range
+	CallRanges              []Range
+	DictRanges              []Range
 	ImportRanges            []Range
 	AssignmentRanges        []Range
 	FunctionRefModuleRanges []Range
@@ -463,16 +463,16 @@ var astContextPool = sync.Pool{
 			CommentRefs:          make([]NodeRef, 0, 16),
 
 			// Initialize range slices with an empty element for NilNode alignment.
-			ResourceRanges:     []Range{{}},
-			ResourceNameRanges: []Range{{}},
-			StepRanges:         []Range{{}},
-			StepNameRanges:     []Range{{}},
-			HandlerRanges:      []Range{{}},
-			HandlerNameRanges:  []Range{{}},
-			WorkflowRanges:     []Range{{}},
-			WorkflowNameRanges: []Range{{}},
-			CallRanges:         []Range{{}},
-			DictRanges:         []Range{{}},
+			ResourceRanges:          []Range{{}},
+			ResourceNameRanges:      []Range{{}},
+			StepRanges:              []Range{{}},
+			StepNameRanges:          []Range{{}},
+			HandlerRanges:           []Range{{}},
+			HandlerNameRanges:       []Range{{}},
+			WorkflowRanges:          []Range{{}},
+			WorkflowNameRanges:      []Range{{}},
+			CallRanges:              []Range{{}},
+			DictRanges:              []Range{{}},
 			ImportRanges:            []Range{{}},
 			AssignmentRanges:        []Range{{}},
 			FunctionRefModuleRanges: []Range{{}},

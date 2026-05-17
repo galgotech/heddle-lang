@@ -66,7 +66,7 @@ workflow main {
 		},
 		{
 			name:              "Local resource jump (click db in step injection)",
-			line:              6, // 7th line: "step query = <connection=db> pg.query ..."
+			line:              6,  // 7th line: "step query = <connection=db> pg.query ..."
 			char:              26, // 'b' of "db" in "<connection=db>"
 			expectedURI:       uri,
 			expectedLine:      3, // 4th line: "resource db = pg.connection { host: \"localhost\" }"
@@ -74,23 +74,23 @@ workflow main {
 		},
 		{
 			name:              "Import alias jump from prefix (click pg in pg.connection)",
-			line:              3, // 4th line: "resource db = pg.connection..."
+			line:              3,  // 4th line: "resource db = pg.connection..."
 			char:              15, // 'g' of "pg"
 			expectedURI:       uri,
-			expectedLine:      0, // 1st line: "import \"fhub/postgres\" pg"
+			expectedLine:      0,  // 1st line: "import \"fhub/postgres\" pg"
 			expectedStartChar: 23, // start of "pg"
 		},
 		{
 			name:              "Import alias jump from prefix in step call (click pg in pg.query)",
-			line:              6, // 7th line: "step query = <connection=db> pg.query ..."
+			line:              6,  // 7th line: "step query = <connection=db> pg.query ..."
 			char:              30, // 'g' of "pg"
 			expectedURI:       uri,
-			expectedLine:      0, // 1st line: "import \"fhub/postgres\" pg"
+			expectedLine:      0,  // 1st line: "import \"fhub/postgres\" pg"
 			expectedStartChar: 23, // start of "pg"
 		},
 		{
 			name:         "Registry step definition jump (click query in pg.query)",
-			line:         6, // 7th line: "step query = <connection=db> pg.query ..."
+			line:         6,  // 7th line: "step query = <connection=db> pg.query ..."
 			char:         33, // 'q' of "query"
 			expectedURI:  "file:///mock/postgres/query.go",
 			expectedLine: 41, // registry specifies line 42, which translates to 41 (0-indexed)
@@ -98,18 +98,18 @@ workflow main {
 		{
 			name:              "Local assignment reference jump (click my_var reference in workflow)",
 			line:              12, // 13th line: "  my_var"
-			char:              4, // 'm' of "my_var"
+			char:              4,  // 'm' of "my_var"
 			expectedURI:       uri,
 			expectedLine:      10, // 11th line: "  > my_var"
-			expectedStartChar: 4, // start of "my_var" after "  > "
+			expectedStartChar: 4,  // start of "my_var" after "  > "
 		},
 		{
 			name:              "Local assignment definition self jump (click my_var definition in workflow)",
 			line:              10, // 11th line: "  > my_var"
-			char:              4, // 'm' of "my_var" after "  > "
+			char:              4,  // 'm' of "my_var" after "  > "
 			expectedURI:       uri,
 			expectedLine:      10, // 11th line: "  > my_var"
-			expectedStartChar: 4, // start of "my_var" after "  > "
+			expectedStartChar: 4,  // start of "my_var" after "  > "
 		},
 	}
 

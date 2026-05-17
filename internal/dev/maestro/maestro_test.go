@@ -28,7 +28,7 @@ sdk_version = "0.1.0"
 `
 	os.WriteFile(filepath.Join(validDir, "worker.toml"), []byte(workerToml), 0644)
 
-	m, err := NewMaestro()
+	m, err := NewMaestro(".")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

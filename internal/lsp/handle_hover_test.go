@@ -94,7 +94,7 @@ workflow main {
 						{Name: "sql", Type: "string"},
 					},
 				},
-				Input:  &schema.FrameSchema{IsVoid: true},
+				Input: &schema.FrameSchema{IsVoid: true},
 				Output: &schema.FrameSchema{
 					Fields: []schema.FrameSchemaField{
 						{Name: "id", ArrowType: "int64"},

@@ -58,22 +58,22 @@ type ExecuteStepRequest struct {
 
 // SDKPluginStepDefinition represents step information passed from the SDK plugin.
 type SDKPluginStepDefinition struct {
-	Name          string                           `json:"name"`
+	Name          string                          `json:"name"`
 	Config        *schema.ResourceAndConfigSchema `json:"config,omitempty"`
 	Input         *schema.FrameSchema             `json:"input,omitempty"`
 	Output        *schema.FrameSchema             `json:"output,omitempty"`
-	Documentation string                           `json:"documentation,omitempty"`
-	SourceFile    string                           `json:"source_file,omitempty"`
-	SourceLine    int                              `json:"source_line,omitempty"`
+	Documentation string                          `json:"documentation,omitempty"`
+	SourceFile    string                          `json:"source_file,omitempty"`
+	SourceLine    int                             `json:"source_line,omitempty"`
 }
 
 // SDKPluginResourceDefinition represents resource information passed from the SDK plugin.
 type SDKPluginResourceDefinition struct {
-	Name          string                           `json:"name"`
+	Name          string                          `json:"name"`
 	Config        *schema.ResourceAndConfigSchema `json:"config,omitempty"`
-	Documentation string                           `json:"documentation,omitempty"`
-	SourceFile    string                           `json:"source_file,omitempty"`
-	SourceLine    int                              `json:"source_line,omitempty"`
+	Documentation string                          `json:"documentation,omitempty"`
+	SourceFile    string                          `json:"source_file,omitempty"`
+	SourceLine    int                             `json:"source_line,omitempty"`
 }
 
 // SDKPluginDefinitions represents the step and resource definitions imported/passed from an SDK plugin.

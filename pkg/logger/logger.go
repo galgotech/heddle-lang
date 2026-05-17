@@ -70,7 +70,6 @@ func Init(cfg Config) error {
 	return nil
 }
 
-
 // L returns the global logger instance
 func L() *zap.Logger {
 	return globalLogger

@@ -29,8 +29,9 @@ type WorkerExecutor interface {
 type ExecutorFactory func(namespace, pluginName, dir string) WorkerExecutor
 
 type Maestro struct {
-	Workers map[string]WorkerExecutor
-	Watcher *fsnotify.Watcher
+	Workers     map[string]WorkerExecutor
+	Watcher     *fsnotify.Watcher
+	ProjectPath string
 }
 
 func (m *Maestro) Run(ctx context.Context) error {
@@ -105,7 +106,7 @@ func (m *Maestro) Run(ctx context.Context) error {
 }
 
 func (m *Maestro) scanWorkers() error {
-	workersDir := "workers"
+	workersDir := filepath.Join(m.ProjectPath, "workers")
 	if _, err := os.Stat(workersDir); os.IsNotExist(err) {
 		return nil
 	}
@@ -162,14 +163,19 @@ func (m *Maestro) Shutdown() error {
 	return nil
 }
 
-func NewMaestro() (*Maestro, error) {
+func NewMaestro(projectPath string) (*Maestro, error) {
+	if projectPath == "" {
+		return nil, fmt.Errorf("project path cannot be empty")
+	}
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
 
 	return &Maestro{
-		Workers: make(map[string]WorkerExecutor),
-		Watcher: watcher,
+		Workers:     make(map[string]WorkerExecutor),
+		Watcher:     watcher,
+		ProjectPath: projectPath,
 	}, nil
 }

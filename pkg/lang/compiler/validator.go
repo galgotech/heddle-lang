@@ -412,7 +412,7 @@ func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode
 		if name != "" {
 			_, isStep := v.mapStep[name]
 			_, isVar := v.assignments[name]
-			
+
 			if isStep {
 				v.usedSteps[name] = true
 			} else if isVar {
@@ -437,7 +437,7 @@ func (v *Validator) checkUnused() {
 			name = v.ctx.GetString(node.PathRef)
 		}
 		if !v.usedImports[name] {
-			// For now, let's keep imports warning commented as it might be noisy 
+			// For now, let's keep imports warning commented as it might be noisy
 			// if the user is in the middle of typing.
 			// But for "static analysis" it should be there.
 			// v.addWarning(fmt.Sprintf("unused import: %s", name), 0, 0, TagUnnecessary)
@@ -499,7 +499,7 @@ func (v *Validator) hasCycle(name string, visited, recStack map[string]bool) boo
 	ref := v.mapStep[name]
 	node := v.ctx.StepBindingNodes[ref]
 	fn := v.ctx.FunctionRefNodes[node.FunctionRef]
-	
+
 	if fn.ModuleRef.Start == fn.ModuleRef.End {
 		// Local step reference
 		nextName := v.ctx.GetString(fn.NameRef)
