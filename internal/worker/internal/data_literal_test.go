@@ -21,8 +21,8 @@ func TestExecuteDataLiteral(t *testing.T) {
 		WorkflowID: "wf-data-1",
 		TaskID:     "task-data-1",
 		Step: &ir.StepInstruction{
-			Call:   []string{"__internal", "data_literal"},
-			Config: map[string]any{"data": data},
+			Call:        []string{"__internal", "data_literal"},
+			LiteralData: data,
 		},
 	}
 
@@ -42,4 +42,27 @@ func TestExecuteDataLiteral(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, arr.Len())
 	arr.Release()
+}
+
+func TestExecuteDataLiteral_Empty(t *testing.T) {
+	registry := locality.NewDataLocalityRegistry()
+	data := []map[string]any{}
+	task := models.StepExecutionTask{
+		WorkflowID: "wf-data-empty",
+		TaskID:     "task-data-empty",
+		Step: &ir.StepInstruction{
+			Call:        []string{"__internal", "data_literal"},
+			LiteralData: data,
+		},
+	}
+
+	res, err := ExecuteDataLiteral(context.Background(), task, registry)
+	require.NoError(t, err)
+	assert.Equal(t, "task-data-empty", res.TaskID)
+	assert.Equal(t, models.TaskStatusSuccess, res.Status)
+
+	// Verify data in registry (should have no paths because schema/record has no columns)
+	meta, ok := registry.GetMetadata("wf-data-empty", "task-data-empty", locality.Output)
+	assert.True(t, ok)
+	assert.Empty(t, meta.Paths)
 }

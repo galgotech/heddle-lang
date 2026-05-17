@@ -9,28 +9,23 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
-// ExecutePrint implements std/io:print as an internal step.
+// ExecutePrint implements std/io.print as an internal step.
 func ExecutePrint(ctx context.Context, task models.StepExecutionTask, registry *locality.DataLocalityRegistry) (models.TaskResult, error) {
 	// 1. Get input handle (the previous task's output)
 	handle := task.PreviousTaskID
 	if handle == "" {
-		return models.TaskResult{}, fmt.Errorf("std/io:print: missing input handle (previous_task_id)")
+		return models.TaskResult{}, fmt.Errorf("std/io.print: missing input handle (previous_task_id)")
 	}
 
 	// 2. Get metadata from locality registry
 	meta, ok := registry.GetMetadata(task.WorkflowID, handle, locality.Output)
 	if !ok {
-		return models.TaskResult{}, fmt.Errorf("std/io:print: input handle %s not found in registry", handle)
+		return models.TaskResult{}, fmt.Errorf("std/io.print: input handle %s not found in registry", handle)
 	}
 
 	// 3. Find the column to print. In Heddle, steps usually operate on specific fields.
-	// For std/io:print, we'll look for a field named "print" or just print the first available column if not found.
+	// For std/io.print, we'll look for a field named "print" or just print the first available column if not found.
 	path, ok := meta.Paths["print"]
-	if !ok {
-		// Fallback: try "Print" (case sensitivity)
-		path, ok = meta.Paths["Print"]
-	}
-
 	if !ok {
 		// Fallback: use the first column if only one exists
 		if len(meta.Paths) == 1 {
@@ -39,19 +34,19 @@ func ExecutePrint(ctx context.Context, task models.StepExecutionTask, registry *
 				break
 			}
 		} else {
-			return models.TaskResult{}, fmt.Errorf("std/io:print: could not find 'print' column in input")
+			return models.TaskResult{}, fmt.Errorf("std/io.print: could not find 'print' column in input")
 		}
 	}
 
 	// 4. Read the Arrow array from SHM
 	arr, err := locality.ReadArrowArrayFromPath(path)
 	if err != nil {
-		return models.TaskResult{}, fmt.Errorf("std/io:print: failed to read arrow array: %w", err)
+		return models.TaskResult{}, fmt.Errorf("std/io.print: failed to read arrow array: %w", err)
 	}
 	defer arr.Release()
 
 	// 5. Print the values
-	fmt.Printf("--- std/io:print ---\n")
+	fmt.Printf("--- std/io.print ---\n")
 
 	// We handle string arrays primarily for now
 	if strArr, ok := arr.(*array.String); ok {
@@ -63,10 +58,7 @@ func ExecutePrint(ctx context.Context, task models.StepExecutionTask, registry *
 			}
 		}
 	} else {
-		// Generic printer for other types
-		for i := 0; i < arr.Len(); i++ {
-			fmt.Printf("%v\n", arr.ValueStr(i))
-		}
+		return models.TaskResult{}, fmt.Errorf("std/io.print: unsupported type %T", arr)
 	}
 
 	fmt.Printf("--------------------\n")

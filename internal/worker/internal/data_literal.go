@@ -10,6 +10,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
+
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
@@ -18,14 +19,9 @@ import (
 func ExecuteDataLiteral(ctx context.Context, task models.StepExecutionTask, registry *locality.DataLocalityRegistry) (models.TaskResult, error) {
 	logger.L().Info("Executing data_literal step", zap.String("task_id", task.TaskID))
 
-	data, ok := task.Step.Config["data"]
-	if !ok {
-		return models.TaskResult{}, fmt.Errorf("data_literal: missing 'data' in config")
-	}
-
-	listData, ok := data.([]map[string]any)
-	if !ok {
-		return models.TaskResult{}, fmt.Errorf("data_literal: 'data' must be a list of objects")
+	listData := task.Step.LiteralData
+	if listData == nil {
+		return models.TaskResult{}, fmt.Errorf("data_literal: missing 'literal_data'")
 	}
 
 	record, err := convertToArrowRecord(listData)
@@ -69,8 +65,13 @@ func ExecuteDataLiteral(ctx context.Context, task models.StepExecutionTask, regi
 }
 
 func convertToArrowRecord(data []map[string]any) (arrow.Record, error) {
+	if data == nil {
+		return nil, fmt.Errorf("data is nil")
+	}
+
 	if len(data) == 0 {
-		return nil, fmt.Errorf("data is empty")
+		schema := arrow.NewSchema(nil, nil)
+		return array.NewRecord(schema, nil, 0), nil
 	}
 
 	first := data[0]

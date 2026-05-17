@@ -17,6 +17,9 @@ type StepInstruction struct {
 	// Config contains key-value pairs for step configuration.
 	Config map[string]any `json:"config"`
 
+	// LiteralData contains key-value pairs for data literal configuration.
+	LiteralData []map[string]any `json:"literal_data"`
+
 	// InputType and OutputType specify the Arrow schema names for data flow.
 	InputType  []string `json:"input_type"`
 	OutputType []string `json:"output_type"`

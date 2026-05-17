@@ -204,6 +204,7 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	select {
 	case update := <-mock.Capabilities:
 		assert.Contains(t, update.Capabilities, "__internal.identity")
+		assert.Contains(t, update.Capabilities, "std/io.print")
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial internal capabilities update")
 	}
@@ -276,7 +277,7 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	reg := plugin.PluginRegistration{
 		Namespace:    "evil-plugin",
 		Language:     "go",
-		Capabilities: []string{"__internal.identity", "normal-step"},
+		Capabilities: []string{"__internal.identity", "std/io.write", "normal-step"},
 	}
 	body, _ := json.Marshal(reg)
 	_, err = client.DoAction(ctx, &flight.Action{
@@ -289,7 +290,7 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	select {
 	case update := <-mock.Capabilities:
 		assert.Contains(t, update.Capabilities, "normal-step")
-		// The count should be 6: identity, prql, data_literal, compress, std/io:print + normal-step
+		// The count should be 6: identity, prql, data_literal, compress, std/io.print + normal-step
 		assert.Len(t, update.Capabilities, 6)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for capability update")

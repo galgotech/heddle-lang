@@ -66,8 +66,8 @@ func (w *Worker) Start(ctx context.Context) error {
 	for k := range internal.Registry {
 		internalCaps = append(internalCaps, "__internal."+k)
 	}
-	for k := range std.Registry {
-		internalCaps = append(internalCaps, k)
+	for capName := range std.Registry {
+		internalCaps = append(internalCaps, capName)
 	}
 
 	if err := w.updateCapabilities(ctx, internalCaps, nil, true); err != nil {
@@ -225,7 +225,7 @@ func (w *Worker) executeInternalStep(ctx context.Context, task models.StepExecut
 	}
 
 	if strings.HasPrefix(namespace, "std/") {
-		fullStepName := fmt.Sprintf("%s:%s", namespace, stepName)
+		fullStepName := fmt.Sprintf("%s.%s", namespace, stepName)
 		stepFunc, ok := std.Registry[fullStepName]
 		if !ok {
 			logger.L().Error("Unknown std step", zap.String("step", fullStepName), zap.String("task_id", task.TaskID))
@@ -251,9 +251,9 @@ func (w *Worker) updateCapabilities(ctx context.Context, capabilities []string, 
 		}
 		newCaps := false
 		for _, c := range capabilities {
-			// Protection: Plugins cannot override __internal namespace
-			if !isInternal && len(c) >= 11 && c[:11] == "__internal." {
-				logger.L().Warn("Plugin attempted to register __internal capability, ignoring", zap.String("capability", c))
+			// Protection: Plugins cannot override __internal or std/ namespaces
+			if !isInternal && (strings.HasPrefix(c, "__internal.") || strings.HasPrefix(c, "std/")) {
+				logger.L().Warn("Plugin attempted to register protected capability, ignoring", zap.String("capability", c))
 				continue
 			}
 

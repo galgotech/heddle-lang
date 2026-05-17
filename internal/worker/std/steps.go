@@ -8,10 +8,10 @@ import (
 )
 
 // Registry maps stdlib namespaces to their internal step implementations.
-// Key format: "std/namespace:step" (e.g., "std/io:print")
+// Key format: "std/namespace:step" (e.g., "std/io.print")
 
 type StdStepFunc func(ctx context.Context, task models.StepExecutionTask, registry *locality.DataLocalityRegistry) (models.TaskResult, error)
 
 var Registry = map[string]StdStepFunc{
-	"std/io:print": ExecutePrint,
+	"std/io.print": ExecutePrint,
 }
