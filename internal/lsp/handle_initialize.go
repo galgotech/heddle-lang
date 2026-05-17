@@ -7,7 +7,7 @@ import (
 	"go.lsp.dev/protocol"
 )
 
-func HandleInitialize(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+func handleInitialize(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 	return reply(ctx, protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
 			CompletionProvider: &protocol.CompletionOptions{

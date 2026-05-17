@@ -49,7 +49,7 @@ workflow hello_world {
 	// Actually, let's see if we can just use jsonrpc2.Call which implements Request.
 	req, _ := jsonrpc2.NewCall(jsonrpc2.NewNumberID(1), protocol.MethodTextDocumentRename, params)
 
-	err := HandleRename(ctx, reply, req, &s.files)
+	err := handleRename(ctx, reply, req, &s.files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ workflow hello_world {
 	}
 	result = protocol.WorkspaceEdit{} // Clear result
 	req, _ = jsonrpc2.NewCall(jsonrpc2.NewNumberID(2), protocol.MethodTextDocumentRename, params)
-	err = HandleRename(ctx, reply, req, &s.files)
+	err = handleRename(ctx, reply, req, &s.files)
 	if err != nil {
 		t.Fatal(err)
 	}

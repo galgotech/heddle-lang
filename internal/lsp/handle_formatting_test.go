@@ -196,7 +196,7 @@ workflow hello_world {
 				return nil
 			}
 
-			err := HandleFormatting(ctx, replier, req, files)
+			err := handleFormatting(ctx, replier, req, files)
 			assert.NoError(t, err)
 
 			if tt.expectedErr {

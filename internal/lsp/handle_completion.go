@@ -17,10 +17,10 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
-// HandleCompletion processes a "textDocument/completion" LSP request to retrieve completion candidates.
+// handleCompletion processes a "textDocument/completion" LSP request to retrieve completion candidates.
 // It parses the active document context, determines if the cursor is within a suggestable region,
 // and queries the step registry fetched from the Control Plane to return matching namespaces or steps.
-func HandleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error), logger *zap.Logger) error {
+func handleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error), logger *zap.Logger) error {
 	var params protocol.CompletionParams
 	// Unmarshal the incoming request parameters to extract the file URI and cursor position.
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
@@ -65,7 +65,7 @@ func getCompletionItems(source string, pos protocol.Position, registry *models.R
 
 	l := lexer.New(source)
 	p := parser.New(l, ctxAST)
-	_ = p.Parse()
+	p.Parse()
 
 	// Identify the current line and slice the prefix text up to the cursor's character position.
 	lines := strings.Split(source, "\n")

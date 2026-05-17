@@ -15,7 +15,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-func HandleDefinition(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error)) error {
+func handleDefinition(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error)) error {
 	var params protocol.DefinitionParams
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
 		return reply(ctx, nil, err)

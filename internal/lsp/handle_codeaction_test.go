@@ -59,7 +59,7 @@ workflow hello_world {
 
 	req, _ := jsonrpc2.NewCall(jsonrpc2.NewNumberID(1), protocol.MethodTextDocumentCodeAction, params)
 
-	err := HandleCodeAction(ctx, reply, req, &s.files)
+	err := handleCodeAction(ctx, reply, req, &s.files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ workflow hello_world {
 	result = nil
 
 	req, _ = jsonrpc2.NewCall(jsonrpc2.NewNumberID(2), protocol.MethodTextDocumentCodeAction, params)
-	err = HandleCodeAction(ctx, reply, req, &s.files)
+	err = handleCodeAction(ctx, reply, req, &s.files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ workflow hello_world {
 	result = nil
 
 	req, _ = jsonrpc2.NewCall(jsonrpc2.NewNumberID(3), protocol.MethodTextDocumentCodeAction, params)
-	err = HandleCodeAction(ctx, reply, req, &s.files)
+	err = handleCodeAction(ctx, reply, req, &s.files)
 	if err != nil {
 		t.Fatal(err)
 	}

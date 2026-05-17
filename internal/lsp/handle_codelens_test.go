@@ -63,7 +63,7 @@ workflow my_workflow ? my_handler {
 
 	req, _ := jsonrpc2.NewCall(jsonrpc2.NewNumberID(1), protocol.MethodTextDocumentCodeLens, params)
 
-	err := HandleCodeLens(ctx, reply, req, &s.files)
+	err := handleCodeLens(ctx, reply, req, &s.files)
 	if err != nil {
 		t.Fatal(err)
 	}

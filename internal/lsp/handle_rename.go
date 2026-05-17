@@ -14,7 +14,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-func HandleRename(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
+func handleRename(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
 	var params protocol.RenameParams
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
 		return reply(ctx, nil, err)

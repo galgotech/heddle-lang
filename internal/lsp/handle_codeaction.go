@@ -15,11 +15,11 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-// HandleCodeAction processes a "textDocument/codeAction" LSP request to retrieve a list of
+// handleCodeAction processes a "textDocument/codeAction" LSP request to retrieve a list of
 // commands or edits that can be applied to the active document at the current user selection or range.
 // It parses the file content, identifies active language constructs at the cursor using a Navigator,
 // and returns actions such as "Organize Imports" or target-specific template generation (e.g., generating tests).
-func HandleCodeAction(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
+func handleCodeAction(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
 	// Unmarshal the incoming request parameters to extract the URI, cursor/selection range, and context.
 	var params protocol.CodeActionParams
 	if err := json.Unmarshal(req.Params(), &params); err != nil {

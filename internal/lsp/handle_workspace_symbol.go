@@ -15,7 +15,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-func HandleWorkspaceSymbol(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
+func handleWorkspaceSymbol(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
 	var params protocol.WorkspaceSymbolParams
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
 		return reply(ctx, nil, err)

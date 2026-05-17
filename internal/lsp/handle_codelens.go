@@ -14,9 +14,9 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
 
-// HandleCodeLens processes a textDocument/codeLens request. It parses the target document
+// handleCodeLens processes a textDocument/codeLens request. It parses the target document
 // and returns executable actions (run/debug) for all defined workflows and handlers.
-func HandleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
+func handleCodeLens(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map) error {
 	var params protocol.CodeLensParams
 	// Unmarshal the incoming JSON-RPC request parameters into standard LSP CodeLensParams.
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
