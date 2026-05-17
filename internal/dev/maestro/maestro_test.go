@@ -3,7 +3,11 @@ package maestro
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMaestro_ScanWorkers(t *testing.T) {
@@ -86,4 +90,38 @@ func main() {
 	if err != nil {
 		t.Errorf("failed to stop executor: %v", err)
 	}
+}
+
+func TestGoExecutor_Pdeathsig(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create cmd/main.go
+	cmdDir := filepath.Join(tempDir, "cmd")
+	err := os.MkdirAll(cmdDir, 0755)
+	require.NoError(t, err)
+
+	mainGo := `package main
+func main() {}
+`
+	err = os.WriteFile(filepath.Join(cmdDir, "main.go"), []byte(mainGo), 0644)
+	require.NoError(t, err)
+
+	// Create a minimal go.mod to satisfy go run
+	goMod := "module testworker\ngo 1.21\n"
+	err = os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goMod), 0644)
+	require.NoError(t, err)
+
+	executor := NewGoExecutor("ns", "testworker", tempDir)
+	socketPath := filepath.Join(tempDir, "test.sock")
+
+	err = executor.Start(t.Context(), socketPath)
+	require.NoError(t, err)
+
+	goExecutor := executor.(*GoExecutor)
+	require.NotNil(t, goExecutor.Cmd, "Cmd should not be nil")
+	require.NotNil(t, goExecutor.Cmd.SysProcAttr, "SysProcAttr should not be nil")
+	assert.Equal(t, syscall.SIGKILL, goExecutor.Cmd.SysProcAttr.Pdeathsig, "Pdeathsig should be set to SIGKILL")
+
+	// Cleanup
+	_ = executor.Stop()
 }

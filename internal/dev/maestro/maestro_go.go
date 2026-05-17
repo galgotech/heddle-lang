@@ -32,6 +32,9 @@ func (e *GoExecutor) Start(ctx context.Context, socketPath string) error {
 	e.Cmd.Stdout = os.Stdout
 	e.Cmd.Stderr = os.Stderr
 	e.Cmd.Env = append(os.Environ(), fmt.Sprintf("HEDDLE_WORKER_ADDRESS=unix://%s", socketPath))
+	e.Cmd.SysProcAttr = &syscall.SysProcAttr{
+		Pdeathsig: syscall.SIGKILL,
+	}
 
 	logger.L().Info("Spawning worker via go run...", zap.String("plugin", e.PluginName))
 	if err := e.Cmd.Start(); err != nil {
