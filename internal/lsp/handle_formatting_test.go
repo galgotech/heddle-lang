@@ -140,8 +140,8 @@ workflow hello_world {
 						Start: protocol.Position{Line: 0, Character: 0},
 						End:   protocol.Position{Line: 100000, Character: 0},
 					},
-					NewText: `import "std/io" io
-import "kafka/broker" kafka
+					NewText: `import "kafka/broker" kafka
+import "std/io" io
 
 resource kafka = kafka.broker {
   bootstrap_servers: "localhost:9092"
@@ -238,8 +238,8 @@ workflow main {
   | io.print
 }
 `,
-			after: `import "pg" pg
-import "io"
+			after: `import "io"
+import "pg" pg
 
 resource db = pg.connection {
   host: "localhost"
@@ -393,8 +393,8 @@ workflow hello_world {
     | io.print
 }
 `,
-			after: `import "std/io" io
-import "kafka/broker" kafka
+			after: `import "kafka/broker" kafka
+import "std/io" io
 
 resource kafka = kafka.broker {
   bootstrap_servers: "localhost:9092"
@@ -627,4 +627,60 @@ step test = io.print
 	}
 
 	assert.Equal(t, expectedEdits, capturedResult)
+}
+
+func TestFormatter_OrganizeImportsAlphabetically(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{
+			name: "organize imports alphabetically",
+			before: `import "std/io" io
+import "kafka/broker" kafka_broker
+
+workflow main {
+  []
+    | io.print
+}
+`,
+			after: `import "kafka/broker" kafka_broker
+import "std/io" io
+
+workflow main {
+  []
+    | io.print
+}
+`,
+		},
+		{
+			name: "multiple imports mixed order",
+			before: `import "z"
+import "a"
+import "m" a_m
+`,
+			after: `import "a"
+import "m" a_m
+import "z"
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := ast.AcquireASTContext()
+			defer ast.ReleaseASTContext(ctx)
+
+			l := lexer.New(tt.before)
+			p := parser.New(l, ctx)
+			prog := p.Parse()
+			require.Empty(t, p.Errors(), "unexpected errors for test: %s", tt.name)
+
+			f := NewFormatter(ctx)
+			formatted := f.Format(prog)
+
+			assert.Equal(t, tt.after, formatted, "failed test: %s", tt.name)
+		})
+	}
 }

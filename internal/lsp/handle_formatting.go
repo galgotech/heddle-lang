@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -265,8 +266,16 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 
 	// 1. Imports
 	if program.ImportRefsEnd > program.ImportRefsStart {
+		var importRefs []ast.NodeRef
 		for i := program.ImportRefsStart; i < program.ImportRefsEnd; i++ {
-			ref := f.ctx.ImportRefs[i]
+			importRefs = append(importRefs, f.ctx.ImportRefs[i])
+		}
+		sort.Slice(importRefs, func(i, j int) bool {
+			pathI := f.ctx.GetString(f.ctx.ImportNodes[importRefs[i]].PathRef)
+			pathJ := f.ctx.GetString(f.ctx.ImportNodes[importRefs[j]].PathRef)
+			return pathI < pathJ
+		})
+		for _, ref := range importRefs {
 			node := f.ctx.ImportNodes[ref]
 			if node.AliasRef.Start != node.AliasRef.End {
 				fmt.Fprintf(&sb, "import \"%s\" %s\n", f.ctx.GetString(node.PathRef), f.ctx.GetString(node.AliasRef))
