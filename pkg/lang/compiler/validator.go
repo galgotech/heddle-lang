@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/schema"
@@ -41,6 +42,8 @@ type Validator struct {
 	mapResource map[string]ast.NodeRef
 	mapStep     map[string]ast.NodeRef
 	mapHandler  map[string]ast.NodeRef
+	mapWorkflow map[string]ast.NodeRef
+	mapImport   map[string]ast.NodeRef
 
 	// Usage tracking
 	usedResources map[string]bool
@@ -62,6 +65,8 @@ func NewValidator(program ast.ProgramNode, ctx *ast.ASTContext, schemas map[stri
 		mapResource:   make(map[string]ast.NodeRef),
 		mapStep:       make(map[string]ast.NodeRef),
 		mapHandler:    make(map[string]ast.NodeRef),
+		mapWorkflow:   make(map[string]ast.NodeRef),
+		mapImport:     make(map[string]ast.NodeRef),
 		usedResources: make(map[string]bool),
 		usedSteps:     make(map[string]bool),
 		usedHandlers:  make(map[string]bool),
@@ -130,7 +135,61 @@ func (v *Validator) Validate() error {
 	return nil
 }
 
+func (v *Validator) getImportNamespace(node ast.ImportNode) string {
+	if node.AliasRef.Start != node.AliasRef.End {
+		return v.ctx.GetString(node.AliasRef)
+	}
+	path := v.ctx.GetString(node.PathRef)
+	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
+		path = path[1 : len(path)-1]
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return path
+}
+
+func (v *Validator) checkCollision(name string, currentType string, currentRange ast.Range) bool {
+	if _, ok := v.mapImport[name]; ok && currentType != "import" {
+		v.addErrorAtRange(fmt.Sprintf("name '%s' conflicts with an import alias", name), currentRange)
+		return true
+	}
+	if _, ok := v.mapResource[name]; ok && currentType != "resource" {
+		v.addErrorAtRange(fmt.Sprintf("name '%s' conflicts with a resource name", name), currentRange)
+		return true
+	}
+	if _, ok := v.mapStep[name]; ok && currentType != "step" {
+		v.addErrorAtRange(fmt.Sprintf("name '%s' conflicts with a step name", name), currentRange)
+		return true
+	}
+	if _, ok := v.mapHandler[name]; ok && currentType != "handler" {
+		v.addErrorAtRange(fmt.Sprintf("name '%s' conflicts with a handler name", name), currentRange)
+		return true
+	}
+	if _, ok := v.mapWorkflow[name]; ok && currentType != "workflow" {
+		v.addErrorAtRange(fmt.Sprintf("name '%s' conflicts with a workflow name", name), currentRange)
+		return true
+	}
+	return false
+}
+
 func (v *Validator) registerDefinitions() {
+	// Register Imports
+	for i := v.program.ImportRefsStart; i < v.program.ImportRefsEnd; i++ {
+		ref := v.ctx.ImportRefs[i]
+		node := v.ctx.ImportNodes[ref]
+		namespace := v.getImportNamespace(node)
+		if namespace != "" {
+			if _, ok := v.mapImport[namespace]; ok {
+				v.addErrorAtRange(fmt.Sprintf("duplicate import alias: %s", namespace), v.ctx.ImportRanges[ref])
+			} else {
+				v.checkCollision(namespace, "import", v.ctx.ImportRanges[ref])
+			}
+			v.mapImport[namespace] = ref
+		}
+	}
+
 	// Register Resources
 	for i := v.program.ResourceRefsStart; i < v.program.ResourceRefsEnd; i++ {
 		ref := v.ctx.ResourceRefs[i]
@@ -138,6 +197,8 @@ func (v *Validator) registerDefinitions() {
 		name := v.ctx.GetString(node.NameRef)
 		if _, ok := v.mapResource[name]; ok {
 			v.addErrorAtRange(fmt.Sprintf("duplicate resource definition: %s", name), v.ctx.ResourceRanges[ref])
+		} else {
+			v.checkCollision(name, "resource", v.ctx.ResourceRanges[ref])
 		}
 		v.mapResource[name] = ref
 	}
@@ -149,6 +210,8 @@ func (v *Validator) registerDefinitions() {
 		name := v.ctx.GetString(node.NameRef)
 		if _, ok := v.mapStep[name]; ok {
 			v.addErrorAtRange(fmt.Sprintf("duplicate step definition: %s", name), v.ctx.StepRanges[ref])
+		} else {
+			v.checkCollision(name, "step", v.ctx.StepRanges[ref])
 		}
 		v.mapStep[name] = ref
 	}
@@ -160,8 +223,23 @@ func (v *Validator) registerDefinitions() {
 		name := v.ctx.GetString(node.NameRef)
 		if _, ok := v.mapHandler[name]; ok {
 			v.addErrorAtRange(fmt.Sprintf("duplicate handler definition: %s", name), v.ctx.HandlerRanges[ref])
+		} else {
+			v.checkCollision(name, "handler", v.ctx.HandlerRanges[ref])
 		}
 		v.mapHandler[name] = ref
+	}
+
+	// Register Workflows
+	for i := v.program.WorkflowRefsStart; i < v.program.WorkflowRefsEnd; i++ {
+		ref := v.ctx.WorkflowRefs[i]
+		node := v.ctx.WorkflowNodes[ref]
+		name := v.ctx.GetString(node.NameRef)
+		if _, ok := v.mapWorkflow[name]; ok {
+			v.addErrorAtRange(fmt.Sprintf("duplicate workflow definition: %s", name), v.ctx.WorkflowRanges[ref])
+		} else {
+			v.checkCollision(name, "workflow", v.ctx.WorkflowRanges[ref])
+		}
+		v.mapWorkflow[name] = ref
 	}
 }
 

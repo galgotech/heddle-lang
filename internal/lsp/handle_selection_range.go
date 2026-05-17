@@ -9,7 +9,6 @@ import (
 	"go.lsp.dev/protocol"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
@@ -33,7 +32,7 @@ func handleSelectionRange(ctx context.Context, reply jsonrpc2.Replier, req jsonr
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-	nav := compiler.NewNavigator(astCtx)
+	nav := NewNavigator(astCtx)
 
 	results := []protocol.SelectionRange{}
 	for _, pos := range params.Positions {

@@ -147,3 +147,242 @@ workflow main {
 	assert.Equal(t, uint32(1), unusedDiag.Range.Start.Line)
 	assert.Equal(t, uint32(3), unusedDiag.Range.End.Line)
 }
+
+func TestValidator_DuplicateImportAlias(t *testing.T) {
+	input := `
+import "std/io" io
+import "other/io" io
+
+workflow main {
+  io.print
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "duplicate import alias: io" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected duplicate import alias error")
+}
+
+func TestValidator_DuplicateStep(t *testing.T) {
+	input := `
+step my_step = openai.prompt { system: "A" }
+step my_step = openai.prompt { system: "B" }
+
+workflow main {
+  my_step
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "duplicate step definition: my_step" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected duplicate step definition error")
+}
+
+func TestValidator_DuplicateResource(t *testing.T) {
+	input := `
+resource db = pg.connection { host: "A" }
+resource db = pg.connection { host: "B" }
+
+workflow main {
+  []
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "duplicate resource definition: db" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected duplicate resource definition error")
+}
+
+func TestValidator_DuplicateWorkflow(t *testing.T) {
+	input := `
+workflow main {
+  []
+}
+
+workflow main {
+  []
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "duplicate workflow definition: main" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected duplicate workflow definition error")
+}
+
+func TestValidator_ConflictImportWithStep(t *testing.T) {
+	input := `
+import "std/io" my_name
+step my_name = openai.prompt { system: "A" }
+
+workflow main {
+  []
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "name 'my_name' conflicts with an import alias" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected import conflict with step error")
+}
+
+func TestValidator_ConflictStepWithResource(t *testing.T) {
+	input := `
+step my_name = openai.prompt { system: "A" }
+resource my_name = pg.connection { host: "localhost" }
+
+workflow main {
+  []
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "name 'my_name' conflicts with a resource name" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected step conflict with resource error")
+}
+
+func TestValidator_ConflictResourceWithWorkflow(t *testing.T) {
+	input := `
+resource my_name = pg.connection { host: "localhost" }
+workflow my_name {
+  []
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "name 'my_name' conflicts with a resource name" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected resource conflict with workflow error")
+}
+
+func TestValidator_ConflictWorkflowWithImport(t *testing.T) {
+	input := `
+workflow my_name {
+  []
+}
+import "std/io" my_name
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	errs := v.ValidateAll()
+
+	var found bool
+	for _, err := range errs {
+		if err.Message == "name 'my_name' conflicts with an import alias" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected workflow conflict with import error")
+}
+
+

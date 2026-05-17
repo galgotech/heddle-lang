@@ -10,7 +10,6 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
@@ -34,7 +33,7 @@ func handleDefinition(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-	nav := compiler.NewNavigator(astCtx)
+	nav := NewNavigator(astCtx)
 	defRange := nav.DefinitionAt(prog, params.Position.Line+1, params.Position.Character+1)
 	if defRange != nil {
 		return reply(ctx, protocol.Location{

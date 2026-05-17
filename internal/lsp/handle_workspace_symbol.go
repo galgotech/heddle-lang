@@ -10,7 +10,6 @@ import (
 	"go.lsp.dev/protocol"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
@@ -34,7 +33,7 @@ func handleWorkspaceSymbol(ctx context.Context, reply jsonrpc2.Replier, req json
 		p := parser.New(l, astCtx)
 		prog := p.Parse()
 
-		nav := compiler.NewNavigator(astCtx)
+		nav := NewNavigator(astCtx)
 		symbols := nav.DocumentSymbols(prog)
 
 		for _, sym := range symbols {

@@ -10,7 +10,6 @@ import (
 	"go.lsp.dev/protocol"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
@@ -59,7 +58,7 @@ func handleCodeAction(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.
 
 	// Query the AST at the specified line and character position (1-indexed in Heddle compiler constructs,
 	// but 0-indexed in the LSP protocol) to determine if a workflow or step definition exists under the cursor.
-	nav := compiler.NewNavigator(astCtx)
+	nav := NewNavigator(astCtx)
 	symbolName, symbolType := nav.SymbolAt(prog, params.Range.Start.Line+1, params.Range.Start.Character+1)
 	if symbolType == "workflow" || symbolType == "step" {
 		// Provide an action to append a commented boilerplate test block at the end of the document.

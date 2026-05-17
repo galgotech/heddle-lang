@@ -161,4 +161,59 @@ workflow hello_world {
 	if !foundUsageEdit {
 		t.Errorf("did not find usage edit on line 7")
 	}
+
+	// Test Case 4: Rename import alias
+	contentImport := `import "std/io" io
+
+workflow hello_world {
+  []
+    | io.print
+}`
+	uriImport := protocol.DocumentURI("file:///import.he")
+	s.files.Store(uriImport, contentImport)
+
+	// Rename the import alias 'io' to 'io2'
+	// Cursor is on "io" in import statement on line 1 (0-indexed line 0), column 17 (0-indexed col 16)
+	params = protocol.RenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uriImport},
+			Position:     protocol.Position{Line: 0, Character: 16},
+		},
+		NewName: "io2",
+	}
+	result = protocol.WorkspaceEdit{} // Clear result
+	req, _ = jsonrpc2.NewCall(jsonrpc2.NewNumberID(4), protocol.MethodTextDocumentRename, params)
+	err = handleRename(ctx, reply, req, &s.files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edits = result.Changes[uriImport]
+	if len(edits) != 2 {
+		t.Fatalf("expected 2 edits (one for import alias, one for qualified call prefix), got %d, result: %+v", len(edits), result)
+	}
+
+	var foundImportAliasEdit bool
+	var foundQualifiedCallEdit bool
+	for _, edit := range edits {
+		if edit.Range.Start.Line == 0 {
+			foundImportAliasEdit = true
+			if edit.Range.Start.Character != 16 || edit.Range.End.Character != 18 {
+				t.Errorf("expected import alias range to be exactly line 0 col 16 to 18, got start %d end %d", edit.Range.Start.Character, edit.Range.End.Character)
+			}
+		}
+		if edit.Range.Start.Line == 4 {
+			foundQualifiedCallEdit = true
+			if edit.Range.Start.Character != 6 || edit.Range.End.Character != 8 {
+				t.Errorf("expected qualified call prefix range to be exactly line 4 col 6 to 8, got start %d end %d", edit.Range.Start.Character, edit.Range.End.Character)
+			}
+		}
+	}
+
+	if !foundImportAliasEdit {
+		t.Errorf("did not find import alias edit on line 0")
+	}
+	if !foundQualifiedCallEdit {
+		t.Errorf("did not find qualified call prefix edit on line 4")
+	}
 }

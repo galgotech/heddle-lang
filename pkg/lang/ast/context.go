@@ -66,8 +66,10 @@ type ASTContext struct {
 	WorkflowNameRanges []Range
 	CallRanges         []Range
 	DictRanges         []Range
-	ImportRanges       []Range
-	AssignmentRanges   []Range
+	ImportRanges            []Range
+	AssignmentRanges        []Range
+	FunctionRefModuleRanges []Range
+	FunctionRefNameRanges   []Range
 }
 
 // Reset clears the context for reuse. It truncates slices to their initial state
@@ -124,6 +126,8 @@ func (ctx *ASTContext) Reset() {
 	ctx.DictRanges = ctx.DictRanges[:1]
 	ctx.ImportRanges = ctx.ImportRanges[:1]
 	ctx.AssignmentRanges = ctx.AssignmentRanges[:1]
+	ctx.FunctionRefModuleRanges = ctx.FunctionRefModuleRanges[:1]
+	ctx.FunctionRefNameRanges = ctx.FunctionRefNameRanges[:1]
 }
 
 // AddString appends a string to the internal buffer and returns a StringRef
@@ -198,7 +202,19 @@ func (ctx *ASTContext) SetStepNameRange(ref NodeRef, r Range) {
 func (ctx *ASTContext) AddFunctionRefNode(n FunctionRefNode) NodeRef {
 	idx := uint32(len(ctx.FunctionRefNodes))
 	ctx.FunctionRefNodes = append(ctx.FunctionRefNodes, n)
+	ctx.FunctionRefModuleRanges = append(ctx.FunctionRefModuleRanges, Range{})
+	ctx.FunctionRefNameRanges = append(ctx.FunctionRefNameRanges, Range{})
 	return NodeRef(idx)
+}
+
+// SetFunctionRefModuleRange updates the source location metadata for a function reference module prefix.
+func (ctx *ASTContext) SetFunctionRefModuleRange(ref NodeRef, r Range) {
+	ctx.FunctionRefModuleRanges[ref] = r
+}
+
+// SetFunctionRefNameRange updates the source location metadata for a function reference name identifier.
+func (ctx *ASTContext) SetFunctionRefNameRange(ref NodeRef, r Range) {
+	ctx.FunctionRefNameRanges[ref] = r
 }
 
 // AddResourceRefNode appends a ResourceRefNode.
@@ -457,8 +473,10 @@ var astContextPool = sync.Pool{
 			WorkflowNameRanges: []Range{{}},
 			CallRanges:         []Range{{}},
 			DictRanges:         []Range{{}},
-			ImportRanges:       []Range{{}},
-			AssignmentRanges:   []Range{{}},
+			ImportRanges:            []Range{{}},
+			AssignmentRanges:        []Range{{}},
+			FunctionRefModuleRanges: []Range{{}},
+			FunctionRefNameRanges:   []Range{{}},
 		}
 	},
 }

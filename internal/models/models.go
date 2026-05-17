@@ -20,7 +20,8 @@ const (
 
 // RegistryInfo contains the metadata about all registered steps in the cluster.
 type RegistryInfo struct {
-	Steps map[string]schema.StepSchemas `json:"steps"`
+	Steps     map[string]schema.StepSchemas     `json:"steps"`
+	Resources map[string]schema.ResourceSchemas `json:"resources,omitempty"`
 }
 
 // Task Statuses

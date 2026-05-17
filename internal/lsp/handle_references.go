@@ -9,7 +9,6 @@ import (
 	"go.lsp.dev/protocol"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
-	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 )
@@ -33,7 +32,7 @@ func handleReferences(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.
 	p := parser.New(l, astCtx)
 	prog := p.Parse()
 
-	nav := compiler.NewNavigator(astCtx)
+	nav := NewNavigator(astCtx)
 	symbolName, symbolType := nav.SymbolAt(prog, params.Position.Line+1, params.Position.Character+1)
 	if symbolName == "" {
 		return reply(ctx, nil, nil)

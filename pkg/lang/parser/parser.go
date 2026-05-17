@@ -26,6 +26,7 @@ type Parser struct {
 	curLineStartCol  uint32            // Column of the first token on the current line.
 	curLine          uint32            // Current line number being processed.
 	lineStartCols    map[uint32]uint32 // Map of line number to its first token's column.
+	lastCommentRef   ast.StringRef     // Reference to the most recently parsed top-level block comment.
 }
 
 // Parse executes the parsing logic to construct a ProgramNode.
@@ -50,21 +51,26 @@ func (p *Parser) Parse() ast.ProgramNode {
 
 		switch p.curToken.Type {
 		case lexer.BLOCK_COMMENT:
+			p.lastCommentRef = p.ctx.AddString(p.curToken.Literal)
 			p.ctx.AddCommentRef(p.ctx.AddCommentNode(ast.CommentNode{
-				ValueRef: p.ctx.AddString(p.curToken.Literal),
+				ValueRef: p.lastCommentRef,
 			}))
 			p.nextToken()
 		case lexer.IMPORT:
+			p.lastCommentRef = ast.StringRef{}
 			p.ctx.AddImportRef(p.parseImport())
 		case lexer.RESOURCE:
 			p.ctx.AddResourceRef(p.parseResource())
 		case lexer.STEP:
 			p.ctx.AddStepRef(p.parseStepBinding())
 		case lexer.HANDLER:
+			p.lastCommentRef = ast.StringRef{}
 			p.ctx.AddHandlerRef(p.parseHandler())
 		case lexer.WORKFLOW:
+			p.lastCommentRef = ast.StringRef{}
 			p.ctx.AddWorkflowRef(p.parseWorkflow())
 		default:
+			p.lastCommentRef = ast.StringRef{}
 			p.curError("unexpected token at top level")
 			p.synchronizeTopLevel()
 		}
@@ -178,7 +184,12 @@ func (p *Parser) synchronizeTopLevel() {
 // parseImport handles 'import' declarations for external Heddle modules.
 func (p *Parser) parseImport() ast.NodeRef {
 	node := ast.ImportNode{}
+	var pathRange ast.Range
 	if p.expectPeek(lexer.STRING_LIT) {
+		pathRange = ast.Range{
+			Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+			End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+		}
 		node.PathRef = p.ctx.AddString(p.curToken.Literal)
 	}
 	var aliasRange ast.Range
@@ -194,6 +205,8 @@ func (p *Parser) parseImport() ast.NodeRef {
 	ref := p.ctx.AddImportNode(node)
 	if node.AliasRef.Start != node.AliasRef.End {
 		p.ctx.SetImportRange(ref, aliasRange)
+	} else {
+		p.ctx.SetImportRange(ref, pathRange)
 	}
 	return ref
 }
@@ -201,7 +214,10 @@ func (p *Parser) parseImport() ast.NodeRef {
 // parseResource handles 'resource' declarations for stateful external dependencies (e.g., databases).
 func (p *Parser) parseResource() ast.NodeRef {
 	start := p.getPos()
-	node := ast.ResourceBindingNode{}
+	node := ast.ResourceBindingNode{
+		CommentRef: p.lastCommentRef,
+	}
+	p.lastCommentRef = ast.StringRef{}
 	if !p.expectPeek(lexer.IDENTIFIER) {
 		p.nextToken()
 		return 0
@@ -226,7 +242,10 @@ func (p *Parser) parseResource() ast.NodeRef {
 // parseStepBinding handles 'step' declarations that bind imperative code to a Heddle identifier.
 func (p *Parser) parseStepBinding() ast.NodeRef {
 	start := p.getPos()
-	node := ast.StepBindingNode{}
+	node := ast.StepBindingNode{
+		CommentRef: p.lastCommentRef,
+	}
+	p.lastCommentRef = ast.StringRef{}
 	if !p.expectPeek(lexer.IDENTIFIER) {
 		p.nextToken()
 		return 0
@@ -267,18 +286,36 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 		}
 	}
 
+	var moduleRange ast.Range
+	var nameRange ast.Range
+	hasModule := false
+	hasName := false
+
 	// [ IDENTIFIER "." ] IDENTIFIER
 	if p.curTokenIs(lexer.IDENTIFIER) {
 		ident1 := p.curToken.Literal
+		range1 := ast.Range{
+			Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+			End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+		}
 		if p.peekTokenIs(lexer.DOT) {
 			p.nextToken() // Skip '.'
 			if p.expectPeek(lexer.IDENTIFIER) {
 				fr.ModuleRef = p.ctx.AddString(ident1)
 				fr.NameRef = p.ctx.AddString(p.curToken.Literal)
+				moduleRange = range1
+				nameRange = ast.Range{
+					Start: ast.Position{Line: uint32(p.curToken.Line), Col: uint32(p.curToken.Column)},
+					End:   ast.Position{Line: uint32(p.curToken.EndLine), Col: uint32(p.curToken.EndColumn)},
+				}
+				hasModule = true
+				hasName = true
 				p.nextToken()
 			}
 		} else {
 			fr.NameRef = p.ctx.AddString(ident1)
+			nameRange = range1
+			hasName = true
 			p.nextToken()
 		}
 	} else {
@@ -290,7 +327,14 @@ func (p *Parser) parseFunctionRef() ast.NodeRef {
 		fr.ConfigRef = p.parseDict(true)
 	}
 
-	return p.ctx.AddFunctionRefNode(fr)
+	ref := p.ctx.AddFunctionRefNode(fr)
+	if hasModule {
+		p.ctx.SetFunctionRefModuleRange(ref, moduleRange)
+	}
+	if hasName {
+		p.ctx.SetFunctionRefNameRange(ref, nameRange)
+	}
+	return ref
 }
 
 // parseResourceRef parses resource mapping blocks defined within angle brackets '<...>'.
@@ -311,6 +355,10 @@ func (p *Parser) parseResourceRef() ast.NodeRef {
 			if p.expectPeek(lexer.ASSIGN) {
 				if p.expectPeek(lexer.IDENTIFIER) {
 					mapping.ValueRef = p.ctx.AddString(p.curToken.Literal)
+					mapping.ValueRange = ast.Range{
+						Start: p.getPos(),
+						End:   p.getEndPos(),
+					}
 					p.nextToken()
 				} else {
 					p.nextToken()

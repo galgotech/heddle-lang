@@ -39,6 +39,16 @@ type StepSchemas struct {
 	SourceLine    int                      `json:"source_line,omitempty"`
 }
 
+// ResourceSchemas contains the config schema for a resource,
+// as well as metadata for developer experience (LSP).
+type ResourceSchemas struct {
+	Config        *ResourceAndConfigSchema `json:"config,omitempty"`
+	Documentation string                   `json:"documentation,omitempty"`
+	SourceCode    string                   `json:"source_code,omitempty"`
+	SourceFile    string                   `json:"source_file,omitempty"`
+	SourceLine    int                      `json:"source_line,omitempty"`
+}
+
 // Compatible checks if the output schema of one step is compatible with
 // the input schema of the next. Returns nil if compatible.
 func Compatible(output, input *FrameSchema) error {

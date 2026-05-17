@@ -47,12 +47,14 @@ type ImportNode struct {
 type ResourceBindingNode struct {
 	NameRef     StringRef
 	FunctionRef NodeRef // Index in FunctionRefNodes
+	CommentRef  StringRef
 }
 
 // StepBindingNode represents a step binding.
 type StepBindingNode struct {
 	NameRef     StringRef
 	FunctionRef NodeRef // Index in FunctionRefNodes
+	CommentRef  StringRef
 }
 
 // FunctionRefNode represents a module.function reference with optional resource mapping and config.
@@ -71,8 +73,9 @@ type ResourceRefNode struct {
 
 // ResourceMappingNode represents a single key=value mapping in a resource reference.
 type ResourceMappingNode struct {
-	KeyRef   StringRef
-	ValueRef StringRef
+	KeyRef     StringRef
+	ValueRef   StringRef
+	ValueRange Range
 }
 
 // HandlerNode represents an error/event handler.
