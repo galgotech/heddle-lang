@@ -80,18 +80,62 @@ func getCompletionItems(source string, pos protocol.Position, registry *models.R
 
 	items := []protocol.CompletionItem{}
 
-	// Verify if the cursor is physically positioned within any defined workflow or handler boundary in the AST.
+	// Check if we are inside a resource mapping block <key=value, ...>
+	langleIdx := strings.LastIndex(prefix, "<")
+	if langleIdx >= 0 {
+		// Check if the '<' is not closed by a '>' on the same line prefix
+		if !strings.Contains(prefix[langleIdx:], ">") {
+			// We are inside a resource mapping block!
+			// Check if we are after an '=' in the current mapping (e.g. '<connection=' or '<key=val, connection=')
+			lastComma := strings.LastIndex(prefix[langleIdx:], ",")
+			currentMapping := prefix[langleIdx:]
+			if lastComma >= 0 {
+				currentMapping = prefix[langleIdx+lastComma:]
+			}
+			if strings.Contains(currentMapping, "=") {
+				// User is typing the value part of a key=value mapping, so suggest resource names!
+				for idx := 1; idx < len(ctxAST.ResourceNodes); idx++ {
+					res := ctxAST.ResourceNodes[idx]
+					resName := ctxAST.GetString(res.NameRef)
+					if resName != "" {
+						items = append(items, protocol.CompletionItem{
+							Label:  resName,
+							Kind:   protocol.CompletionItemKindStruct,
+							Detail: "Local Resource",
+						})
+					}
+				}
+				return items
+			}
+		}
+	}
+
+	// Verify if the cursor is physically positioned within any defined workflow boundary in the AST.
 	inWorkflow := false
+	var activeWorkflow *ast.WorkflowNode
 	for i := 1; i < len(ctxAST.WorkflowRanges); i++ {
 		r := ctxAST.WorkflowRanges[i]
 		if pos.Line+1 >= r.Start.Line && pos.Line+1 <= r.End.Line {
 			inWorkflow = true
+			activeWorkflow = &ctxAST.WorkflowNodes[i]
 			break
 		}
 	}
 
-	// Provide autocompletion logic when the cursor is in a workflow or at an empty line.
-	if inWorkflow || strings.TrimSpace(prefix) == "" {
+	// Verify if the cursor is physically positioned within any defined handler boundary in the AST.
+	inHandler := false
+	var activeHandler *ast.HandlerNode
+	for i := 1; i < len(ctxAST.HandlerRanges); i++ {
+		r := ctxAST.HandlerRanges[i]
+		if pos.Line+1 >= r.Start.Line && pos.Line+1 <= r.End.Line {
+			inHandler = true
+			activeHandler = &ctxAST.HandlerNodes[i]
+			break
+		}
+	}
+
+	// Provide autocompletion logic when the cursor is in a workflow/handler or at an empty line.
+	if inWorkflow || inHandler || strings.TrimSpace(prefix) == "" {
 		if strings.HasSuffix(prefix, ".") {
 			// If the cursor immediately follows a dot separator, extract the namespace and suggest matching steps.
 			lastWord := getLastWord(prefix)
@@ -109,7 +153,7 @@ func getCompletionItems(source string, pos protocol.Position, registry *models.R
 				}
 			}
 		} else {
-			// If the cursor does not follow a dot, suggest all top-level namespaces derived from the registered steps.
+			// Suggest namespaces from registry
 			namespaces := make(map[string]bool)
 			for cap := range registry.Steps {
 				parts := strings.Split(cap, ".")
@@ -123,6 +167,80 @@ func getCompletionItems(source string, pos protocol.Position, registry *models.R
 					Kind:   protocol.CompletionItemKindModule,
 					Detail: "Namespace",
 				})
+			}
+
+			// Suggest imported aliases / namespaces (e.g. io)
+			for idx := 1; idx < len(ctxAST.ImportNodes); idx++ {
+				imp := ctxAST.ImportNodes[idx]
+				alias := ctxAST.GetString(imp.AliasRef)
+				if alias == "" {
+					path := strings.Trim(ctxAST.GetString(imp.PathRef), `"'`)
+					parts := strings.Split(path, "/")
+					if len(parts) > 0 {
+						alias = parts[len(parts)-1]
+					}
+				}
+				if alias != "" {
+					items = append(items, protocol.CompletionItem{
+						Label:  alias,
+						Kind:   protocol.CompletionItemKindModule,
+						Detail: "Imported Namespace",
+					})
+				}
+			}
+
+			// Suggest steps defined/created in the same file .he
+			for idx := 1; idx < len(ctxAST.StepBindingNodes); idx++ {
+				sb := ctxAST.StepBindingNodes[idx]
+				stepName := ctxAST.GetString(sb.NameRef)
+				if stepName != "" {
+					items = append(items, protocol.CompletionItem{
+						Label:  stepName,
+						Kind:   protocol.CompletionItemKindFunction,
+						Detail: "Local Step Binding",
+					})
+				}
+			}
+
+			// Suggest variables/assignments created inside same workflow
+			if activeWorkflow != nil {
+				for sIdx := activeWorkflow.StatementRefsStart; sIdx < activeWorkflow.StatementRefsEnd; sIdx++ {
+					stmtRef := ctxAST.StatementRefs[sIdx]
+					if stmtRef == ast.NilNode {
+						continue
+					}
+					stmt := ctxAST.PipelineStatementNodes[stmtRef]
+					assignName := ctxAST.GetString(stmt.AssignmentRef)
+					if assignName != "" {
+						items = append(items, protocol.CompletionItem{
+							Label:  assignName,
+							Kind:   protocol.CompletionItemKindVariable,
+							Detail: "Workflow Variable",
+						})
+					}
+				}
+			}
+
+			if activeHandler != nil {
+				for sIdx := activeHandler.HandlerStatementRefsStart; sIdx < activeHandler.HandlerStatementRefsEnd; sIdx++ {
+					hsRef := ctxAST.HandlerStatementRefs[sIdx]
+					if hsRef == ast.NilNode {
+						continue
+					}
+					hs := ctxAST.HandlerStatementNodes[hsRef]
+					if hs.StmtRef == ast.NilNode {
+						continue
+					}
+					stmt := ctxAST.PipelineStatementNodes[hs.StmtRef]
+					assignName := ctxAST.GetString(stmt.AssignmentRef)
+					if assignName != "" {
+						items = append(items, protocol.CompletionItem{
+							Label:  assignName,
+							Kind:   protocol.CompletionItemKindVariable,
+							Detail: "Handler Variable",
+						})
+					}
+				}
 			}
 		}
 	}
