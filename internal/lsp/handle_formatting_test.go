@@ -439,3 +439,192 @@ workflow hello_world {
 		})
 	}
 }
+
+func TestFormatterComments(t *testing.T) {
+	tests := []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{
+			name: "Convert single line comment above step to block comment",
+			before: `import "std/io" io
+
+// Description of step print
+step test = io.print {
+  config: "teste"
+}
+`,
+			after: `import "std/io" io
+
+/**
+ * Description of step print
+ */
+step test = io.print {
+  config: "teste"
+}
+`,
+		},
+		{
+			name: "Convert multiple single line comments above workflow to block comment",
+			before: `// Line one of description
+// Line two of description
+workflow hello_world {
+  []
+    | io.print
+}
+`,
+			after: `/**
+ * Line one of description
+ * Line two of description
+ */
+workflow hello_world {
+  []
+    | io.print
+}
+`,
+		},
+		{
+			name: "Keep and format existing block comment above resource",
+			before: `/*
+ * Description of Kafka broker
+ */
+resource kafka = kafka.broker {
+  bootstrap_servers: "localhost:9092"
+}
+`,
+			after: `/**
+ * Description of Kafka broker
+ */
+resource kafka = kafka.broker {
+  bootstrap_servers: "localhost:9092"
+}
+`,
+		},
+		{
+			name: "Fix incomplete block comment above workflow",
+			before: `/**
+ * Workflow hello_world
+
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
+			after: `/**
+ * Workflow hello_world
+ */
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
+		},
+		{
+			name: "Fix block comment without asterisks on internal lines",
+			before: `/**
+ Workflow hello_world
+ */
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
+			after: `/**
+ * Workflow hello_world
+ */
+workflow hello_world {
+  test
+  > test2
+
+  test2
+    | io.print
+
+  []
+    | io.print
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := ast.AcquireASTContext()
+			defer ast.ReleaseASTContext(ctx)
+
+			l := lexer.New(tt.before)
+			p := parser.New(l, ctx)
+			prog := p.Parse()
+
+			f := NewFormatter(ctx)
+			f.Source = tt.before
+			formatted := f.Format(prog)
+			assert.Equal(t, tt.after, formatted, "failed test: %s", tt.name)
+		})
+	}
+}
+
+func TestHandleFormattingWithComments(t *testing.T) {
+	ctx := context.Background()
+	testURI := protocol.DocumentURI("file:///test.he")
+
+	setupFiles := func(m *sync.Map) {
+		m.Store(testURI, `// Hello comment
+step test = io.print
+`)
+	}
+
+	files := &sync.Map{}
+	setupFiles(files)
+
+	params := protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{
+			URI: testURI,
+		},
+	}
+
+	call, _ := jsonrpc2.NewCall(jsonrpc2.NewNumberID(1), "textDocument/formatting", params)
+
+	var capturedResult interface{}
+	replier := func(ctx context.Context, result interface{}, err error) error {
+		capturedResult = result
+		return nil
+	}
+
+	err := handleFormatting(ctx, replier, call, files)
+	assert.NoError(t, err)
+
+	expectedEdits := []protocol.TextEdit{
+		{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 100000, Character: 0},
+			},
+			NewText: `/**
+ * Hello comment
+ */
+step test = io.print
+`,
+		},
+	}
+
+	assert.Equal(t, expectedEdits, capturedResult)
+}

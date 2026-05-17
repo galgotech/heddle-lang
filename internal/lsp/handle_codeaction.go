@@ -106,6 +106,7 @@ func organizeImports(ctx context.Context, uri protocol.DocumentURI, files *sync.
 	prog := p.Parse()
 
 	f := NewFormatter(astCtx)
+	f.Source = text.(string)
 	formatted := f.Format(prog)
 
 	// Return a single full-document replacement edit targeting the entire file range (Line 0 to 100,000).

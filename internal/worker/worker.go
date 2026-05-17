@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
@@ -31,6 +32,7 @@ type Worker struct {
 	PluginServer         *PluginServer
 	updateCapabilitiesCh chan func(context.Context)
 	Ready                chan struct{}
+	readyOnce            sync.Once
 	Registry             *locality.DataLocalityRegistry
 }
 
@@ -134,8 +136,9 @@ func (w *Worker) startTaskLoop(ctx context.Context) error {
 	}
 
 	if w.Ready != nil {
-		close(w.Ready)
-		w.Ready = nil // Ensure we don't close it twice if the loop restarts
+		w.readyOnce.Do(func() {
+			close(w.Ready)
+		})
 	}
 
 	logger.L().Info("Worker task loop started", zap.String("id", w.ID))

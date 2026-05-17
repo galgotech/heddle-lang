@@ -32,7 +32,7 @@ func (n *Navigator) DefinitionAt(program ast.ProgramNode, line, col uint32) *ast
 	for i := program.ResourceRefsStart; i < program.ResourceRefsEnd; i++ {
 		ref := n.ctx.ResourceRefs[i]
 		if n.ctx.GetString(n.ctx.ResourceNodes[ref].NameRef) == name {
-			r := n.ctx.ResourceRanges[ref]
+			r := n.ctx.ResourceNameRanges[ref]
 			return &r
 		}
 	}
@@ -40,7 +40,7 @@ func (n *Navigator) DefinitionAt(program ast.ProgramNode, line, col uint32) *ast
 	for i := program.StepRefsStart; i < program.StepRefsEnd; i++ {
 		ref := n.ctx.StepRefs[i]
 		if n.ctx.GetString(n.ctx.StepBindingNodes[ref].NameRef) == name {
-			r := n.ctx.StepRanges[ref]
+			r := n.ctx.StepNameRanges[ref]
 			return &r
 		}
 	}
@@ -48,7 +48,7 @@ func (n *Navigator) DefinitionAt(program ast.ProgramNode, line, col uint32) *ast
 	for i := program.HandlerRefsStart; i < program.HandlerRefsEnd; i++ {
 		ref := n.ctx.HandlerRefs[i]
 		if n.ctx.GetString(n.ctx.HandlerNodes[ref].NameRef) == name {
-			r := n.ctx.HandlerRanges[ref]
+			r := n.ctx.HandlerNameRanges[ref]
 			return &r
 		}
 	}
@@ -56,7 +56,7 @@ func (n *Navigator) DefinitionAt(program ast.ProgramNode, line, col uint32) *ast
 	for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
 		ref := n.ctx.WorkflowRefs[i]
 		if n.ctx.GetString(n.ctx.WorkflowNodes[ref].NameRef) == name {
-			r := n.ctx.WorkflowRanges[ref]
+			r := n.ctx.WorkflowNameRanges[ref]
 			return &r
 		}
 	}
@@ -152,7 +152,7 @@ func (n *Navigator) SymbolAt(program ast.ProgramNode, line, col uint32) (string,
 	// Check Resources
 	for i := program.ResourceRefsStart; i < program.ResourceRefsEnd; i++ {
 		ref := n.ctx.ResourceRefs[i]
-		r := n.ctx.ResourceRanges[ref]
+		r := n.ctx.ResourceNameRanges[ref]
 		if n.inRange(r, line, col) {
 			node := n.ctx.ResourceNodes[ref]
 			return n.ctx.GetString(node.NameRef), "resource"
@@ -162,7 +162,7 @@ func (n *Navigator) SymbolAt(program ast.ProgramNode, line, col uint32) (string,
 	// Check Steps
 	for i := program.StepRefsStart; i < program.StepRefsEnd; i++ {
 		ref := n.ctx.StepRefs[i]
-		r := n.ctx.StepRanges[ref]
+		r := n.ctx.StepNameRanges[ref]
 		if n.inRange(r, line, col) {
 			node := n.ctx.StepBindingNodes[ref]
 			return n.ctx.GetString(node.NameRef), "step"
@@ -172,10 +172,20 @@ func (n *Navigator) SymbolAt(program ast.ProgramNode, line, col uint32) (string,
 	// Check Workflows
 	for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
 		ref := n.ctx.WorkflowRefs[i]
-		r := n.ctx.WorkflowRanges[ref]
+		r := n.ctx.WorkflowNameRanges[ref]
 		if n.inRange(r, line, col) {
 			node := n.ctx.WorkflowNodes[ref]
 			return n.ctx.GetString(node.NameRef), "workflow"
+		}
+	}
+
+	// Check Handlers
+	for i := program.HandlerRefsStart; i < program.HandlerRefsEnd; i++ {
+		ref := n.ctx.HandlerRefs[i]
+		r := n.ctx.HandlerNameRanges[ref]
+		if n.inRange(r, line, col) {
+			node := n.ctx.HandlerNodes[ref]
+			return n.ctx.GetString(node.NameRef), "handler"
 		}
 	}
 
@@ -260,7 +270,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 		ref := n.ctx.ResourceRefs[i]
 		node := n.ctx.ResourceNodes[ref]
 		if n.ctx.GetString(node.NameRef) == symbolName {
-			ranges = append(ranges, n.ctx.ResourceRanges[ref])
+			ranges = append(ranges, n.ctx.ResourceNameRanges[ref])
 		}
 	}
 	// Steps
@@ -268,7 +278,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 		ref := n.ctx.StepRefs[i]
 		node := n.ctx.StepBindingNodes[ref]
 		if n.ctx.GetString(node.NameRef) == symbolName {
-			ranges = append(ranges, n.ctx.StepRanges[ref])
+			ranges = append(ranges, n.ctx.StepNameRanges[ref])
 		}
 	}
 	// Handlers
@@ -276,7 +286,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 		ref := n.ctx.HandlerRefs[i]
 		node := n.ctx.HandlerNodes[ref]
 		if n.ctx.GetString(node.NameRef) == symbolName {
-			ranges = append(ranges, n.ctx.HandlerRanges[ref])
+			ranges = append(ranges, n.ctx.HandlerNameRanges[ref])
 		}
 	}
 	// Workflows
@@ -284,7 +294,7 @@ func (n *Navigator) FindAllOccurrences(program ast.ProgramNode, symbolName strin
 		ref := n.ctx.WorkflowRefs[i]
 		node := n.ctx.WorkflowNodes[ref]
 		if n.ctx.GetString(node.NameRef) == symbolName {
-			ranges = append(ranges, n.ctx.WorkflowRanges[ref])
+			ranges = append(ranges, n.ctx.WorkflowNameRanges[ref])
 		}
 	}
 	// Imports

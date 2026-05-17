@@ -101,4 +101,64 @@ workflow hello_world {
 	if edits[0].Range.Start.Line != 3 {
 		t.Errorf("expected edit at line 3, got %+v", edits[0].Range)
 	}
+
+	// Test Case 3: Precise step name rename in step definition block
+	contentStep := `import "std/io" io
+
+step test = <broker=kafka> io.test {
+  config: "teste"
+}
+
+workflow hello_world {
+  test
+}`
+	uriStep := protocol.DocumentURI("file:///step.he")
+	s.files.Store(uriStep, contentStep)
+
+	// Rename the step 'test' to 'test3'
+	// Cursor is at "test" on line 3 (0-indexed line 2), column 6 (0-indexed col 5)
+	params = protocol.RenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uriStep},
+			Position:     protocol.Position{Line: 2, Character: 5},
+		},
+		NewName: "test3",
+	}
+	result = protocol.WorkspaceEdit{} // Clear result
+	req, _ = jsonrpc2.NewCall(jsonrpc2.NewNumberID(3), protocol.MethodTextDocumentRename, params)
+	err = handleRename(ctx, reply, req, &s.files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edits = result.Changes[uriStep]
+	if len(edits) != 2 {
+		t.Fatalf("expected 2 edits (one for definition name, one for usage in workflow), got %d, result: %+v", len(edits), result)
+	}
+
+	// Verify that the definition edit only replaces the identifier "test", not the whole block!
+	// "test" is on line 2 (0-indexed), col 5 to 9.
+	var foundDefEdit bool
+	var foundUsageEdit bool
+	for _, edit := range edits {
+		if edit.Range.Start.Line == 2 {
+			foundDefEdit = true
+			if edit.Range.Start.Character != 5 || edit.Range.End.Character != 9 {
+				t.Errorf("expected definition name range to be exactly line 2 col 5 to 9, got start %d end %d", edit.Range.Start.Character, edit.Range.End.Character)
+			}
+		}
+		if edit.Range.Start.Line == 7 {
+			foundUsageEdit = true
+			if edit.Range.Start.Character != 2 || edit.Range.End.Character != 6 {
+				t.Errorf("expected workflow usage range to be exactly line 7 col 2 to 6, got start %d end %d", edit.Range.Start.Character, edit.Range.End.Character)
+			}
+		}
+	}
+
+	if !foundDefEdit {
+		t.Errorf("did not find definition edit on line 2")
+	}
+	if !foundUsageEdit {
+		t.Errorf("did not find usage edit on line 7")
+	}
 }

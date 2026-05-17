@@ -56,14 +56,18 @@ type ASTContext struct {
 
 	// Parallel slices for source location tracking.
 	// These map 1:1 to their corresponding node slices.
-	ResourceRanges   []Range
-	StepRanges       []Range
-	HandlerRanges    []Range
-	WorkflowRanges   []Range
-	CallRanges       []Range
-	DictRanges       []Range
-	ImportRanges     []Range
-	AssignmentRanges []Range
+	ResourceRanges     []Range
+	ResourceNameRanges []Range
+	StepRanges         []Range
+	StepNameRanges     []Range
+	HandlerRanges      []Range
+	HandlerNameRanges  []Range
+	WorkflowRanges     []Range
+	WorkflowNameRanges []Range
+	CallRanges         []Range
+	DictRanges         []Range
+	ImportRanges       []Range
+	AssignmentRanges   []Range
 }
 
 // Reset clears the context for reuse. It truncates slices to their initial state
@@ -109,9 +113,13 @@ func (ctx *ASTContext) Reset() {
 
 	// Reset source range slices, preserving NilNode alignment
 	ctx.ResourceRanges = ctx.ResourceRanges[:1]
+	ctx.ResourceNameRanges = ctx.ResourceNameRanges[:1]
 	ctx.StepRanges = ctx.StepRanges[:1]
+	ctx.StepNameRanges = ctx.StepNameRanges[:1]
 	ctx.HandlerRanges = ctx.HandlerRanges[:1]
+	ctx.HandlerNameRanges = ctx.HandlerNameRanges[:1]
 	ctx.WorkflowRanges = ctx.WorkflowRanges[:1]
+	ctx.WorkflowNameRanges = ctx.WorkflowNameRanges[:1]
 	ctx.CallRanges = ctx.CallRanges[:1]
 	ctx.DictRanges = ctx.DictRanges[:1]
 	ctx.ImportRanges = ctx.ImportRanges[:1]
@@ -153,6 +161,7 @@ func (ctx *ASTContext) AddResourceNode(n ResourceBindingNode) NodeRef {
 	idx := uint32(len(ctx.ResourceNodes))
 	ctx.ResourceNodes = append(ctx.ResourceNodes, n)
 	ctx.ResourceRanges = append(ctx.ResourceRanges, Range{})
+	ctx.ResourceNameRanges = append(ctx.ResourceNameRanges, Range{})
 	return NodeRef(idx)
 }
 
@@ -161,17 +170,28 @@ func (ctx *ASTContext) SetResourceRange(ref NodeRef, r Range) {
 	ctx.ResourceRanges[ref] = r
 }
 
+// SetResourceNameRange updates the source location metadata for a resource name identifier.
+func (ctx *ASTContext) SetResourceNameRange(ref NodeRef, r Range) {
+	ctx.ResourceNameRanges[ref] = r
+}
+
 // AddStepBindingNode appends a StepBindingNode and allocates its source range.
 func (ctx *ASTContext) AddStepBindingNode(n StepBindingNode) NodeRef {
 	idx := uint32(len(ctx.StepBindingNodes))
 	ctx.StepBindingNodes = append(ctx.StepBindingNodes, n)
 	ctx.StepRanges = append(ctx.StepRanges, Range{})
+	ctx.StepNameRanges = append(ctx.StepNameRanges, Range{})
 	return NodeRef(idx)
 }
 
 // SetStepRange updates the source location metadata for a step binding.
 func (ctx *ASTContext) SetStepRange(ref NodeRef, r Range) {
 	ctx.StepRanges[ref] = r
+}
+
+// SetStepNameRange updates the source location metadata for a step binding name identifier.
+func (ctx *ASTContext) SetStepNameRange(ref NodeRef, r Range) {
+	ctx.StepNameRanges[ref] = r
 }
 
 // AddFunctionRefNode appends a FunctionRefNode.
@@ -200,12 +220,18 @@ func (ctx *ASTContext) AddHandlerNode(n HandlerNode) NodeRef {
 	idx := uint32(len(ctx.HandlerNodes))
 	ctx.HandlerNodes = append(ctx.HandlerNodes, n)
 	ctx.HandlerRanges = append(ctx.HandlerRanges, Range{})
+	ctx.HandlerNameRanges = append(ctx.HandlerNameRanges, Range{})
 	return NodeRef(idx)
 }
 
 // SetHandlerRange updates the source location metadata for a handler.
 func (ctx *ASTContext) SetHandlerRange(ref NodeRef, r Range) {
 	ctx.HandlerRanges[ref] = r
+}
+
+// SetHandlerNameRange updates the source location metadata for a handler name identifier.
+func (ctx *ASTContext) SetHandlerNameRange(ref NodeRef, r Range) {
+	ctx.HandlerNameRanges[ref] = r
 }
 
 // AddHandlerStatementNode appends a HandlerStatementNode.
@@ -220,12 +246,18 @@ func (ctx *ASTContext) AddWorkflowNode(n WorkflowNode) NodeRef {
 	idx := uint32(len(ctx.WorkflowNodes))
 	ctx.WorkflowNodes = append(ctx.WorkflowNodes, n)
 	ctx.WorkflowRanges = append(ctx.WorkflowRanges, Range{})
+	ctx.WorkflowNameRanges = append(ctx.WorkflowNameRanges, Range{})
 	return NodeRef(idx)
 }
 
 // SetWorkflowRange updates the source location metadata for a workflow.
 func (ctx *ASTContext) SetWorkflowRange(ref NodeRef, r Range) {
 	ctx.WorkflowRanges[ref] = r
+}
+
+// SetWorkflowNameRange updates the source location metadata for a workflow name identifier.
+func (ctx *ASTContext) SetWorkflowNameRange(ref NodeRef, r Range) {
+	ctx.WorkflowNameRanges[ref] = r
 }
 
 // AddPipelineStatementNode appends a PipelineStatementNode.
@@ -415,14 +447,18 @@ var astContextPool = sync.Pool{
 			CommentRefs:          make([]NodeRef, 0, 16),
 
 			// Initialize range slices with an empty element for NilNode alignment.
-			ResourceRanges:   []Range{{}},
-			StepRanges:       []Range{{}},
-			HandlerRanges:    []Range{{}},
-			WorkflowRanges:   []Range{{}},
-			CallRanges:       []Range{{}},
-			DictRanges:       []Range{{}},
-			ImportRanges:     []Range{{}},
-			AssignmentRanges: []Range{{}},
+			ResourceRanges:     []Range{{}},
+			ResourceNameRanges: []Range{{}},
+			StepRanges:         []Range{{}},
+			StepNameRanges:     []Range{{}},
+			HandlerRanges:      []Range{{}},
+			HandlerNameRanges:  []Range{{}},
+			WorkflowRanges:     []Range{{}},
+			WorkflowNameRanges: []Range{{}},
+			CallRanges:         []Range{{}},
+			DictRanges:         []Range{{}},
+			ImportRanges:       []Range{{}},
+			AssignmentRanges:   []Range{{}},
 		}
 	},
 }

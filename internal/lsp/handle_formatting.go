@@ -35,6 +35,7 @@ func handleFormatting(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.
 	prog := p.Parse()
 
 	f := NewFormatter(astCtx)
+	f.Source = text.(string)
 	formatted := f.Format(prog)
 
 	return reply(ctx, []protocol.TextEdit{
@@ -50,20 +51,215 @@ func handleFormatting(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.
 
 // Formatter handles pretty-printing of Heddle source code.
 type Formatter struct {
-	ctx *ast.ASTContext
+	ctx    *ast.ASTContext
+	Source string
+}
+
+func extractCommentContent(lines []string) []string {
+	var content []string
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "//") {
+			lineText := strings.TrimPrefix(trimmed, "//")
+			if strings.HasPrefix(lineText, " ") {
+				lineText = lineText[1:]
+			}
+			content = append(content, lineText)
+			continue
+		}
+
+		// Handle block comment line
+		if strings.Contains(trimmed, "/*") {
+			idx := strings.Index(trimmed, "/*")
+			if strings.HasPrefix(trimmed[idx:], "/**") {
+				trimmed = trimmed[:idx] + trimmed[idx+3:]
+			} else {
+				trimmed = trimmed[:idx] + trimmed[idx+2:]
+			}
+			trimmed = strings.TrimSpace(trimmed)
+		}
+		if strings.Contains(trimmed, "*/") {
+			idx := strings.Index(trimmed, "*/")
+			trimmed = trimmed[:idx] + trimmed[idx+2:]
+			trimmed = strings.TrimSpace(trimmed)
+		}
+		if strings.HasPrefix(trimmed, "*") {
+			trimmed = trimmed[1:]
+			if strings.HasPrefix(trimmed, " ") {
+				trimmed = trimmed[1:]
+			}
+		}
+		if trimmed != "" || len(content) > 0 {
+			content = append(content, trimmed)
+		}
+	}
+	for len(content) > 0 && content[len(content)-1] == "" {
+		content = content[:len(content)-1]
+	}
+	return content
+}
+
+func formatAsStandardBlockComment(content []string) string {
+	if len(content) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("/**\n")
+	for _, line := range content {
+		sb.WriteString(" * ")
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	sb.WriteString(" */")
+	return sb.String()
+}
+
+func (f *Formatter) getCommentsAbove(line uint32) (string, string) {
+	if f.Source == "" || line <= 1 {
+		return "", ""
+	}
+	lines := strings.Split(f.Source, "\n")
+	if int(line) > len(lines) {
+		return "", ""
+	}
+
+	var collected []string
+	inBlockComment := false
+
+	for i := int(line) - 2; i >= 0; i-- {
+		l := lines[i]
+		trimmed := strings.TrimSpace(l)
+
+		if inBlockComment {
+			collected = append([]string{l}, collected...)
+			if strings.Contains(trimmed, "/*") {
+				inBlockComment = false
+				break
+			}
+			continue
+		}
+
+		if trimmed == "" {
+			if len(collected) > 0 {
+				hasBlockComment := false
+				for _, col := range collected {
+					colTrim := strings.TrimSpace(col)
+					if strings.HasPrefix(colTrim, "*") || strings.Contains(colTrim, "/*") || strings.Contains(colTrim, "*/") {
+						hasBlockComment = true
+						break
+					}
+				}
+				if hasBlockComment {
+					collected = append([]string{l}, collected...)
+					continue
+				}
+				break
+			}
+			continue
+		}
+
+		isComment := false
+		if strings.HasPrefix(trimmed, "//") {
+			isComment = true
+		} else if strings.HasPrefix(trimmed, "*") {
+			isComment = true
+		} else if strings.Contains(trimmed, "/*") {
+			isComment = true
+		} else if strings.Contains(trimmed, "*/") {
+			isComment = true
+		}
+
+		if isComment {
+			collected = append([]string{l}, collected...)
+			if strings.Contains(trimmed, "*/") {
+				inBlockComment = true
+				if strings.Contains(trimmed, "/*") {
+					inBlockComment = false
+					break
+				}
+			} else if strings.Contains(trimmed, "/*") {
+				break
+			}
+			continue
+		}
+
+		break
+	}
+
+	if len(collected) == 0 {
+		return "", ""
+	}
+
+	var originalBuilder strings.Builder
+	for i, l := range collected {
+		originalBuilder.WriteString(l)
+		if i < len(collected)-1 {
+			originalBuilder.WriteString("\n")
+		}
+	}
+	originalStr := originalBuilder.String()
+
+	content := extractCommentContent(collected)
+	return formatAsStandardBlockComment(content), originalStr
 }
 
 // Format takes a ProgramNode and returns a formatted string.
 func (f *Formatter) Format(program ast.ProgramNode) string {
 	var sb strings.Builder
+	usedComments := make(map[string]bool)
+
+	// Pre-extract comments to populate usedComments before writing 0. Comments
+	type commentInfo struct {
+		formatted string
+		original  string
+	}
+	resourceComments := make(map[uint32]commentInfo)
+	if program.ResourceRefsEnd > program.ResourceRefsStart {
+		for i := program.ResourceRefsStart; i < program.ResourceRefsEnd; i++ {
+			ref := f.ctx.ResourceRefs[i]
+			rRange := f.ctx.ResourceRanges[ref]
+			if comment, original := f.getCommentsAbove(rRange.Start.Line); comment != "" {
+				resourceComments[i] = commentInfo{formatted: comment, original: original}
+				usedComments[strings.TrimSpace(original)] = true
+			}
+		}
+	}
+
+	stepComments := make(map[uint32]commentInfo)
+	if program.StepRefsEnd > program.StepRefsStart {
+		for i := program.StepRefsStart; i < program.StepRefsEnd; i++ {
+			ref := f.ctx.StepRefs[i]
+			sRange := f.ctx.StepRanges[ref]
+			if comment, original := f.getCommentsAbove(sRange.Start.Line); comment != "" {
+				stepComments[i] = commentInfo{formatted: comment, original: original}
+				usedComments[strings.TrimSpace(original)] = true
+			}
+		}
+	}
+
+	workflowComments := make(map[uint32]commentInfo)
+	if program.WorkflowRefsEnd > program.WorkflowRefsStart {
+		for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
+			ref := f.ctx.WorkflowRefs[i]
+			wRange := f.ctx.WorkflowRanges[ref]
+			if comment, original := f.getCommentsAbove(wRange.Start.Line); comment != "" {
+				workflowComments[i] = commentInfo{formatted: comment, original: original}
+				usedComments[strings.TrimSpace(original)] = true
+			}
+		}
+	}
 
 	// 0. Comments
 	if program.CommentRefsEnd > program.CommentRefsStart {
 		for i := program.CommentRefsStart; i < program.CommentRefsEnd; i++ {
 			ref := f.ctx.CommentRefs[i]
 			node := f.ctx.CommentNodes[ref]
-			sb.WriteString(f.ctx.GetString(node.ValueRef))
-			sb.WriteString("\n\n")
+			commentVal := f.ctx.GetString(node.ValueRef)
+			trimmedVal := strings.TrimSpace(commentVal)
+			if !usedComments[trimmedVal] {
+				sb.WriteString(commentVal)
+				sb.WriteString("\n\n")
+			}
 		}
 	}
 
@@ -86,6 +282,10 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 		for i := program.ResourceRefsStart; i < program.ResourceRefsEnd; i++ {
 			ref := f.ctx.ResourceRefs[i]
 			node := f.ctx.ResourceNodes[ref]
+			if info, exists := resourceComments[i]; exists {
+				sb.WriteString(info.formatted)
+				sb.WriteString("\n")
+			}
 			fmt.Fprintf(&sb, "resource %s = ", f.ctx.GetString(node.NameRef))
 			f.writeFunctionRef(&sb, node.FunctionRef, 0)
 			sb.WriteString("\n\n")
@@ -97,6 +297,10 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 		for i := program.StepRefsStart; i < program.StepRefsEnd; i++ {
 			ref := f.ctx.StepRefs[i]
 			node := f.ctx.StepBindingNodes[ref]
+			if info, exists := stepComments[i]; exists {
+				sb.WriteString(info.formatted)
+				sb.WriteString("\n")
+			}
 			fmt.Fprintf(&sb, "step %s = ", f.ctx.GetString(node.NameRef))
 			f.writeFunctionRef(&sb, node.FunctionRef, 0)
 			sb.WriteString("\n\n")
@@ -130,6 +334,10 @@ func (f *Formatter) Format(program ast.ProgramNode) string {
 		for i := program.WorkflowRefsStart; i < program.WorkflowRefsEnd; i++ {
 			ref := f.ctx.WorkflowRefs[i]
 			node := f.ctx.WorkflowNodes[ref]
+			if info, exists := workflowComments[i]; exists {
+				sb.WriteString(info.formatted)
+				sb.WriteString("\n")
+			}
 			fmt.Fprintf(&sb, "workflow %s ", f.ctx.GetString(node.NameRef))
 			if node.TrapRef.Start != node.TrapRef.End {
 				fmt.Fprintf(&sb, "? %s ", f.ctx.GetString(node.TrapRef))

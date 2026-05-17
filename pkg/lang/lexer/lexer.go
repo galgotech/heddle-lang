@@ -3,6 +3,10 @@
 // indentation-based scoping and embedded PRQL expressions.
 package lexer
 
+import (
+	"strings"
+)
+
 // isLetter returns true if the character is an ASCII letter or underscore.
 func isLetter(ch byte) bool {
 	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch == '-'
@@ -315,6 +319,16 @@ func (l *Lexer) readBlockComment() string {
 		}
 
 		if l.ch == '\n' || l.ch == '\r' {
+			if l.readPosition < len(l.input) {
+				rem := l.input[l.readPosition:]
+				if strings.HasPrefix(rem, "workflow ") ||
+					strings.HasPrefix(rem, "step ") ||
+					strings.HasPrefix(rem, "resource ") ||
+					strings.HasPrefix(rem, "import ") ||
+					strings.HasPrefix(rem, "handler ") {
+					break
+				}
+			}
 			l.line++
 			l.column = 1
 		}

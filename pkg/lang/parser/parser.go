@@ -207,6 +207,10 @@ func (p *Parser) parseResource() ast.NodeRef {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
+	nameRange := ast.Range{
+		Start: p.getPos(),
+		End:   p.getEndPos(),
+	}
 	if !p.expectPeek(lexer.ASSIGN) {
 		p.nextToken()
 		return 0
@@ -215,6 +219,7 @@ func (p *Parser) parseResource() ast.NodeRef {
 	node.FunctionRef = p.parseFunctionRef()
 	ref := p.ctx.AddResourceNode(node)
 	p.ctx.SetResourceRange(ref, p.getRange(start))
+	p.ctx.SetResourceNameRange(ref, nameRange)
 	return ref
 }
 
@@ -227,6 +232,10 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
+	nameRange := ast.Range{
+		Start: p.getPos(),
+		End:   p.getEndPos(),
+	}
 	if !p.expectPeek(lexer.ASSIGN) {
 		p.nextToken()
 		return 0
@@ -235,6 +244,7 @@ func (p *Parser) parseStepBinding() ast.NodeRef {
 	node.FunctionRef = p.parseFunctionRef()
 	ref := p.ctx.AddStepBindingNode(node)
 	p.ctx.SetStepRange(ref, p.getRange(start))
+	p.ctx.SetStepNameRange(ref, nameRange)
 	return ref
 }
 
@@ -334,6 +344,10 @@ func (p *Parser) parseHandler() ast.NodeRef {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
+	nameRange := ast.Range{
+		Start: p.getPos(),
+		End:   p.getEndPos(),
+	}
 	if p.peekTokenIs(lexer.QUESTION) {
 		p.nextToken() // Move to '?'
 		p.curError("handlers cannot have error traps")
@@ -367,6 +381,7 @@ func (p *Parser) parseHandler() ast.NodeRef {
 	node.HandlerStatementRefsEnd = uint32(len(p.ctx.HandlerStatementRefs))
 	ref := p.ctx.AddHandlerNode(node)
 	p.ctx.SetHandlerRange(ref, p.getRange(start))
+	p.ctx.SetHandlerNameRange(ref, nameRange)
 	return ref
 }
 
@@ -447,6 +462,10 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 		return 0
 	}
 	node.NameRef = p.ctx.AddString(p.curToken.Literal)
+	nameRange := ast.Range{
+		Start: p.getPos(),
+		End:   p.getEndPos(),
+	}
 	if p.peekTokenIs(lexer.QUESTION) {
 		p.nextToken() // Skip '?'
 		if p.expectPeek(lexer.IDENTIFIER) {
@@ -474,6 +493,7 @@ func (p *Parser) parseWorkflow() ast.NodeRef {
 	node.StatementRefsEnd = uint32(len(p.ctx.StatementRefs))
 	ref := p.ctx.AddWorkflowNode(node)
 	p.ctx.SetWorkflowRange(ref, p.getRange(start))
+	p.ctx.SetWorkflowNameRange(ref, nameRange)
 	return ref
 }
 
