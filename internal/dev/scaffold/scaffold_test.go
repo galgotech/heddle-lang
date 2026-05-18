@@ -3,6 +3,7 @@ package scaffold
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +71,16 @@ func TestScaffoldService_WorkerAdd_Valid(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(baseDir, "resource", "resource.go")); os.IsNotExist(err) {
 		t.Error("expected resource/resource.go to be created")
+	}
+
+	mainGoBytes, err := os.ReadFile(filepath.Join(baseDir, "cmd", "main.go"))
+	if err != nil {
+		t.Fatalf("failed to read main.go: %v", err)
+	}
+	mainGoStr := string(mainGoBytes)
+	expectedNamespace := `plugin.New("galgotech/test_worker")`
+	if !strings.Contains(mainGoStr, expectedNamespace) {
+		t.Errorf("expected main.go to contain %q, but got:\n%s", expectedNamespace, mainGoStr)
 	}
 }
 

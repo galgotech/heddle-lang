@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("{{.Namespace}}")
+	p := plugin.New("{{.ModName}}")
 
 	if addr := os.Getenv("HEDDLE_WORKER_ADDRESS"); addr != "" {
 		p.WorkerAddress = addr
@@ -20,7 +20,7 @@ func main() {
 	// Register your steps here:
 	p.RegisterStep("print_message", steps.PrintMessage)
 
-	logger.L().Info("Starting worker...", zap.String("namespace", "{{.Namespace}}"))
+	logger.L().Info("Starting worker...", zap.String("namespace", "{{.ModName}}"))
 	if err := p.Start(); err != nil {
 		logger.L().Fatal("Worker failed", zap.Error(err))
 	}
