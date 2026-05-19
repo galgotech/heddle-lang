@@ -13,22 +13,55 @@ import (
 )
 
 type ControlPlaneClient struct {
+	ctx  context.Context
+	addr string
+
 	client flight.Client
+	stream flight.FlightService_DoExchangeClient
 }
 
-func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, source string, workflowName string) (string, error) {
+func (c *ControlPlaneClient) Connect() error {
+	conn, err := grpc.NewClient(c.addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("failed to connect to control plane: %w", err)
+	}
+
+	c.client = flight.NewClientFromConn(conn, nil)
+	c.stream, err = c.client.DoExchange(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start exchange stream: %w", err)
+	}
+
+	return nil
+}
+
+func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, async bool) (string, error) {
 	sub := models.WorkflowSubmission{
 		Source:       source,
 		WorkflowName: workflowName,
 		Strategy:     "recursive",
 	}
+
+	body, err := c.sendAction(c.ctx, models.ActionSubmitWorkflow, sub)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal submission: %w", err)
+	}
+
+	if async {
+		return string(body), nil
+	}
+
+	return string(body), nil
+}
+
+func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, sub models.WorkflowSubmission) (string, error) {
 	body, err := json.Marshal(sub)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal submission: %w", err)
 	}
 
 	res, err := c.client.DoAction(ctx, &flight.Action{
-		Type: models.ActionSubmitWorkflow,
+		Type: actionType,
 		Body: body,
 	})
 	if err != nil {
@@ -44,13 +77,11 @@ func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, source string, 
 	return string(result.Body), nil
 }
 
-func NewControlPlaneClient(addr string) (*ControlPlaneClient, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to control plane: %w", err)
+func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClient, error) {
+	client := &ControlPlaneClient{
+		ctx:  ctx,
+		addr: addr,
 	}
-
-	return &ControlPlaneClient{
-		client: flight.NewClientFromConn(conn, nil),
-	}, nil
+	client.Connect()
+	return client, nil
 }

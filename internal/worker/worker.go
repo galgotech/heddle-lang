@@ -25,7 +25,7 @@ import (
 
 type Worker struct {
 	ID                   string
-	ControlPlane         flight.Client
+	controlPlaneFlight   flight.Client
 	SocketPath           string
 	Capabilities         []string
 	Schemas              map[string]schema.StepSchemas
@@ -46,7 +46,7 @@ func (w *Worker) Start(ctx context.Context) error {
 		Address: "localhost", // Should be actual address
 	}
 	body, _ := json.Marshal(reg)
-	res, err := w.ControlPlane.DoAction(ctx, &flight.Action{
+	res, err := w.controlPlaneFlight.DoAction(ctx, &flight.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
 	})
@@ -115,7 +115,7 @@ func (w *Worker) startHeartbeat(ctx context.Context) {
 				Load:      0, // TODO: Track actual load
 			}
 			body, _ := json.Marshal(hb)
-			_, err := w.ControlPlane.DoAction(ctx, &flight.Action{
+			_, err := w.controlPlaneFlight.DoAction(ctx, &flight.Action{
 				Type: models.ActionHeartbeat,
 				Body: body,
 			})
@@ -130,7 +130,7 @@ func (w *Worker) startHeartbeat(ctx context.Context) {
 
 func (w *Worker) startTaskLoop(ctx context.Context) error {
 	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", w.ID)
-	stream, err := w.ControlPlane.DoExchange(ctx)
+	stream, err := w.controlPlaneFlight.DoExchange(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start exchange stream: %w", err)
 	}
@@ -283,7 +283,7 @@ func (w *Worker) updateCapabilities(ctx context.Context, capabilities []string, 
 			Schemas:      w.Schemas,
 		}
 		body, _ := json.Marshal(update)
-		res, err := w.ControlPlane.DoAction(mctx, &flight.Action{
+		res, err := w.controlPlaneFlight.DoAction(mctx, &flight.Action{
 			Type: models.ActionUpdateCapabilities,
 			Body: body,
 		})
@@ -316,7 +316,7 @@ func NewWorker(cpAddr string, socketPath string) (*Worker, error) {
 
 	return &Worker{
 		ID:                   "worker-" + uuid.New().String()[:8],
-		ControlPlane:         flight.NewClientFromConn(conn, nil),
+		controlPlaneFlight:   flight.NewClientFromConn(conn, nil),
 		SocketPath:           socketPath,
 		updateCapabilitiesCh: make(chan func(context.Context), 100),
 		Ready:                make(chan struct{}),

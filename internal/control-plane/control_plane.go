@@ -1,7 +1,6 @@
 package control_plane
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -35,33 +34,10 @@ import (
 type ControlPlaneServer struct {
 	flight.BaseFlightServer
 	registry *registry.WorkerRegistry
-	queue    *TaskQueue
 
 	mu            sync.Mutex
 	Ready         chan struct{}
 	orchestrators map[orchestrator.Strategy]orchestrator.Orchestrator
-}
-
-func (s *ControlPlaneServer) processQueue() {
-	ctx := context.Background()
-
-	// Dequeue tasks and dispatch them to the appropriate scheduling orchestrator concurrently.
-	for {
-		select {
-		case <-ctx.Done():
-			logger.L().Error("Control plane queue processor stopped", zap.Error(ctx.Err()))
-
-		case task := <-s.queue.Pop():
-			logger.L().Info("Worker orchestrating task", zap.String("task_id", task.ID))
-
-			strategy := orchestrator.Strategy(task.Strategy)
-			orch, ok := s.orchestrators[strategy]
-			if !ok {
-				orch = s.orchestrators[orchestrator.StrategyRecursive]
-			}
-			go orch.OrchestrateTask(ctx, task)
-		}
-	}
 }
 
 // DoAction processes control plane administrative actions sent via unary Flight action requests.
@@ -163,7 +139,12 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			Schemas:        schemas,
 		}
 
-		s.queue.Push(task)
+		strategy := orchestrator.Strategy(task.Strategy)
+		orch, ok := s.orchestrators[strategy]
+		if !ok {
+			orch = s.orchestrators[orchestrator.StrategyRecursive]
+		}
+		go orch.OrchestrateTask(ctx, task)
 
 		logger.L().Info("Workflow compiled and queued", zap.String("task_id", task.ID))
 		return stream.Send(&flight.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
@@ -242,7 +223,6 @@ func (s *ControlPlaneServer) Listen(addr string) error {
 func NewControlPlaneServer(registry *registry.WorkerRegistry) *ControlPlaneServer {
 	s := &ControlPlaneServer{
 		registry: registry,
-		queue:    NewTaskQueue(),
 		Ready:    make(chan struct{}),
 	}
 	s.orchestrators = map[orchestrator.Strategy]orchestrator.Orchestrator{
@@ -250,6 +230,5 @@ func NewControlPlaneServer(registry *registry.WorkerRegistry) *ControlPlaneServe
 		orchestrator.StrategyGraph:       graph.NewGraphOrchestrator(registry),
 		orchestrator.StrategyInteractive: interactive.NewInteractiveOrchestrator(registry),
 	}
-	s.processQueue()
 	return s
 }
