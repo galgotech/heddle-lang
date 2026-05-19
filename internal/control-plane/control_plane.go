@@ -1,6 +1,7 @@
 package control_plane
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -155,7 +156,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if !ok {
 			orch = s.orchestrators[orchestrator.StrategyRecursive]
 		}
-		go orch.OrchestrateTask(ctx, task)
+		go orch.OrchestrateTask(context.WithoutCancel(ctx), task)
 
 		logger.L().Info("Workflow compiled and queued", zap.String("client_id", clientID), zap.String("task_id", task.ID))
 		return stream.Send(&flight.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
