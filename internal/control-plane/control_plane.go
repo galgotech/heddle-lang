@@ -146,6 +146,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			ClientID:       clientID,
 			Program:        program,
 			TargetWorkflow: sub.WorkflowName,
+			Strategy:       sub.Strategy,
 			Schemas:        schemas,
 		}
 

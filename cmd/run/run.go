@@ -96,7 +96,18 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			return fmt.Errorf("failed to get workflow name: %w", err)
 		}
 
-		res, err := client.SubmitWorkflow(string(content), workflowName, true)
+		asyncFlag, _ := cmd.Flags().GetBool("async")
+
+		interactiveFlag, _ := cmd.Flags().GetBool("interactive")
+		interativaFlag, _ := cmd.Flags().GetBool("interativa")
+		isInteractive := interactiveFlag || interativaFlag
+
+		strategy := "recursive"
+		if isInteractive {
+			strategy = "interactive"
+		}
+
+		res, err := client.SubmitWorkflow(string(content), workflowName, strategy, asyncFlag)
 		if err != nil {
 			return fmt.Errorf("submission failed: %w", err)
 		}
@@ -112,8 +123,15 @@ func init() {
 	RunCmd.Flags().String("target", "", "Control Plane address (Required if --mode=remote and absent in config)")
 	RunCmd.Flags().String("workflow", "", "Specific workflow name to execute")
 
+	RunCmd.Flags().BoolP("async", "a", false, "Asynchronous execution (releases terminal)")
+	RunCmd.Flags().Bool("assincrona", false, "Asynchronous execution (releases terminal)")
+	RunCmd.Flags().BoolP("interactive", "i", false, "Interactive execution (user must confirm each step)")
+	RunCmd.Flags().Bool("interativa", false, "Interactive execution (user must confirm each step)")
+
 	viper.BindPFlag("client.mode", RunCmd.Flags().Lookup("mode"))
 	viper.BindPFlag("client.target", RunCmd.Flags().Lookup("target"))
 	viper.BindPFlag("client.workflow.timeout", RunCmd.Flags().Lookup("timeout"))
 	viper.BindPFlag("client.workflow.name", RunCmd.Flags().Lookup("workflow"))
+	viper.BindPFlag("client.workflow.async", RunCmd.Flags().Lookup("async"))
+	viper.BindPFlag("client.workflow.interactive", RunCmd.Flags().Lookup("interactive"))
 }

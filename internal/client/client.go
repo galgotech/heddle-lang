@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"strings"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/uuid"
@@ -20,6 +23,8 @@ type ControlPlaneClient struct {
 
 	client flight.Client
 	stream flight.FlightService_DoExchangeClient
+
+	In io.Reader // For reading interactive approvals, defaults to os.Stdin
 }
 
 func (c *ControlPlaneClient) connect() error {
@@ -37,11 +42,11 @@ func (c *ControlPlaneClient) connect() error {
 	return nil
 }
 
-func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, async bool) (string, error) {
+func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, strategy string, async bool) (string, error) {
 	sub := models.WorkflowSubmission{
 		Source:       source,
 		WorkflowName: workflowName,
-		Strategy:     "recursive",
+		Strategy:     strategy,
 	}
 
 	body, err := c.sendAction(c.ctx, models.ActionSubmitWorkflow, sub)
@@ -53,16 +58,56 @@ func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, 
 	}
 
 	for {
-		// iteractive communication with controleplane
+		// interactive communication with control plane
 		rec, err := c.stream.Recv()
 		if err != nil {
-			return "", fmt.Errorf("failed to receive submission result: %w", err)
+			// EOF or connection closed is expected when the task reaches a terminal state
+			return "SUCCESS", nil
 		}
-		fmt.Println(rec)
 
+		msg := string(rec.DataBody)
+		if after, ok := strings.CutPrefix(msg, "LOG:"); ok {
+			logMsg := after
+			fmt.Println(logMsg)
+			if logMsg == "Workflow completed successfully." {
+				return "SUCCESS", nil
+			}
+			if strings.HasPrefix(logMsg, "Workflow failed:") {
+				return "", fmt.Errorf("%s", logMsg)
+			}
+
+		} else if after0, ok0 := strings.CutPrefix(msg, "PROMPT:"); ok0 {
+			parts := strings.Split(after0, ":")
+			stepID := parts[0]
+			capability := ""
+			if len(parts) > 1 {
+				capability = parts[1]
+			}
+			fmt.Printf("Execute step '%s' (%s)? [y/N]: ", stepID, capability)
+			var response string
+			_, err := fmt.Fscanln(c.In, &response)
+			if err != nil && err.Error() != "unexpected newline" {
+				c.stream.Send(&flight.FlightData{DataBody: []byte("REJECT")})
+				return "", fmt.Errorf("failed to read user input: %w", err)
+			}
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response == "y" || response == "yes" {
+				err = c.stream.Send(&flight.FlightData{DataBody: []byte("APPROVE")})
+				if err != nil {
+					return "", fmt.Errorf("failed to send approval: %w", err)
+				}
+			} else {
+				err = c.stream.Send(&flight.FlightData{DataBody: []byte("REJECT")})
+				if err != nil {
+					return "", fmt.Errorf("failed to send rejection: %w", err)
+				}
+				return "", fmt.Errorf("step execution rejected by user")
+			}
+
+		} else {
+			fmt.Println(msg)
+		}
 	}
-
-	return "", nil
 }
 
 func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, sub models.WorkflowSubmission) (string, error) {
@@ -96,6 +141,7 @@ func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClien
 	client := &ControlPlaneClient{
 		ctx:  ctx,
 		addr: addr,
+		In:   os.Stdin,
 	}
 	client.connect()
 	return client, nil

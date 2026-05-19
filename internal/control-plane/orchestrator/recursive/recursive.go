@@ -28,6 +28,12 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 	}
 
 	program := task.Program
+	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
+
+	if clientStream == nil {
+		logger.L().Warn("Stream will not be sent to client", zap.String("client_id", task.ClientID))
+	}
+
 	for _, flowID := range program.Workflows {
 		flow := program.Instructions[flowID].(*ir.FlowInstruction)
 
@@ -36,31 +42,48 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 			continue
 		}
 
-		_, ok := o.registry.GetActiveClientStream(task.ClientID)
-		if !ok {
-			logger.L().Error("Active client stream not found", zap.String("client_id", task.ClientID))
-			return
+		if clientStream != nil {
+			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting execution of workflow %s...", flow.Name)})
 		}
 
+		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepRecursive(ctx, task.ID, program, headID, "", task.Schemas); err != nil {
-				logger.L().Error("Task failed", zap.Error(err))
-				return
+			if err := o.executeStepRecursive(ctx, task.ID, program, headID, "", task.Schemas, clientStream); err != nil {
+				runErr = err
+				break
 			}
+		}
+
+		if runErr != nil {
+			logger.L().Error("Task failed", zap.Error(runErr))
+			if clientStream != nil {
+				clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
+			}
+			return
 		}
 	}
 
 	logger.L().Info("Task completed successfully", zap.String("id", task.ID))
+	if clientStream != nil {
+		clientStream.Send(&flight.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
+	}
 }
 
-func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas) error {
+func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas, clientStream flight.FlightService_DoExchangeServer) error {
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
+		if clientStream != nil {
+			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Validation failed for step %s: %v", stepID, err))})
+		}
 		return err
 	}
 
 	step := prog.Instructions[stepID].(*ir.StepInstruction)
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
+
+	if clientStream != nil {
+		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Executing step %s (%s)...", stepID, capability))})
+	}
 
 	// 1. Find worker
 	worker := o.registry.FindWorkerStreamForStep(capability)
@@ -94,20 +117,32 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 	}
 
 	// 5. Wait for result
+	var stepErr error
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		stepErr = ctx.Err()
 	case res := <-resultCh:
 		if res.Status != models.TaskStatusSuccess {
-			return fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
+			stepErr = fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
 		}
 	case <-time.After(30 * time.Second):
-		return fmt.Errorf("step %s timed out", stepID)
+		stepErr = fmt.Errorf("step %s timed out", stepID)
+	}
+
+	if stepErr != nil {
+		if clientStream != nil {
+			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s failed: %v", stepID, stepErr))})
+		}
+		return stepErr
+	}
+
+	if clientStream != nil {
+		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s completed successfully.", stepID))})
 	}
 
 	// 6. Continue to next steps
 	for _, nextID := range step.Next {
-		if err := o.executeStepRecursive(ctx, workflowID, prog, nextID, stepID, schemas); err != nil {
+		if err := o.executeStepRecursive(ctx, workflowID, prog, nextID, stepID, schemas, clientStream); err != nil {
 			return err
 		}
 	}

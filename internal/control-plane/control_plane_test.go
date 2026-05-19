@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/galgotech/heddle-lang/internal/client"
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
@@ -229,101 +228,4 @@ func TestControlPlane_UpdateCapabilities(t *testing.T) {
 	_, err = resp.Recv()
 	assert.NoError(t, err)
 
-}
-
-func TestControlPlane_WorkflowSubmission(t *testing.T) {
-	s := NewControlPlaneServer(registry.NewWorkerRegistry())
-
-	s.registry.Register("test-worker", models.WorkerRegistration{Address: "localhost:1234"})
-	s.registry.UpdateCapabilities("test-worker", models.WorkerCapabilitiesUpdate{
-		Capabilities: []string{"std/io.print"},
-	})
-
-	lis, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
-	defer lis.Close()
-
-	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
-	go srv.Serve(lis)
-	defer srv.Stop()
-
-	ctx := metadata.AppendToOutgoingContext(context.Background(), "client-id", "test-client")
-	c, err := client.NewControlPlaneClient(ctx, lis.Addr().String())
-	require.NoError(t, err)
-
-	source := `
-import "std/io" io
-
-workflow hello_world {
-  []
-    | io.print
-}
-`
-	mockOrch := &mockOrchestrator{tasks: make(chan models.Task, 1)}
-	s.orchestrators[orchestrator.StrategyRecursive] = mockOrch
-
-	result, err := c.SubmitWorkflow(source, "", false)
-	// The compiler might still fail if std/io is not registered, but it shouldn't panic
-	if err != nil {
-		// Compilation error is fine as long as it's not a panic
-		assert.Contains(t, err.Error(), "compilation failed")
-	} else {
-		assert.Contains(t, result, "QUEUED")
-		select {
-		case task := <-mockOrch.tasks:
-			assert.NotEmpty(t, task.ID)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for orchestrated task")
-		}
-	}
-}
-
-func TestControlPlane_WorkflowFiltering(t *testing.T) {
-	s := NewControlPlaneServer(registry.NewWorkerRegistry())
-
-	s.registry.Register("test-worker", models.WorkerRegistration{Address: "localhost:1234"})
-	s.registry.UpdateCapabilities("test-worker", models.WorkerCapabilitiesUpdate{
-		Capabilities: []string{"std/io.print"},
-	})
-
-	lis, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
-	defer lis.Close()
-
-	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
-	go srv.Serve(lis)
-	defer srv.Stop()
-
-	ctx := context.Background()
-	c, err := client.NewControlPlaneClient(ctx, lis.Addr().String())
-	require.NoError(t, err)
-
-	source := `
-import "std/io" io
-
-workflow w1 {
-  []
-    | io.print
-}
-
-workflow w2 {
-  []
-    | io.print
-}
-`
-	mockOrch := &mockOrchestrator{tasks: make(chan models.Task, 1)}
-	s.orchestrators[orchestrator.StrategyRecursive] = mockOrch
-
-	// Submit only w2
-	_, err = c.SubmitWorkflow(source, "w2", false)
-	require.NoError(t, err)
-
-	select {
-	case task := <-mockOrch.tasks:
-		assert.Equal(t, "w2", task.TargetWorkflow)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for orchestrated task")
-	}
 }

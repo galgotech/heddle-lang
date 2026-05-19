@@ -23,6 +23,8 @@ type InteractiveOrchestrator struct {
 
 func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
 	program := task.Program
+	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
+
 	for _, flowID := range program.Workflows {
 		flow := program.Instructions[flowID].(*ir.FlowInstruction)
 
@@ -32,20 +34,38 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 		}
 
 		logger.L().Info("[INTERACTIVE] Starting interactive workflow execution", zap.String("workflow", flow.Name))
+		if clientStream != nil {
+			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Starting interactive execution of workflow %s...", flow.Name))})
+		}
 
+		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepInteractive(ctx, task.ID, program, headID, "", task.Schemas); err != nil {
-				logger.L().Error("[INTERACTIVE] Task failed", zap.Error(err))
-				return
+			if err := o.executeStepInteractive(ctx, task.ID, program, headID, "", task.Schemas, clientStream); err != nil {
+				runErr = err
+				break
 			}
+		}
+
+		if runErr != nil {
+			logger.L().Error("[INTERACTIVE] Task failed", zap.Error(runErr))
+			if clientStream != nil {
+				clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Workflow failed: %v", runErr))})
+			}
+			return
 		}
 	}
 	logger.L().Info("[INTERACTIVE] Task completed successfully", zap.String("id", task.ID))
+	if clientStream != nil {
+		clientStream.Send(&flight.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
+	}
 }
 
-func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas) error {
+func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas, clientStream flight.FlightService_DoExchangeServer) error {
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
+		if clientStream != nil {
+			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Validation failed for step %s: %v", stepID, err))})
+		}
 		return err
 	}
 
@@ -54,12 +74,33 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 
 	logger.L().Info("[INTERACTIVE] Prompting approval for step", zap.String("step_id", stepID), zap.String("capability", capability))
 
-	// Simulate interactive step gate / approval latency
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(10 * time.Millisecond):
+	if clientStream != nil {
+		err := clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("PROMPT:%s:%s", stepID, capability))})
+		if err != nil {
+			return fmt.Errorf("failed to send interactive prompt to client: %w", err)
+		}
+
+		msg, err := clientStream.Recv()
+		if err != nil {
+			return fmt.Errorf("failed to receive interactive response from client: %w", err)
+		}
+
+		if string(msg.DataBody) != "APPROVE" {
+			return fmt.Errorf("step execution rejected by user")
+		}
 		logger.L().Info("[INTERACTIVE] Step approved for execution", zap.String("step_id", stepID))
+	} else {
+		// Simulate interactive step gate / approval latency when clientStream is nil (headless or mock environments)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+			logger.L().Info("[INTERACTIVE] Step approved for execution (headless)", zap.String("step_id", stepID))
+		}
+	}
+
+	if clientStream != nil {
+		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Executing step %s (%s)...", stepID, capability))})
 	}
 
 	// 1. Find worker
@@ -95,20 +136,32 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	}
 
 	// 5. Wait for result
+	var stepErr error
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		stepErr = ctx.Err()
 	case res := <-resultCh:
 		if res.Status != models.TaskStatusSuccess {
-			return fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
+			stepErr = fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
 		}
 	case <-time.After(30 * time.Second):
-		return fmt.Errorf("step %s timed out", stepID)
+		stepErr = fmt.Errorf("step %s timed out", stepID)
+	}
+
+	if stepErr != nil {
+		if clientStream != nil {
+			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s failed: %v", stepID, stepErr))})
+		}
+		return stepErr
+	}
+
+	if clientStream != nil {
+		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s completed successfully.", stepID))})
 	}
 
 	// 6. Continue to next steps
 	for _, nextID := range step.Next {
-		if err := o.executeStepInteractive(ctx, workflowID, prog, nextID, stepID, schemas); err != nil {
+		if err := o.executeStepInteractive(ctx, workflowID, prog, nextID, stepID, schemas, clientStream); err != nil {
 			return err
 		}
 	}
