@@ -15,12 +15,13 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/internal/client"
+	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
 
 func TestControlPlane_WorkerRegistration(t *testing.T) {
-	s := NewControlPlaneServer()
+	s := NewControlPlaneServer(registry.NewWorkerRegistry())
 
 	// Start server on random port
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -72,7 +73,7 @@ func TestControlPlane_WorkerRegistration(t *testing.T) {
 }
 
 func TestControlPlane_TaskDispatch(t *testing.T) {
-	s := NewControlPlaneServer()
+	s := NewControlPlaneServer(registry.NewWorkerRegistry())
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
@@ -164,7 +165,7 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 }
 
 func TestControlPlane_UpdateCapabilities(t *testing.T) {
-	s := NewControlPlaneServer()
+	s := NewControlPlaneServer(registry.NewWorkerRegistry())
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
@@ -212,7 +213,7 @@ func TestControlPlane_UpdateCapabilities(t *testing.T) {
 }
 
 func TestControlPlane_WorkflowSubmission(t *testing.T) {
-	s := NewControlPlaneServer()
+	s := NewControlPlaneServer(registry.NewWorkerRegistry())
 
 	s.registry.Register("test-worker", models.WorkerRegistration{Address: "localhost:1234"})
 	s.registry.UpdateCapabilities("test-worker", models.WorkerCapabilitiesUpdate{
@@ -252,7 +253,7 @@ workflow hello_world {
 }
 
 func TestControlPlane_WorkflowFiltering(t *testing.T) {
-	s := NewControlPlaneServer()
+	s := NewControlPlaneServer(registry.NewWorkerRegistry())
 
 	s.registry.Register("test-worker", models.WorkerRegistration{Address: "localhost:1234"})
 	s.registry.UpdateCapabilities("test-worker", models.WorkerCapabilitiesUpdate{

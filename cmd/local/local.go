@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
+	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
@@ -92,7 +93,8 @@ func StartLocalServices(ctx context.Context) error {
 	errCh := make(chan error, 2)
 
 	// 1. Start Control Plane
-	cp := controlplane.NewControlPlaneServer()
+	workerRegistry := registry.NewWorkerRegistry()
+	cp := controlplane.NewControlPlaneServer(workerRegistry)
 	go func() {
 		defer logger.Sync()
 		if err := cp.Listen(cpSocket); err != nil {

@@ -33,6 +33,17 @@ func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 	}
 }
 
+func (r *WorkerRegistry) GetActiveStream(id string) (flight.FlightService_DoExchangeServer, bool) {
+	r.wokersMu.RLock()
+	defer r.wokersMu.RUnlock()
+
+	stream, ok := r.workers[id]
+	if !ok {
+		return nil, false
+	}
+	return stream.stream, true
+}
+
 func (r *WorkerRegistry) ProcessStream(id string, stream flight.FlightService_DoExchangeServer) bool {
 	r.wokersMu.RLock()
 	defer r.wokersMu.RUnlock()
@@ -44,17 +55,6 @@ func (r *WorkerRegistry) ProcessStream(id string, stream flight.FlightService_Do
 	val.ProcessStream(stream)
 
 	return true
-}
-
-func (r *WorkerRegistry) GetActiveStream(id string) (flight.FlightService_DoExchangeServer, bool) {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
-
-	stream, ok := r.workers[id]
-	if !ok {
-		return nil, false
-	}
-	return stream.stream, true
 }
 
 func (r *WorkerRegistry) StopStream(id string) bool {

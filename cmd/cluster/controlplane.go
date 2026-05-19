@@ -10,6 +10,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/config"
 	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
+	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -33,7 +34,8 @@ var cpRunCmd = &cobra.Command{
 			zap.Int("port", port),
 			zap.String("standard", "Apache Arrow Flight"))
 
-		cp := controlplane.NewControlPlaneServer()
+		workerRegistry := registry.NewWorkerRegistry()
+		cp := controlplane.NewControlPlaneServer(workerRegistry)
 		err := cp.Listen(fmt.Sprintf(":%d", port))
 		if err != nil {
 			logger.L().Fatal("failed to start control plane", zap.Error(err))

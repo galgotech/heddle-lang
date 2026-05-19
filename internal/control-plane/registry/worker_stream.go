@@ -84,7 +84,7 @@ func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServe
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				// TODO: check
+				// TODO: check if needed recover here
 				// Prevent crashes from uninitialized mock streams in unit tests
 			}
 		}()

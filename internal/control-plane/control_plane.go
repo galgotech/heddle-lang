@@ -42,7 +42,7 @@ type ControlPlaneServer struct {
 	orchestrators map[orchestrator.Strategy]orchestrator.Orchestrator
 }
 
-func (s *ControlPlaneServer) processQueue(reg models.WorkerRegistration) {
+func (s *ControlPlaneServer) processQueue() {
 	ctx := context.Background()
 
 	// Dequeue tasks and dispatch them to the appropriate scheduling orchestrator concurrently.
@@ -239,8 +239,7 @@ func (s *ControlPlaneServer) Listen(addr string) error {
 }
 
 // NewControlPlaneServer instantiates the control plane server and registers supported scheduling orchestrator strategies.
-func NewControlPlaneServer() *ControlPlaneServer {
-	registry := registry.NewWorkerRegistry()
+func NewControlPlaneServer(registry *registry.WorkerRegistry) *ControlPlaneServer {
 	s := &ControlPlaneServer{
 		registry: registry,
 		queue:    NewTaskQueue(),
@@ -251,5 +250,6 @@ func NewControlPlaneServer() *ControlPlaneServer {
 		orchestrator.StrategyGraph:       graph.NewGraphOrchestrator(registry),
 		orchestrator.StrategyInteractive: interactive.NewInteractiveOrchestrator(registry),
 	}
+	s.processQueue()
 	return s
 }
