@@ -3,6 +3,8 @@ package std
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"go.uber.org/zap"
@@ -25,20 +27,25 @@ func ExecutePrint(ctx context.Context, request plugin.ExecuteStepRequest) (plugi
 		}
 	}
 
-	fmt.Printf("--- std/io.print ---\n")
+	var w io.Writer = os.Stdout
+	if ctxWriter := plugin.GetOutputWriter(ctx); ctxWriter != nil {
+		w = ctxWriter
+	}
+
+	fmt.Fprintf(w, "--- std/io.print ---\n")
 
 	for name, arr := range columns {
-		fmt.Printf("\t%s: ", name)
+		fmt.Fprintf(w, "\t%s: ", name)
 		for i := 0; i < arr.Len(); i++ {
 			if arr.IsNull(i) {
-				fmt.Println("<null>")
+				fmt.Fprintln(w, "<null>")
 			} else {
-				fmt.Println(arr.ValueStr(i))
+				fmt.Fprintln(w, arr.ValueStr(i))
 			}
 		}
 	}
 
-	fmt.Printf("--------------------\n")
+	fmt.Fprintf(w, "--------------------\n")
 
 	return plugin.ExecuteStepResponse{
 		TaskID: request.TaskID,

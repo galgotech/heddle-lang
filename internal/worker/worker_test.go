@@ -86,8 +86,7 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	go srv.Serve(lis)
 	defer srv.Stop()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Clean up socket
 	socketPath := "/tmp/heddle-worker-test.sock"
@@ -155,7 +154,9 @@ func TestWorker_PluginServer(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify in server
+	ps.pluginsMU.RLock()
 	_, ok := ps.plugins["test-ns"]
+	ps.pluginsMU.RUnlock()
 	assert.True(t, ok)
 }
 

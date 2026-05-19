@@ -22,6 +22,11 @@ type GraphOrchestrator struct {
 }
 
 func (o *GraphOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
+	if task.ClientID != "" {
+		o.registry.RegisterWorkflowClient(task.ID, task.ClientID)
+		defer o.registry.DeregisterWorkflowClient(task.ID)
+	}
+
 	program := task.Program
 	for _, flowID := range program.Workflows {
 		flow := program.Instructions[flowID].(*ir.FlowInstruction)

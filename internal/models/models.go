@@ -101,4 +101,12 @@ type ControlMessage struct {
 	Type      string         `json:"type"`
 	PurgeData *WorkflowPurge `json:"purge,omitempty"`
 	PurgeAck  *PurgeAck      `json:"purge_ack,omitempty"`
+	LogData   *LogData       `json:"log_data,omitempty"`
+}
+
+// LogData contains text output from step execution.
+type LogData struct {
+	WorkflowID string `json:"workflow_id"`
+	TaskID     string `json:"task_id"`
+	Text       string `json:"text"`
 }

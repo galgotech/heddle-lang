@@ -17,6 +17,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
@@ -209,7 +210,14 @@ func (w *Worker) run(ctx context.Context) error {
 			var result models.TaskResult
 			var err error
 
-			result, err = w.pluginServer.DispatchTask(ctx, t)
+			logWriter := &workerLogWriter{
+				workflowID: t.WorkflowID,
+				taskID:     t.TaskID,
+				send:       stream.Send,
+			}
+			taskCtx := plugin.WithOutputWriter(ctx, logWriter)
+
+			result, err = w.pluginServer.DispatchTask(taskCtx, t)
 
 			if err != nil {
 				logger.L().Error("Failed to execute task", zap.Error(err))
@@ -240,4 +248,30 @@ func NewWorker(pluginServer *PluginServer, controlPlanepAddr string) (*Worker, e
 	}
 
 	return worker, nil
+}
+
+type workerLogWriter struct {
+	workflowID string
+	taskID     string
+	send       func(msg *flight.FlightData) error
+}
+
+func (w *workerLogWriter) Write(p []byte) (n int, err error) {
+	logMsg := models.ControlMessage{
+		Type: "step-log",
+		LogData: &models.LogData{
+			WorkflowID: w.workflowID,
+			TaskID:     w.taskID,
+			Text:       string(p),
+		},
+	}
+	body, err := json.Marshal(logMsg)
+	if err != nil {
+		return 0, err
+	}
+	err = w.send(&flight.FlightData{AppMetadata: body})
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }

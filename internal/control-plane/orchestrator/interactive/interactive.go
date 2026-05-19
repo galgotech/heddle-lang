@@ -22,6 +22,11 @@ type InteractiveOrchestrator struct {
 }
 
 func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
+	if task.ClientID != "" {
+		o.registry.RegisterWorkflowClient(task.ID, task.ClientID)
+		defer o.registry.DeregisterWorkflowClient(task.ID)
+	}
+
 	program := task.Program
 	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
 

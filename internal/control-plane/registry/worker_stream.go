@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
 	"github.com/apache/arrow/go/v18/arrow/flight"
+
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/schema"
-	"go.uber.org/zap"
 )
 
 type workerInfo struct {
@@ -100,9 +101,23 @@ func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServe
 				continue
 			}
 
-			// Intercept and route control signaling messages (such as shared memory purge notifications).
+			// Intercept and route control signaling messages (such as shared memory purge notifications and step execution logs).
 			if len(resp.AppMetadata) > 0 {
-				// TODO: Handle control signaling messages
+				var ctrl models.ControlMessage
+				if err := json.Unmarshal(resp.AppMetadata, &ctrl); err == nil {
+					if ctrl.Type == "step-log" && ctrl.LogData != nil {
+						if w.registry != nil {
+							if clientID, ok := w.registry.GetClientIDForWorkflow(ctrl.LogData.WorkflowID); ok {
+								if clientStream, ok := w.registry.GetActiveClientStream(clientID); ok {
+									_ = clientStream.Send(&flight.FlightData{
+										DataBody: []byte("LOG:" + ctrl.LogData.Text),
+									})
+								}
+							}
+						}
+						continue
+					}
+				}
 				logger.L().Info("Received control signaling message", zap.Any("metadata", resp.AppMetadata))
 				continue
 			}

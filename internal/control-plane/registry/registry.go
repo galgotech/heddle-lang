@@ -19,6 +19,9 @@ type WorkerRegistry struct {
 
 	resultsMu sync.RWMutex
 	results   map[string]chan models.TaskResult
+
+	workflowsMu sync.RWMutex
+	workflows   map[string]string // workflowID -> clientID
 }
 
 func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
@@ -191,10 +194,33 @@ func (r *WorkerRegistry) RouteResult(result models.TaskResult) bool {
 	}
 }
 
+func (r *WorkerRegistry) RegisterWorkflowClient(workflowID, clientID string) {
+	r.workflowsMu.Lock()
+	defer r.workflowsMu.Unlock()
+	if r.workflows == nil {
+		r.workflows = make(map[string]string)
+	}
+	r.workflows[workflowID] = clientID
+}
+
+func (r *WorkerRegistry) DeregisterWorkflowClient(workflowID string) {
+	r.workflowsMu.Lock()
+	defer r.workflowsMu.Unlock()
+	delete(r.workflows, workflowID)
+}
+
+func (r *WorkerRegistry) GetClientIDForWorkflow(workflowID string) (string, bool) {
+	r.workflowsMu.RLock()
+	defer r.workflowsMu.RUnlock()
+	clientID, ok := r.workflows[workflowID]
+	return clientID, ok
+}
+
 func NewWorkerRegistry() *WorkerRegistry {
 	return &WorkerRegistry{
-		workers: make(map[string]*WorkerStream),
-		clients: make(map[string]*ClientStream),
-		results: make(map[string]chan models.TaskResult),
+		workers:   make(map[string]*WorkerStream),
+		clients:   make(map[string]*ClientStream),
+		results:   make(map[string]chan models.TaskResult),
+		workflows: make(map[string]string),
 	}
 }

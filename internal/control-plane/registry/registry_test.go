@@ -195,3 +195,23 @@ func TestGetRegistryInfo(t *testing.T) {
 	assert.NotContains(t, info.Steps, "step.inactive")
 	assert.Equal(t, "col1", info.Steps["step.active"].Input.Fields[0].Name)
 }
+
+func TestWorkflowClientMapping(t *testing.T) {
+	r := NewWorkerRegistry()
+
+	// Initially should not be found
+	_, ok := r.GetClientIDForWorkflow("wf-1")
+	assert.False(t, ok)
+
+	// Register mapping
+	r.RegisterWorkflowClient("wf-1", "client-1")
+	clientID, ok := r.GetClientIDForWorkflow("wf-1")
+	assert.True(t, ok)
+	assert.Equal(t, "client-1", clientID)
+
+	// Deregister mapping
+	r.DeregisterWorkflowClient("wf-1")
+	_, ok = r.GetClientIDForWorkflow("wf-1")
+	assert.False(t, ok)
+}
+

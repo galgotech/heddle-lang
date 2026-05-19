@@ -27,6 +27,9 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 		return
 	}
 
+	o.registry.RegisterWorkflowClient(task.ID, task.ClientID)
+	defer o.registry.DeregisterWorkflowClient(task.ID)
+
 	program := task.Program
 	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
 
