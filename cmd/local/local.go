@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -39,11 +41,27 @@ var startCmd = &cobra.Command{
 		}
 
 		fmt.Println("Starting Heddle local services in foreground...")
+
+		// Set up signal handling for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(sigChan)
+
 		ctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
+
 		if err := StartLocalServices(ctx); err != nil {
 			logger.L().Error("Failed to start local services", zap.Error(err))
 			return
+		}
+
+		fmt.Println("Heddle local services are running. Press Ctrl+C to stop...")
+
+		select {
+		case sig := <-sigChan:
+			logger.L().Info("Received shutdown signal", zap.String("signal", sig.String()))
+		case <-ctx.Done():
+			logger.L().Info("Context cancelled, shutting down")
 		}
 	},
 }
