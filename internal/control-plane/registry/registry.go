@@ -14,6 +14,9 @@ type WorkerRegistry struct {
 	wokersMu sync.RWMutex
 	workers  map[string]*WorkerStream
 
+	clientsMu sync.RWMutex
+	clients   map[string]*ClientStream
+
 	resultsMu sync.RWMutex
 	results   map[string]chan models.TaskResult
 }
@@ -30,15 +33,27 @@ func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 		},
 		lastSeen:    time.Now(),
 		activeTasks: 0,
+		registry:    r,
 	}
 }
 
-func (r *WorkerRegistry) GetActiveStream(id string) (flight.FlightService_DoExchangeServer, bool) {
+func (r *WorkerRegistry) GetActiveWorkerStream(id string) (flight.FlightService_DoExchangeServer, bool) {
 	r.wokersMu.RLock()
 	defer r.wokersMu.RUnlock()
 
 	stream, ok := r.workers[id]
-	if !ok {
+	if !ok || stream.stream == nil {
+		return nil, false
+	}
+	return stream.stream, true
+}
+
+func (r *WorkerRegistry) GetActiveClientStream(id string) (flight.FlightService_DoExchangeServer, bool) {
+	r.clientsMu.RLock()
+	defer r.clientsMu.RUnlock()
+
+	stream, ok := r.clients[id]
+	if !ok || stream.stream == nil {
 		return nil, false
 	}
 	return stream.stream, true
@@ -132,8 +147,54 @@ func (r *WorkerRegistry) GetRegistryInfo() models.RegistryInfo {
 	return info
 }
 
+func (r *WorkerRegistry) ProcessClientStream(id string, stream flight.FlightService_DoExchangeServer) bool {
+	r.clientsMu.Lock()
+	defer r.clientsMu.Unlock()
+	r.clients[id] = NewClientStream(stream)
+	return true
+}
+
+func (r *WorkerRegistry) StopClientStream(id string) bool {
+	r.clientsMu.Lock()
+	defer r.clientsMu.Unlock()
+	delete(r.clients, id)
+	return true
+}
+
+func (r *WorkerRegistry) RegisterResultChan(taskID string, ch chan models.TaskResult) {
+	r.resultsMu.Lock()
+	defer r.resultsMu.Unlock()
+	if r.results == nil {
+		r.results = make(map[string]chan models.TaskResult)
+	}
+	r.results[taskID] = ch
+}
+
+func (r *WorkerRegistry) DeregisterResultChan(taskID string) {
+	r.resultsMu.Lock()
+	defer r.resultsMu.Unlock()
+	delete(r.results, taskID)
+}
+
+func (r *WorkerRegistry) RouteResult(result models.TaskResult) bool {
+	r.resultsMu.RLock()
+	defer r.resultsMu.RUnlock()
+	ch, ok := r.results[result.TaskID]
+	if !ok {
+		return false
+	}
+	select {
+	case ch <- result:
+		return true
+	default:
+		return false
+	}
+}
+
 func NewWorkerRegistry() *WorkerRegistry {
 	return &WorkerRegistry{
 		workers: make(map[string]*WorkerStream),
+		clients: make(map[string]*ClientStream),
+		results: make(map[string]chan models.TaskResult),
 	}
 }

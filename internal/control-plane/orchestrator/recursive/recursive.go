@@ -22,6 +22,11 @@ type RecursiveOrchestrator struct {
 }
 
 func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
+	if task.ClientID == "" {
+		logger.L().Error("Task does not have a defined ClientID")
+		return
+	}
+
 	program := task.Program
 	for _, flowID := range program.Workflows {
 		flow := program.Instructions[flowID].(*ir.FlowInstruction)
@@ -29,6 +34,12 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 		// Filter by workflow name if specified
 		if task.TargetWorkflow != "" && flow.Name != task.TargetWorkflow {
 			continue
+		}
+
+		_, ok := o.registry.GetActiveClientStream(task.ClientID)
+		if !ok {
+			logger.L().Error("Active client stream not found", zap.String("client_id", task.ClientID))
+			return
 		}
 
 		for _, headID := range flow.Heads {
@@ -57,13 +68,15 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}
 
-	workerStream, ok := o.registry.GetActiveStream(worker.GetID())
+	workerStream, ok := o.registry.GetActiveWorkerStream(worker.GetID())
 	if !ok {
 		return fmt.Errorf("worker %s stream not found", worker.GetID())
 	}
 
 	// 3. Create result channel and register it
 	resultCh := make(chan models.TaskResult, 1)
+	o.registry.RegisterResultChan(stepID, resultCh)
+	defer o.registry.DeregisterResultChan(stepID)
 
 	// 4. Dispatch step
 	execTask := models.StepExecutionTask{

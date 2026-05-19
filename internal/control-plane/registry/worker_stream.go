@@ -60,6 +60,7 @@ type WorkerStream struct {
 	stream      flight.FlightService_DoExchangeServer
 	lastSeen    time.Time
 	activeTasks int
+	registry    *WorkerRegistry
 }
 
 func (w *WorkerStream) GetID() string {
@@ -109,6 +110,8 @@ func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServe
 			var result models.TaskResult
 			if err := json.Unmarshal(resp.DataBody, &result); err != nil {
 				logger.L().Warn("Failed to unmarshal result", zap.Error(err))
+			} else if w.registry != nil {
+				w.registry.RouteResult(result)
 			}
 
 		}

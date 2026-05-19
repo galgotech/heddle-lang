@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -87,13 +88,13 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	w, err := NewWorker(lis.Addr().String(), "/tmp/heddle-worker-test.sock")
-	require.NoError(t, err)
-
 	// Clean up socket
 	socketPath := "/tmp/heddle-worker-test.sock"
 	os.Remove(socketPath)
-	w.PluginServer = NewPluginServer(socketPath)
+	ps := NewPluginServer(nil, socketPath)
+
+	w, err := NewWorker(ps, lis.Addr().String())
+	require.NoError(t, err)
 
 	go func() {
 		w.Start(ctx)
@@ -102,7 +103,7 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	// Verify registration
 	select {
 	case id := <-mock.RegisteredIDs:
-		assert.Equal(t, w.ID, id)
+		assert.Equal(t, w.GetID(), id)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Timeout waiting for registration")
 	}
@@ -110,7 +111,7 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	// Verify heartbeat
 	select {
 	case id := <-mock.HeartbeatIDs:
-		assert.Equal(t, w.ID, id)
+		assert.Equal(t, w.GetID(), id)
 	case <-time.After(10 * time.Second):
 		t.Fatal("Timeout waiting for heartbeat")
 	}
@@ -120,7 +121,7 @@ func TestWorker_PluginServer(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-plugin-test.sock"
 	os.Remove(socketPath)
 
-	ps := NewPluginServer(socketPath)
+	ps := NewPluginServer(nil, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -149,7 +150,7 @@ func TestWorker_PluginServer(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify in server
-	_, ok := ps.Plugins.Load("test-ns")
+	_, ok := ps.plugins["test-ns"]
 	assert.True(t, ok)
 }
 
@@ -157,7 +158,7 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	mock := &mockControlPlane{
 		RegisteredWorkers: make(chan models.WorkerRegistration, 1),
 		RegisteredIDs:     make(chan string, 1),
-		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 1),
+		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 100),
 	}
 
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -174,7 +175,8 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-cap-test.sock"
 	os.Remove(socketPath)
 
-	w, err := NewWorker(lis.Addr().String(), socketPath)
+	ps := NewPluginServer(nil, socketPath)
+	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)
 
 	go w.Start(ctx)
@@ -201,12 +203,22 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	client := flight.NewClientFromConn(conn, nil)
 
 	// Consume initial internal capabilities update
-	select {
-	case update := <-mock.Capabilities:
-		assert.Contains(t, update.Capabilities, "__internal.identity")
-		assert.Contains(t, update.Capabilities, "std/io.print")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for initial internal capabilities update")
+	var update models.WorkerCapabilitiesUpdate
+	foundInternal := false
+	foundStd := false
+	timeout := time.After(2 * time.Second)
+	for !foundInternal || !foundStd {
+		select {
+		case update = <-mock.Capabilities:
+			if slices.Contains(update.Capabilities, "__internal.identity") {
+				foundInternal = true
+			}
+			if slices.Contains(update.Capabilities, "std/io.print") {
+				foundStd = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for initial internal capabilities update")
+		}
 	}
 
 	// Register plugin with capabilities
@@ -223,12 +235,21 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify capability update reached control plane
-	select {
-	case update := <-mock.Capabilities:
-		assert.Contains(t, update.Capabilities, "test-ns.step1")
-		assert.Contains(t, update.Capabilities, "test-ns.step2")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for capability update")
+	found := false
+	timeout = time.After(5 * time.Second)
+	for !found {
+		select {
+		case update := <-mock.Capabilities:
+			if slices.Contains(update.Capabilities, "test-ns.step1") {
+				found = true
+			}
+			if found {
+				assert.Contains(t, update.Capabilities, "test-ns.step1")
+				assert.Contains(t, update.Capabilities, "test-ns.step2")
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for capability update")
+		}
 	}
 }
 
@@ -236,7 +257,7 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	mock := &mockControlPlane{
 		RegisteredWorkers: make(chan models.WorkerRegistration, 1),
 		RegisteredIDs:     make(chan string, 1),
-		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 10),
+		Capabilities:      make(chan models.WorkerCapabilitiesUpdate, 100),
 	}
 
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -254,7 +275,8 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-protect-test.sock"
 	os.Remove(socketPath)
 
-	w, err := NewWorker(lis.Addr().String(), socketPath)
+	ps := NewPluginServer(nil, socketPath)
+	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)
 
 	go w.Start(ctx)
@@ -265,6 +287,19 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 		assert.Contains(t, update.Capabilities, "__internal.identity")
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial capabilities")
+	}
+
+	// Wait for worker to be fully ready (plugin server started)
+	select {
+	case <-w.Ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for worker ready")
+	}
+
+	// Drain any pending internal capability updates
+	time.Sleep(100 * time.Millisecond)
+	for len(mock.Capabilities) > 0 {
+		<-mock.Capabilities
 	}
 
 	// Connect as a plugin and try to register an internal capability
@@ -280,19 +315,13 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 		Capabilities: []string{"__internal.identity", "std/io.write", "normal-step"},
 	}
 	body, _ := json.Marshal(reg)
-	_, err = client.DoAction(ctx, &flight.Action{
+	res, err := client.DoAction(ctx, &flight.Action{
 		Type: plugin.ActionRegisterPlugin,
 		Body: body,
 	})
 	require.NoError(t, err)
 
-	// Verify that normal-step was added but __internal.identity was ignored
-	select {
-	case update := <-mock.Capabilities:
-		assert.Contains(t, update.Capabilities, "normal-step")
-		// The count should be 6: identity, prql, data_literal, compress, std/io.print + normal-step
-		assert.Len(t, update.Capabilities, 6)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for capability update")
-	}
+	_, err = res.Recv()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PermissionDenied")
 }

@@ -86,7 +86,7 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		c, err := client.NewControlPlaneClient(ctx, addr)
+		client, err := client.NewControlPlaneClient(ctx, addr)
 		if err != nil {
 			return fmt.Errorf("failed to connect to control plane: %w", err)
 		}
@@ -96,7 +96,7 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			return fmt.Errorf("failed to get workflow name: %w", err)
 		}
 
-		res, err := c.SubmitWorkflow(string(content), workflowName, true)
+		res, err := client.SubmitWorkflow(string(content), workflowName, true)
 		if err != nil {
 			return fmt.Errorf("submission failed: %w", err)
 		}

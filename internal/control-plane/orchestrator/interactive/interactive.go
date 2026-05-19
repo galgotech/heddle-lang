@@ -69,13 +69,15 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	}
 
 	// 2. Get worker stream
-	workerStream, ok := o.registry.GetActiveStream(worker.GetID())
+	workerStream, ok := o.registry.GetActiveWorkerStream(worker.GetID())
 	if !ok {
 		return fmt.Errorf("worker %s stream not found", worker.GetID())
 	}
 
 	// 3. Create result channel and register it
 	resultCh := make(chan models.TaskResult, 1)
+	o.registry.RegisterResultChan(stepID, resultCh)
+	defer o.registry.DeregisterResultChan(stepID)
 
 	// 4. Dispatch step
 	execTask := models.StepExecutionTask{

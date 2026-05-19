@@ -12,6 +12,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/internal/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
 var workerGroupCmd = &cobra.Command{
@@ -30,16 +31,16 @@ var workerRunCmd = &cobra.Command{
 		ctx := context.Background()
 		cpAddr := viper.GetString("cp")
 		socket := viper.GetString("socket")
-		id := viper.GetString("id")
 
-		w, err := worker.NewWorker(cpAddr, socket)
+		registry := locality.NewDataLocalityRegistry()
+		pluginServer := worker.NewPluginServer(registry, socket)
+		worker, err := worker.NewWorker(pluginServer, cpAddr)
 		if err != nil {
 			logger.L().Fatal("Failed to initialize worker", zap.Error(err))
 		}
 
-		w.ID = id
-		logger.L().Info("Starting worker", zap.String("id", id), zap.String("cp", cpAddr))
-		if err := w.Start(ctx); err != nil {
+		logger.L().Info("Starting worker", zap.String("id", worker.GetID()), zap.String("control-plane", cpAddr))
+		if err := worker.Start(ctx); err != nil {
 			logger.L().Fatal("Worker exited with error", zap.Error(err))
 		}
 	},

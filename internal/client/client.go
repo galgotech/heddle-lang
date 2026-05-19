@@ -6,8 +6,10 @@ import (
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 )
@@ -20,7 +22,7 @@ type ControlPlaneClient struct {
 	stream flight.FlightService_DoExchangeClient
 }
 
-func (c *ControlPlaneClient) Connect() error {
+func (c *ControlPlaneClient) connect() error {
 	conn, err := grpc.NewClient(c.addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed to connect to control plane: %w", err)
@@ -29,7 +31,7 @@ func (c *ControlPlaneClient) Connect() error {
 	c.client = flight.NewClientFromConn(conn, nil)
 	c.stream, err = c.client.DoExchange(c.ctx)
 	if err != nil {
-		return fmt.Errorf("failed to start exchange stream: %w", err)
+		return fmt.Errorf("failed to create stream: %w", err)
 	}
 
 	return nil
@@ -46,12 +48,21 @@ func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, 
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal submission: %w", err)
 	}
-
 	if async {
 		return string(body), nil
 	}
 
-	return string(body), nil
+	for {
+		// iteractive communication with controleplane
+		rec, err := c.stream.Recv()
+		if err != nil {
+			return "", fmt.Errorf("failed to receive submission result: %w", err)
+		}
+		fmt.Println(rec)
+
+	}
+
+	return "", nil
 }
 
 func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, sub models.WorkflowSubmission) (string, error) {
@@ -78,10 +89,14 @@ func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, 
 }
 
 func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClient, error) {
+	metaData, ok := metadata.FromOutgoingContext(ctx)
+	if !ok || (len(metaData.Get("client-id")) == 0 && len(metaData.Get("worker-id")) == 0) {
+		ctx = metadata.AppendToOutgoingContext(ctx, "client-id", "client-"+uuid.New().String()[:8])
+	}
 	client := &ControlPlaneClient{
 		ctx:  ctx,
 		addr: addr,
 	}
-	client.Connect()
+	client.connect()
 	return client, nil
 }

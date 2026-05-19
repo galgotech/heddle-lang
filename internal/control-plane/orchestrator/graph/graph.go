@@ -135,13 +135,15 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}
 
-	workerStream, ok := o.registry.GetActiveStream(worker.GetID())
+	workerStream, ok := o.registry.GetActiveWorkerStream(worker.GetID())
 	if !ok {
 		return fmt.Errorf("worker %s stream not found", worker.GetID())
 	}
 
 	// 3. Create result channel and register it
 	resultCh := make(chan models.TaskResult, 1)
+	o.registry.RegisterResultChan(step.ID, resultCh)
+	defer o.registry.DeregisterResultChan(step.ID)
 
 	// 4. Dispatch step
 	execTask := models.StepExecutionTask{

@@ -46,12 +46,21 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 	metaData, _ := metadata.FromIncomingContext(ctx)
 
 	workerID := ""
-	if ids := metaData.Get("worker-id"); len(ids) > 0 {
-		workerID = ids[0]
-	}
+	clientID := ""
 
 	// Validate presence of worker-id for all actions except initial workflow submissions.
-	if action.Type != models.ActionSubmitWorkflow {
+	if action.Type == models.ActionSubmitWorkflow {
+		if ids := metaData.Get("client-id"); len(ids) > 0 {
+			clientID = ids[0]
+		}
+		if clientID == "" {
+			return status.Error(codes.Unauthenticated, "missing client-id")
+		}
+
+	} else {
+		if ids := metaData.Get("worker-id"); len(ids) > 0 {
+			workerID = ids[0]
+		}
 		if workerID == "" {
 			return status.Error(codes.Unauthenticated, "missing worker-id")
 		}
@@ -134,6 +143,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		// 2. Queue the task with its compiled program structure and step validation schemas.
 		task := models.Task{
 			ID:             uuid.New().String(),
+			ClientID:       clientID,
 			Program:        program,
 			TargetWorkflow: sub.WorkflowName,
 			Schemas:        schemas,
@@ -146,7 +156,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		}
 		go orch.OrchestrateTask(ctx, task)
 
-		logger.L().Info("Workflow compiled and queued", zap.String("task_id", task.ID))
+		logger.L().Info("Workflow compiled and queued", zap.String("client_id", clientID), zap.String("task_id", task.ID))
 		return stream.Send(&flight.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
 
 	case models.ActionGetWorkerInfo:
@@ -163,21 +173,40 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 	}
 }
 
-// DoExchange establishes persistent, bi-directional streams with workers for task coordination and results.
+// DoExchange establishes persistent, bi-directional streams with workers and clients for task coordination and results.
 func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
 	ctx := stream.Context()
 	metaData, ok := metadata.FromIncomingContext(ctx)
-	if !ok || len(metaData.Get("worker-id")) == 0 {
-		return status.Error(codes.Unauthenticated, "missing worker-id")
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing metadata")
 	}
-	workerID := metaData.Get("worker-id")[0]
 
-	s.registry.ProcessStream(workerID, stream)
-	defer s.registry.StopStream(workerID)
+	workerIDs := metaData.Get("worker-id")
+	clientIDs := metaData.Get("client-id")
 
-	logger.L().Info("Worker connected", zap.String("id", workerID))
+	if len(workerIDs) > 0 {
+		workerID := workerIDs[0]
+		s.registry.ProcessStream(workerID, stream)
+		defer s.registry.StopStream(workerID)
 
-	return nil
+		logger.L().Info("Worker connected", zap.String("id", workerID))
+
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	if len(clientIDs) > 0 {
+		clientID := clientIDs[0]
+		s.registry.ProcessClientStream(clientID, stream)
+		defer s.registry.StopClientStream(clientID)
+
+		logger.L().Info("Client connected", zap.String("id", clientID))
+
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	return status.Error(codes.Unauthenticated, "missing worker-id or client-id")
 }
 
 // Listen starts the gRPC and Flight service listeners on the target address (handling TCP or Unix domain sockets).

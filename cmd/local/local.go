@@ -12,6 +12,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
 const pidFile = "/tmp/heddle.pid"
@@ -112,7 +113,9 @@ func StartLocalServices(ctx context.Context) error {
 	}
 
 	// 2. Start Worker
-	w, err := worker.NewWorker(cpSocket, workerSocket)
+	registry := locality.NewDataLocalityRegistry()
+	pluginServer := worker.NewPluginServer(registry, workerSocket)
+	w, err := worker.NewWorker(pluginServer, cpSocket)
 	if err != nil {
 		return fmt.Errorf("failed to create worker: %w", err)
 	}

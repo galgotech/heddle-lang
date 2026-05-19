@@ -15,10 +15,19 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/internal/client"
+	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 )
+
+type mockOrchestrator struct {
+	tasks chan models.Task
+}
+
+func (m *mockOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
+	m.tasks <- task
+}
 
 func TestControlPlane_WorkerRegistration(t *testing.T) {
 	s := NewControlPlaneServer(registry.NewWorkerRegistry())
@@ -122,10 +131,23 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 	require.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
 
-	// Push a task to the queue
+	// Start exchange as worker
+	stream, err := client.DoExchange(ctx)
+	require.NoError(t, err)
+
+	// Start exchange as client
+	clientCtx := metadata.AppendToOutgoingContext(context.Background(), "client-id", "test-client")
+	clientStream, err := client.DoExchange(clientCtx)
+	require.NoError(t, err)
+	defer clientStream.CloseSend()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Run orchestrator directly in a goroutine
 	stepID := "step-1"
-	s.queue.Push(models.Task{
-		ID: "task-1",
+	task := models.Task{
+		ID:       "task-1",
+		ClientID: "test-client",
 		Program: &ir.Program{
 			Instructions: map[string]any{
 				"flow-1": &ir.FlowInstruction{
@@ -139,24 +161,21 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 			},
 			Workflows: []string{"flow-1"},
 		},
-	})
-
-	// Start exchange as worker
-	stream, err := client.DoExchange(ctx)
-	require.NoError(t, err)
+	}
+	go s.orchestrators[orchestrator.StrategyRecursive].OrchestrateTask(ctx, task)
 
 	// Receive task
 	data, err := stream.Recv()
 	assert.NoError(t, err)
 
-	var task models.StepExecutionTask
-	err = json.Unmarshal(data.DataBody, &task)
+	var execTask models.StepExecutionTask
+	err = json.Unmarshal(data.DataBody, &execTask)
 	assert.NoError(t, err)
-	assert.Equal(t, stepID, task.TaskID)
+	assert.Equal(t, stepID, execTask.TaskID)
 
 	// Send result
 	res := models.TaskResult{
-		TaskID: stepID,
+		TaskID: execTask.TaskID,
 		Status: "SUCCESS",
 	}
 	resBody, _ := json.Marshal(res)
@@ -229,8 +248,8 @@ func TestControlPlane_WorkflowSubmission(t *testing.T) {
 	go srv.Serve(lis)
 	defer srv.Stop()
 
-	ctx := metadata.AppendToOutgoingContext(context.Background(), "worker-id", "test-client")
-	c, err := client.NewControlPlaneClient(lis.Addr().String())
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "client-id", "test-client")
+	c, err := client.NewControlPlaneClient(ctx, lis.Addr().String())
 	require.NoError(t, err)
 
 	source := `
@@ -241,14 +260,22 @@ workflow hello_world {
     | io.print
 }
 `
-	result, err := c.SubmitWorkflow(ctx, source, "")
+	mockOrch := &mockOrchestrator{tasks: make(chan models.Task, 1)}
+	s.orchestrators[orchestrator.StrategyRecursive] = mockOrch
+
+	result, err := c.SubmitWorkflow(source, "", false)
 	// The compiler might still fail if std/io is not registered, but it shouldn't panic
 	if err != nil {
 		// Compilation error is fine as long as it's not a panic
 		assert.Contains(t, err.Error(), "compilation failed")
 	} else {
 		assert.Contains(t, result, "QUEUED")
-		assert.Equal(t, 1, s.queue.Len())
+		select {
+		case task := <-mockOrch.tasks:
+			assert.NotEmpty(t, task.ID)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for orchestrated task")
+		}
 	}
 }
 
@@ -270,7 +297,7 @@ func TestControlPlane_WorkflowFiltering(t *testing.T) {
 	defer srv.Stop()
 
 	ctx := context.Background()
-	c, err := client.NewControlPlaneClient(lis.Addr().String())
+	c, err := client.NewControlPlaneClient(ctx, lis.Addr().String())
 	require.NoError(t, err)
 
 	source := `
@@ -286,10 +313,17 @@ workflow w2 {
     | io.print
 }
 `
+	mockOrch := &mockOrchestrator{tasks: make(chan models.Task, 1)}
+	s.orchestrators[orchestrator.StrategyRecursive] = mockOrch
+
 	// Submit only w2
-	_, err = c.SubmitWorkflow(ctx, source, "w2")
+	_, err = c.SubmitWorkflow(source, "w2", false)
 	require.NoError(t, err)
 
-	task := <-s.queue.Pop()
-	assert.Equal(t, "w2", task.TargetWorkflow)
+	select {
+	case task := <-mockOrch.tasks:
+		assert.Equal(t, "w2", task.TargetWorkflow)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for orchestrated task")
+	}
 }

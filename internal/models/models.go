@@ -63,6 +63,7 @@ type WorkerHeartbeat struct {
 // Task represents a unit of work dispatched to a worker.
 type Task struct {
 	ID             string                        `json:"id"`
+	ClientID       string                        `json:"client_id"`
 	Program        *ir.Program                   `json:"program"`
 	TargetWorkflow string                        `json:"target_workflow,omitempty"`
 	Strategy       string                        `json:"strategy"`

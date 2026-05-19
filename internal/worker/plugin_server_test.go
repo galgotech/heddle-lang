@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 )
 
@@ -53,13 +53,15 @@ func (m *mockDoActionServer) Context() context.Context {
 }
 
 func TestPluginHeartbeat(t *testing.T) {
-	server := NewPluginServer("/tmp/test.sock")
+	server := NewPluginServer(nil, "/tmp/test.sock")
 	namespace := "test-plugin"
 
 	// Pre-register plugin
-	server.Plugins.Store(namespace, &PluginInfo{
-		Namespace: namespace,
-	})
+	server.plugins[namespace] = &pluginRemote{
+		pluginRegistration: plugin.PluginRegistration{
+			Namespace: namespace,
+		},
+	}
 
 	hb := plugin.Heartbeat{
 		Namespace: namespace,
@@ -80,10 +82,10 @@ func TestPluginHeartbeat(t *testing.T) {
 	assert.Equal(t, "OK", string(mockStream.results[0].Body))
 
 	// Verify state update
-	val, ok := server.Plugins.Load(namespace)
+	val, ok := server.plugins[namespace]
 	require.True(t, ok)
-	info := val.(*PluginInfo)
+	info := val.(*pluginRemote)
 
-	assert.WithinDuration(t, hb.Timestamp, info.LastHeartbeat, time.Second)
-	assert.Equal(t, "ready", info.Status)
+	assert.WithinDuration(t, hb.Timestamp, info.lastHeartbeat, time.Second)
+	assert.Equal(t, "ready", info.status)
 }
