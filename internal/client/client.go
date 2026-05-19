@@ -47,6 +47,7 @@ func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, 
 		Source:       source,
 		WorkflowName: workflowName,
 		Strategy:     strategy,
+		Async:        async,
 	}
 
 	body, err := c.sendAction(c.ctx, models.ActionSubmitWorkflow, sub)
@@ -131,6 +132,10 @@ func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, 
 	}
 
 	return string(result.Body), nil
+}
+
+func (c *ControlPlaneClient) GetStream() flight.FlightService_DoExchangeClient {
+	return c.stream
 }
 
 func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClient, error) {

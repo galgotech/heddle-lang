@@ -72,9 +72,10 @@ type Task struct {
 
 // TaskResult is the response from a worker after executing a task.
 type TaskResult struct {
-	TaskID       string `json:"task_id"`
-	Status       string `json:"status"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	TaskID        string            `json:"task_id"`
+	Status        string            `json:"status"`
+	ErrorMessage  string            `json:"error_message,omitempty"`
+	OutputHandles map[string]string `json:"output_handles,omitempty"`
 }
 
 // WorkflowSubmission contains the source code of a Heddle program to be compiled and executed.
@@ -82,6 +83,7 @@ type WorkflowSubmission struct {
 	Source       string `json:"source"`
 	WorkflowName string `json:"workflow_name,omitempty"`
 	Strategy     string `json:"strategy"`
+	Async        bool   `json:"async"`
 }
 
 // WorkflowPurge is sent by the control plane to a worker after workflow termination.

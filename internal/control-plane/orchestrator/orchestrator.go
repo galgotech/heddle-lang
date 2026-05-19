@@ -12,6 +12,7 @@ const (
 	StrategyRecursive   Strategy = "recursive"
 	StrategyGraph       Strategy = "graph"
 	StrategyInteractive Strategy = "interactive"
+	StrategyDebug       Strategy = "debug"
 )
 
 type Orchestrator interface {

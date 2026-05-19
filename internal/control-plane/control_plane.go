@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
+	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator/debug"
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator/graph"
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator/interactive"
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator/recursive"
@@ -107,6 +108,10 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		var sub models.WorkflowSubmission
 		if err := json.Unmarshal(action.Body, &sub); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal submission: %v", err)
+		}
+
+		if sub.Strategy == string(orchestrator.StrategyDebug) && sub.Async {
+			return status.Error(codes.InvalidArgument, "debug execution strategy cannot be executed asynchronously")
 		}
 
 		logger.L().Info("Received workflow submission")
@@ -260,6 +265,7 @@ func NewControlPlaneServer(registry *registry.WorkerRegistry) *ControlPlaneServe
 		orchestrator.StrategyRecursive:   recursive.NewRecursiveOrchestrator(registry),
 		orchestrator.StrategyGraph:       graph.NewGraphOrchestrator(registry),
 		orchestrator.StrategyInteractive: interactive.NewInteractiveOrchestrator(registry),
+		orchestrator.StrategyDebug:       debug.NewDebugOrchestrator(registry),
 	}
 	return s
 }

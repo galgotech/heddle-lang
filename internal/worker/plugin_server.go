@@ -273,9 +273,10 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	}
 
 	return models.TaskResult{
-		TaskID:       resp.TaskID,
-		Status:       string(resp.Status),
-		ErrorMessage: resp.ErrorMessage,
+		TaskID:        resp.TaskID,
+		Status:        string(resp.Status),
+		ErrorMessage:  resp.ErrorMessage,
+		OutputHandles: resp.OutputHandles,
 	}, nil
 }
 

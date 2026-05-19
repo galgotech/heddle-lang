@@ -150,8 +150,9 @@ func (l *Lowerer) lowerSteps() error {
 
 		inst := &ir.StepInstruction{
 			BaseInstruction: ir.BaseInstruction{
-				ID:   l.nextID("step"),
-				Type: ir.StepInst,
+				ID:             l.nextID("step"),
+				Type:           ir.StepInst,
+				SourceLocation: l.getStepLocation(nodeRef),
 			},
 			DefinitionName: name,
 			Call:           []string{module, l.getString(fnRef.NameRef)},
@@ -313,8 +314,9 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			stepID = l.nextID("step_identity")
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
-					ID:   stepID,
-					Type: ir.StepInst,
+					ID:             stepID,
+					Type:           ir.StepInst,
+					SourceLocation: l.getCallLocation(callRef),
 				},
 				DefinitionName: "identity",
 				Call:           []string{"__internal", "identity"},
@@ -330,8 +332,9 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			stepID = l.nextID("step_prql")
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
-					ID:   stepID,
-					Type: ir.StepInst,
+					ID:             stepID,
+					Type:           ir.StepInst,
+					SourceLocation: l.getCallLocation(callRef),
 				},
 				DefinitionName: "prql",
 				Call:           []string{"__internal", "prql"},
@@ -368,6 +371,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			// Clone the base definition to ensure call-specific state isolation.
 			inst := *orig
 			inst.ID = stepID
+			inst.SourceLocation = l.getCallLocation(callRef)
 			if call.TrapRef.End > 0 {
 				trapName := l.getString(call.TrapRef)
 				inst.Handler = l.handlerMap[trapName]
@@ -384,8 +388,9 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
-					ID:   stepID,
-					Type: ir.StepInst,
+					ID:             stepID,
+					Type:           ir.StepInst,
+					SourceLocation: l.getCallLocation(callRef),
 				},
 				DefinitionName: "data_literal",
 				Call:           []string{"__internal", "data_literal"},
@@ -414,8 +419,9 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
-					ID:   stepID,
-					Type: ir.StepInst,
+					ID:             stepID,
+					Type:           ir.StepInst,
+					SourceLocation: l.getCallLocation(callRef),
 				},
 				Call:      []string{module, l.getString(fnRef.NameRef)},
 				Resources: l.lowerResourceRefs(fnRef.ResourcesRefRef),
@@ -568,5 +574,35 @@ func NewLowerer(ctx *ast.ASTContext) *Lowerer {
 		resourceMap:  make(map[string]string),
 		stepMap:      make(map[string]string),
 		handlerMap:   make(map[string]string),
+	}
+}
+
+// getStepLocation maps a StepBindingNode index to an IR SourceLocation.
+func (l *Lowerer) getStepLocation(nodeRef ast.NodeRef) *ir.SourceLocation {
+	if nodeRef == ast.NilNode || int(nodeRef) >= len(l.ctx.StepNameRanges) {
+		return nil
+	}
+	r := l.ctx.StepNameRanges[nodeRef]
+	if r.Start.Line == 0 {
+		return nil
+	}
+	return &ir.SourceLocation{
+		Line:   int(r.Start.Line),
+		Column: int(r.Start.Col),
+	}
+}
+
+// getCallLocation maps a CallNode index to an IR SourceLocation.
+func (l *Lowerer) getCallLocation(callRef ast.NodeRef) *ir.SourceLocation {
+	if callRef == ast.NilNode || int(callRef) >= len(l.ctx.CallRanges) {
+		return nil
+	}
+	r := l.ctx.CallRanges[callRef]
+	if r.Start.Line == 0 {
+		return nil
+	}
+	return &ir.SourceLocation{
+		Line:   int(r.Start.Line),
+		Column: int(r.Start.Col),
 	}
 }

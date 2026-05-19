@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -144,12 +145,12 @@ func WriteArrowArrayToShm(field arrow.Field, arr arrow.Array) (string, error) {
 	record := array.NewRecord(schema, []arrow.Array{arr}, int64(arr.Len()))
 	defer record.Release()
 
-	return writeArrowToShm(record)
+	return WriteRecordToShm(record)
 }
 
-// WriteArrowToShm writes the record batch to a temporary file in /dev/shm and returns the path.
+// WriteRecordToShm writes the record batch to a temporary file in /dev/shm and returns the path.
 // The file is created with 0600 permissions and sealed to 0400 after writing to ensure immutability.
-func writeArrowToShm(batch arrow.Record) (string, error) {
+func WriteRecordToShm(batch arrow.Record) (string, error) {
 	f, err := os.CreateTemp("/dev/shm", "heddle-*.arrow")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
@@ -188,7 +189,7 @@ func writeArrowToShm(batch arrow.Record) (string, error) {
 
 // ReadArrowArrayFromPath mmaps the file at path and returns the first Arrow Array from the record batch.
 func ReadArrowArrayFromPath(path string) (arrow.Array, error) {
-	record, err := readArrowFromPath(path)
+	record, err := ReadArrowFromPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +204,7 @@ func ReadArrowArrayFromPath(path string) (arrow.Array, error) {
 }
 
 // ReadArrowFromPath mmaps the file at path and returns the first Arrow record batch.
-func readArrowFromPath(path string) (arrow.Record, error) {
+func ReadArrowFromPath(path string) (arrow.Record, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -237,6 +238,96 @@ func readArrowFromPath(path string) (arrow.Record, error) {
 	}
 
 	return record, nil
+}
+
+// FormatArrowPreview reads up to the first 5 records of an Arrow RecordBatch from the given path in /dev/shm,
+// and returns a formatted text table representation of the data.
+func FormatArrowPreview(path string) (string, error) {
+	record, err := ReadArrowFromPath(path)
+	if err != nil {
+		return "", err
+	}
+	defer record.Release()
+
+	numRows := int(record.NumRows())
+	if numRows > 5 {
+		numRows = 5
+	}
+
+	numCols := int(record.NumCols())
+	schema := record.Schema()
+
+	var sb strings.Builder
+
+	// Calculate maximum width for each column to make it a beautiful table
+	colWidths := make([]int, numCols)
+	for j := 0; j < numCols; j++ {
+		field := schema.Field(j)
+		header := fmt.Sprintf("%s (%s)", field.Name, field.Type.Name())
+		width := len(header)
+		for i := 0; i < numRows; i++ {
+			valStr := "NULL"
+			col := record.Column(j)
+			if !col.IsNull(i) {
+				valStr = col.ValueStr(i)
+			}
+			if len(valStr) > width {
+				width = len(valStr)
+			}
+		}
+		colWidths[j] = width
+	}
+
+	// Helper to draw horizontal line
+	drawDivider := func() {
+		sb.WriteString("+")
+		for _, w := range colWidths {
+			sb.WriteString(strings.Repeat("-", w+2))
+			sb.WriteString("+")
+		}
+		sb.WriteString("\n")
+	}
+
+	drawDivider()
+
+	// Print headers
+	sb.WriteString("|")
+	for j, w := range colWidths {
+		field := schema.Field(j)
+		header := fmt.Sprintf("%s (%s)", field.Name, field.Type.Name())
+		sb.WriteString(" ")
+		sb.WriteString(header)
+		sb.WriteString(strings.Repeat(" ", w-len(header)))
+		sb.WriteString(" |")
+	}
+	sb.WriteString("\n")
+
+	drawDivider()
+
+	// Print rows
+	for i := 0; i < numRows; i++ {
+		sb.WriteString("|")
+		for j, w := range colWidths {
+			valStr := "NULL"
+			col := record.Column(j)
+			if !col.IsNull(i) {
+				valStr = col.ValueStr(i)
+			}
+			sb.WriteString(" ")
+			sb.WriteString(valStr)
+			sb.WriteString(strings.Repeat(" ", w-len(valStr)))
+			sb.WriteString(" |")
+		}
+		sb.WriteString("\n")
+	}
+
+	drawDivider()
+
+	if int(record.NumRows()) > 5 {
+		sb.WriteString(fmt.Sprintf("... showing 5 of %d rows ...\n", record.NumRows()))
+	}
+
+	return sb.String(), nil
 }
 
 // WriteDirtyToShm writes the dirty bitmap to a temp file in /dev/shm.

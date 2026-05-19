@@ -133,3 +133,48 @@ func TestRegistry_Put_RejectsInsecurePath(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "insecure permissions")
 }
+
+func TestFormatArrowPreview(t *testing.T) {
+	mem := memory.NewGoAllocator()
+	schema := arrow.NewSchema([]arrow.Field{
+		{Name: "id", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "name", Type: arrow.BinaryTypes.String},
+		{Name: "active", Type: arrow.FixedWidthTypes.Boolean},
+	}, nil)
+
+	bInt := array.NewInt64Builder(mem)
+	defer bInt.Release()
+	bStr := array.NewStringBuilder(mem)
+	defer bStr.Release()
+	bBool := array.NewBooleanBuilder(mem)
+	defer bBool.Release()
+
+	bInt.AppendValues([]int64{1, 2, 3}, nil)
+	bStr.AppendValues([]string{"Alice", "Bob", "Charlie"}, nil)
+	bBool.AppendValues([]bool{true, false, true}, nil)
+
+	arrInt := bInt.NewArray()
+	defer arrInt.Release()
+	arrStr := bStr.NewArray()
+	defer arrStr.Release()
+	arrBool := bBool.NewArray()
+	defer arrBool.Release()
+
+	record := array.NewRecord(schema, []arrow.Array{arrInt, arrStr, arrBool}, 3)
+	defer record.Release()
+
+	path, err := WriteRecordToShm(record)
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	preview, err := FormatArrowPreview(path)
+	require.NoError(t, err)
+	assert.Contains(t, preview, "id (int64)")
+	assert.Contains(t, preview, "name (utf8)")
+	assert.Contains(t, preview, "active (bool)")
+	assert.Contains(t, preview, "Alice")
+	assert.Contains(t, preview, "Bob")
+	assert.Contains(t, preview, "Charlie")
+	assert.Contains(t, preview, "true")
+	assert.Contains(t, preview, "false")
+}
