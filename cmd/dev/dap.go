@@ -38,9 +38,8 @@ var DapCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		l := logger.L()
 		cpAddr := viper.GetString("control-plane-addr")
-		if cpAddr == "" {
-			cpAddr = "localhost:50051"
-		}
+
+		logger.L().Info("DAP server starting", zap.String("addr", viper.GetString("addr")), zap.String("control-plane-addr", cpAddr))
 
 		server := dap.NewServer(l, viper.GetString("addr"), cpAddr)
 
@@ -61,8 +60,10 @@ func init() {
 	DapCmd.Flags().Bool("server", false, "Start in server mode")
 	DapCmd.Flags().String("addr", "localhost:4711", "Address to listen on in server mode")
 	DapCmd.Flags().String("log-path", "/tmp/heddle-dap.log", "Path to log file")
+	DapCmd.Flags().String("control-plane-addr", "localhost:50051", "Address of the Heddle Control Plane")
 
 	viper.BindPFlag("server", DapCmd.Flags().Lookup("server"))
 	viper.BindPFlag("addr", DapCmd.Flags().Lookup("addr"))
 	viper.BindPFlag("log-path", DapCmd.Flags().Lookup("log-path"))
+	viper.BindPFlag("control-plane-addr", DapCmd.Flags().Lookup("control-plane-addr"))
 }
