@@ -33,7 +33,8 @@ var workerRunCmd = &cobra.Command{
 		socket := viper.GetString("socket")
 
 		registry := locality.NewDataLocalityRegistry()
-		pluginServer := worker.NewPluginServer(registry, socket)
+		nativePlugins := worker.NewNativePlugins(registry)
+		pluginServer := worker.NewPluginServer(registry, nativePlugins, socket)
 		worker, err := worker.NewWorker(pluginServer, cpAddr)
 		if err != nil {
 			logger.L().Fatal("Failed to initialize worker", zap.Error(err))

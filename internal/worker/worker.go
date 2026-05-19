@@ -69,9 +69,10 @@ func (w *Worker) Start(ctx context.Context) error {
 	// 2. Start Heartbeats
 	go w.startHeartbeat(ctx)
 
+	// 3. watch plugin registrations
 	go w.watchPluginRegistrations(ctx)
 
-	// 3. Start Plugin Server (UDS)
+	// 4. Start Plugin Server (UDS)
 	go func() {
 		if err := w.pluginServer.Start(ctx); err != nil {
 			logger.L().Error("Plugin server error", zap.Error(err))
@@ -232,9 +233,9 @@ func NewWorker(pluginServer *PluginServer, controlPlanepAddr string) (*Worker, e
 		controlPlanepAddr: controlPlanepAddr,
 		pluginServer:      pluginServer,
 
+		id:           "worker-" + uuid.New().String()[:8],
 		capabilities: make(map[string][]string),
 		schemas:      make(map[string]map[string]schema.StepSchemas),
-		id:           "worker-" + uuid.New().String()[:8],
 		Ready:        make(chan struct{}),
 	}
 

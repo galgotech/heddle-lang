@@ -10,7 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/galgotech/heddle-lang/internal/models"
+	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
 func TestValidateSHMPath(t *testing.T) {
@@ -53,7 +56,9 @@ func (m *mockDoActionServer) Context() context.Context {
 }
 
 func TestPluginHeartbeat(t *testing.T) {
-	server := NewPluginServer(nil, "/tmp/test.sock")
+	registry := locality.NewDataLocalityRegistry()
+	nativePlugins := NewNativePlugins(registry)
+	server := NewPluginServer(registry, nativePlugins, "/tmp/test.sock")
 	namespace := "test-plugin"
 
 	// Pre-register plugin
@@ -88,4 +93,43 @@ func TestPluginHeartbeat(t *testing.T) {
 
 	assert.WithinDuration(t, hb.Timestamp, info.lastHeartbeat, time.Second)
 	assert.Equal(t, "ready", info.status)
+}
+
+func TestPluginServer_DispatchTask_LocalPlugin(t *testing.T) {
+	registry := locality.NewDataLocalityRegistry()
+	nativePlugins := NewNativePlugins(registry)
+	pluginServer := NewPluginServer(registry, nativePlugins, "/tmp/test-dispatch.sock")
+	for _, p := range nativePlugins {
+		pluginServer.registerPlugin(p)
+	}
+
+	task := models.StepExecutionTask{
+		WorkflowID:     "wf-1",
+		TaskID:         "step_data_3",
+		PreviousTaskID: "",
+		Step: &ir.StepInstruction{
+			BaseInstruction: ir.BaseInstruction{
+				ID:   "step_data_3",
+				Type: ir.StepInst,
+			},
+			DefinitionName: "data_literal",
+			Call:           []string{"__internal", "data_literal"},
+			Config: map[string]any{
+				"literalData": []map[string]any{
+					{"value": "hello"},
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	result, err := pluginServer.DispatchTask(ctx, task)
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatusSuccess, result.Status)
+	assert.Equal(t, "step_data_3", result.TaskID)
+
+	// Verify it registered output in locality registry
+	meta, ok := registry.GetMetadata("wf-1", "step_data_3", locality.Output)
+	require.True(t, ok)
+	assert.Contains(t, meta.Paths, "value")
 }

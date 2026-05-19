@@ -29,6 +29,16 @@ type PluginRegistration struct {
 	Schemas      map[string]schema.StepSchemas              `json:"schemas,omitempty"`
 }
 
+// ExecuteStepRequest encapsulates the metadata for a task delegated to a plugin.
+type ExecuteStepRequest struct {
+	WorkflowID   string            `json:"workflow_id"`
+	TaskID       string            `json:"task_id"`
+	StepName     string            `json:"step_name"`
+	ResourceId   string            `json:"resource_id,omitempty"`
+	ConfigJSON   string            `json:"config_json,omitempty"`
+	InputHandles map[string]string `json:"input_handles"`
+}
+
 // ExecuteStepResponse contains the result of a plugin task execution.
 type ExecuteStepResponse struct {
 	TaskID        string             `json:"task_id"`
@@ -43,17 +53,6 @@ type Heartbeat struct {
 	Namespace string    `json:"namespace"`
 	Timestamp time.Time `json:"timestamp"`
 	Status    string    `json:"status"`
-}
-
-// ExecuteStepRequest encapsulates the metadata for a task delegated to a plugin.
-type ExecuteStepRequest struct {
-	WorkflowID    string            `json:"workflow_id"`
-	TaskID        string            `json:"task_id"`
-	StepName      string            `json:"step_name"`
-	ResourceId    string            `json:"resource_id,omitempty"`
-	ConfigJSON    string            `json:"config_json,omitempty"`
-	InputHandles  map[string]string `json:"input_handles"`
-	OutputHandles map[string]string `json:"output_handles"`
 }
 
 // SDKPluginStepDefinition represents step information passed from the SDK plugin.

@@ -132,19 +132,20 @@ func StartLocalServices(ctx context.Context) error {
 
 	// 2. Start Worker
 	registry := locality.NewDataLocalityRegistry()
-	pluginServer := worker.NewPluginServer(registry, workerSocket)
-	w, err := worker.NewWorker(pluginServer, cpSocket)
+	nativePlugins := worker.NewNativePlugins(registry)
+	pluginServer := worker.NewPluginServer(registry, nativePlugins, workerSocket)
+	worker, err := worker.NewWorker(pluginServer, cpSocket)
 	if err != nil {
 		return fmt.Errorf("failed to create worker: %w", err)
 	}
 	go func() {
-		if err := w.Start(ctx); err != nil {
+		if err := worker.Start(ctx); err != nil {
 			errCh <- fmt.Errorf("worker failed: %w", err)
 		}
 	}()
 
 	select {
-	case <-w.Ready:
+	case <-worker.Ready:
 		// Worker is ready
 	case err := <-errCh:
 		return err

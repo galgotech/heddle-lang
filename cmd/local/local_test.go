@@ -63,4 +63,3 @@ func TestStartCmd_ForegroundTimeout(t *testing.T) {
 		t.Errorf("Expected startCmd to run for at least 150ms (foreground wait), but it completed in %v", duration)
 	}
 }
-

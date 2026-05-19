@@ -27,8 +27,8 @@ type pluginSdk interface {
 	PluginRegistration() plugin.PluginRegistration
 	Stream(stream flight.FlightService_DoExchangeServer)
 	HaveStream() bool
-	Send(request plugin.ExecuteStepRequest) error
-	Recv() (*flight.FlightData, error)
+	Send(ctx context.Context, request plugin.ExecuteStepRequest) error
+	Recv() (plugin.ExecuteStepResponse, error)
 	LastHeartbeat(hb plugin.Heartbeat)
 }
 
@@ -37,10 +37,11 @@ type PluginServer struct {
 	registry           *locality.DataLocalityRegistry
 	pluginSyncRegister chan plugin.PluginRegistration
 
-	socketPath string
-	plugins    map[string]pluginSdk // map[string]*PluginInfo
-	pluginsMU  sync.RWMutex
-	Ready      chan struct{}
+	socketPath    string
+	nativePlugins []pluginSdk
+	plugins       map[string]pluginSdk // map[string]*PluginInfo
+	pluginsMU     sync.RWMutex
+	Ready         chan struct{}
 }
 
 func (s *PluginServer) Start(ctx context.Context) error {
@@ -66,8 +67,9 @@ func (s *PluginServer) Start(ctx context.Context) error {
 		}
 	}()
 
-	s.registerPlugin(pluginInternal)
-	s.registerPlugin(pluginStdIo)
+	for _, plugin := range s.nativePlugins {
+		s.registerPlugin(plugin)
+	}
 
 	close(s.Ready)
 	<-ctx.Done()
@@ -197,6 +199,15 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	// Zero-Copy Input: resolve SHM path from registry metadata
 	var inputHandles map[string]string
 	isInputVoid := len(task.Step.InputType) > 0 && task.Step.InputType[0] == models.VoidType
+	if !isInputVoid {
+		capability := fmt.Sprintf("%s.%s", task.Step.Call[0], task.Step.Call[1])
+		if stepSchema, ok := pluginRegistered.PluginRegistration().Schemas[capability]; ok {
+			if stepSchema.Input != nil && stepSchema.Input.IsVoid {
+				isInputVoid = true
+			}
+		}
+	}
+
 	if s.registry != nil && !isInputVoid {
 		handle := task.PreviousTaskID
 		if handle != "" {
@@ -226,45 +237,53 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		InputHandles: inputHandles,
 	}
 
-	resCh := make(chan plugin.ExecuteStepResponse, 1)
-	if err := pluginRegistered.Send(request); err != nil {
+	if err := pluginRegistered.Send(ctx, request); err != nil {
 		return models.TaskResult{}, fmt.Errorf("failed to send task to plugin: %w", err)
 	}
 
-	select {
-	case <-ctx.Done():
-		return models.TaskResult{}, ctx.Err()
-	case resp := <-resCh:
-		// Zero-Copy Output: register SHM path in registry
-		isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
-		if len(resp.OutputHandles) > 0 && s.registry != nil && !isOutputVoid {
-			// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
-			for _, outPath := range resp.OutputHandles {
-				if err := validateSHMPath(outPath); err != nil {
-					return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
-				}
-			}
+	resp, err := pluginRegistered.Recv()
+	if err != nil {
+		return models.TaskResult{}, fmt.Errorf("failed to receive result from plugin: %w", err)
+	}
 
-			handle := task.TaskID
-			// Layer 4: Registry.Put now validates permissions/ownership
-			if err := s.registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputHandles, resp.DirtyHandles)); err != nil {
-				return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
+	// Zero-Copy Output: register SHM path in registry
+	isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
+	if !isOutputVoid {
+		capability := fmt.Sprintf("%s.%s", task.Step.Call[0], task.Step.Call[1])
+		if stepSchema, ok := pluginRegistered.PluginRegistration().Schemas[capability]; ok {
+			if stepSchema.Output != nil && stepSchema.Output.IsVoid {
+				isOutputVoid = true
 			}
-			logger.L().Info("Registered SHM output in registry", zap.String("handle", handle))
+		}
+	}
+	if len(resp.OutputHandles) > 0 && s.registry != nil && !isOutputVoid {
+		// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
+		for _, outPath := range resp.OutputHandles {
+			if err := validateSHMPath(outPath); err != nil {
+				return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
+			}
 		}
 
-		return models.TaskResult{
-			TaskID:       resp.TaskID,
-			Status:       string(resp.Status),
-			ErrorMessage: resp.ErrorMessage,
-		}, nil
+		handle := task.TaskID
+		// Layer 4: Registry.Put now validates permissions/ownership
+		if err := s.registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputHandles, resp.DirtyHandles)); err != nil {
+			return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
+		}
+		logger.L().Info("Registered SHM output in registry", zap.String("handle", handle))
 	}
+
+	return models.TaskResult{
+		TaskID:       resp.TaskID,
+		Status:       string(resp.Status),
+		ErrorMessage: resp.ErrorMessage,
+	}, nil
 }
 
-func NewPluginServer(registry *locality.DataLocalityRegistry, socketPath string) *PluginServer {
+func NewPluginServer(registry *locality.DataLocalityRegistry, nativePlugins []pluginSdk, socketPath string) *PluginServer {
 	pluginServer := &PluginServer{
 		registry:           registry,
 		socketPath:         socketPath,
+		nativePlugins:      nativePlugins,
 		pluginSyncRegister: make(chan plugin.PluginRegistration, 8),
 		plugins:            make(map[string]pluginSdk, 0),
 		Ready:              make(chan struct{}),

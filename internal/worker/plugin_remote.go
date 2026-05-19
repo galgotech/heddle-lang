@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -29,7 +30,7 @@ func (p *pluginRemote) HaveStream() bool {
 	return p.stream != nil
 }
 
-func (p *pluginRemote) Send(request plugin.ExecuteStepRequest) error {
+func (p *pluginRemote) Send(ctx context.Context, request plugin.ExecuteStepRequest) error {
 	body, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task to plugin: %w", err)
@@ -38,8 +39,16 @@ func (p *pluginRemote) Send(request plugin.ExecuteStepRequest) error {
 	return p.stream.Send(&flight.FlightData{DataBody: body})
 }
 
-func (p *pluginRemote) Recv() (*flight.FlightData, error) {
-	return p.stream.Recv()
+func (p *pluginRemote) Recv() (plugin.ExecuteStepResponse, error) {
+	data, err := p.stream.Recv()
+	if err != nil {
+		return plugin.ExecuteStepResponse{}, err
+	}
+	var resp plugin.ExecuteStepResponse
+	if err := json.Unmarshal(data.DataBody, &resp); err != nil {
+		return plugin.ExecuteStepResponse{}, err
+	}
+	return resp, nil
 }
 
 func (p *pluginRemote) LastHeartbeat(hb plugin.Heartbeat) {

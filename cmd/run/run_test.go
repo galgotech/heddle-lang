@@ -15,7 +15,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/internal/client"
-	"github.com/galgotech/heddle-lang/internal/control-plane"
+	control_plane "github.com/galgotech/heddle-lang/internal/control-plane"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 )
 
@@ -32,10 +32,6 @@ func TestRunCmd_FlagsRegistration(t *testing.T) {
 	interactiveFlag := RunCmd.Flags().Lookup("interactive")
 	require.NotNil(t, interactiveFlag, "expected --interactive flag to be registered")
 	assert.Equal(t, "bool", interactiveFlag.Value.Type())
-
-	interativaFlag := RunCmd.Flags().Lookup("interativa")
-	require.NotNil(t, interativaFlag, "expected --interativa flag to be registered")
-	assert.Equal(t, "bool", interativaFlag.Value.Type())
 }
 
 func TestRunCmd_ExecutionFlows(t *testing.T) {

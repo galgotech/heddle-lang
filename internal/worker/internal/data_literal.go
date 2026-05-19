@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -11,28 +12,51 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 
-	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
-func ExecuteDataLiteral(ctx context.Context, task models.StepExecutionTask, registry *locality.DataLocalityRegistry) (models.TaskResult, error) {
-	logger.L().Info("Executing data_literal step", zap.String("task_id", task.TaskID))
+func ExecuteDataLiteral(ctx context.Context, request plugin.ExecuteStepRequest) (plugin.ExecuteStepResponse, error) {
+	logger.L().Info("Executing data_literal step", zap.String("task_id", request.TaskID))
 
-	listData := task.Step.LiteralData
-	if listData == nil {
-		return models.TaskResult{}, fmt.Errorf("data_literal: missing 'literal_data'")
+	if request.ConfigJSON == "" {
+		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: missing step config JSON")
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(request.ConfigJSON), &cfg); err != nil {
+		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to parse config JSON: %w", err)
+	}
+
+	raw, ok := cfg["literalData"]
+	if !ok || raw == nil {
+		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: missing 'literalData' in step config")
+	}
+
+	slice, ok := raw.([]any)
+	if !ok {
+		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: 'literalData' must be a valid slice of maps, got %T", raw)
+	}
+
+	listData := make([]map[string]any, len(slice))
+	for i, item := range slice {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: element %d in 'literalData' is not a valid map, got %T", i, item)
+		}
+		listData[i] = m
 	}
 
 	record, err := convertToArrowRecord(listData)
 	if err != nil {
-		return models.TaskResult{}, fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
+		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
 	}
 	defer record.Release()
 
 	// Store data in the locality registry for zero-copy access by plugins.
 	// The task ID serves as the handle for subsequent steps.
-	handle := task.TaskID
+	handle := request.TaskID
 
 	paths := make(map[string]string)
 	schema := record.Schema()
@@ -41,26 +65,16 @@ func ExecuteDataLiteral(ctx context.Context, task models.StepExecutionTask, regi
 		arr := record.Column(i)
 		path, err := locality.WriteArrowArrayToShm(field, arr)
 		if err != nil {
-			return models.TaskResult{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
+			return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
 		}
 		paths[field.Name] = path
 		logger.L().Info("Allocated data_literal column to SHM", zap.String("handle", handle), zap.String("field", field.Name), zap.String("path", path))
 	}
 
-	// literal_data always is first step the tips is void -> data_type
-	isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
-	if isOutputVoid {
-		logger.L().Warn("data_literal is first step and output is void, this is not expected", zap.String("handle", handle))
-	}
-
-	// Register the data in the locality registry
-	if err := registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, paths)); err != nil {
-		return models.TaskResult{}, fmt.Errorf("data_literal: failed to register in locality registry: %w", err)
-	}
-
-	return models.TaskResult{
-		TaskID: task.TaskID,
-		Status: models.TaskStatusSuccess,
+	return plugin.ExecuteStepResponse{
+		TaskID:        request.TaskID,
+		Status:        plugin.StepResponseSuccess,
+		OutputHandles: paths,
 	}, nil
 }
 

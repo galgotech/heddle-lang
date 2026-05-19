@@ -505,7 +505,10 @@ workflow main {
 	assert.Equal(t, []string{"__internal", "data_literal"}, dataStep.Call)
 
 	// Verify data content
-	data := dataStep.LiteralData
+	dataRaw, ok := dataStep.Config["literalData"]
+	require.True(t, ok)
+	data, ok := dataRaw.([]map[string]any)
+	require.True(t, ok)
 	require.Len(t, data, 2)
 	assert.Equal(t, int64(1), data[0]["id"])
 	assert.Equal(t, "Alice", data[0]["name"])

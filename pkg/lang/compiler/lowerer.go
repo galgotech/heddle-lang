@@ -389,7 +389,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 				},
 				DefinitionName: "data_literal",
 				Call:           []string{"__internal", "data_literal"},
-				LiteralData:    data,
+				Config:         map[string]any{"literalData": data},
 			}
 			if call.TrapRef.End > 0 {
 				trapName := l.getString(call.TrapRef)

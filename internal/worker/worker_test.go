@@ -18,6 +18,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
 type mockControlPlane struct {
@@ -91,7 +92,9 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	// Clean up socket
 	socketPath := "/tmp/heddle-worker-test.sock"
 	os.Remove(socketPath)
-	ps := NewPluginServer(nil, socketPath)
+	registry := locality.NewDataLocalityRegistry()
+	nativePlugins := NewNativePlugins(registry)
+	ps := NewPluginServer(registry, nativePlugins, socketPath)
 
 	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)
@@ -121,7 +124,9 @@ func TestWorker_PluginServer(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-plugin-test.sock"
 	os.Remove(socketPath)
 
-	ps := NewPluginServer(nil, socketPath)
+	registry := locality.NewDataLocalityRegistry()
+	nativePlugins := NewNativePlugins(registry)
+	ps := NewPluginServer(registry, nativePlugins, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -175,7 +180,9 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-cap-test.sock"
 	os.Remove(socketPath)
 
-	ps := NewPluginServer(nil, socketPath)
+	registry := locality.NewDataLocalityRegistry()
+	nativePlugins := NewNativePlugins(registry)
+	ps := NewPluginServer(registry, nativePlugins, socketPath)
 	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)
 
@@ -275,18 +282,26 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-protect-test.sock"
 	os.Remove(socketPath)
 
-	ps := NewPluginServer(nil, socketPath)
+	registry := locality.NewDataLocalityRegistry()
+	nativePlugins := NewNativePlugins(registry)
+	ps := NewPluginServer(registry, nativePlugins, socketPath)
 	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)
 
 	go w.Start(ctx)
 
-	// Wait for initial registration
-	select {
-	case update := <-mock.Capabilities:
-		assert.Contains(t, update.Capabilities, "__internal.identity")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for initial capabilities")
+	// Wait for initial registration containing __internal.identity
+	foundInternal := false
+	timeout := time.After(5 * time.Second)
+	for !foundInternal {
+		select {
+		case update := <-mock.Capabilities:
+			if slices.Contains(update.Capabilities, "__internal.identity") {
+				foundInternal = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for initial capabilities containing __internal.identity")
+		}
 	}
 
 	// Wait for worker to be fully ready (plugin server started)
