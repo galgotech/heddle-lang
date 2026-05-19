@@ -24,7 +24,7 @@ type mockFlightRegistryServer struct {
 }
 
 func (s *mockFlightRegistryServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
-	if action.Type == models.ActionGetRegistry {
+	if action.Type == models.ActionGetWorkerInfo {
 		body, err := json.Marshal(s.registry)
 		if err != nil {
 			return err

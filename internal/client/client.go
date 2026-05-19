@@ -20,6 +20,7 @@ func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, source string, 
 	sub := models.WorkflowSubmission{
 		Source:       source,
 		WorkflowName: workflowName,
+		Strategy:     "recursive",
 	}
 	body, err := json.Marshal(sub)
 	if err != nil {
@@ -41,27 +42,6 @@ func (c *ControlPlaneClient) SubmitWorkflow(ctx context.Context, source string, 
 	}
 
 	return string(result.Body), nil
-}
-
-func (c *ControlPlaneClient) GetRegistry(ctx context.Context) (models.RegistryInfo, error) {
-	var info models.RegistryInfo
-	res, err := c.client.DoAction(ctx, &flight.Action{
-		Type: models.ActionGetRegistry,
-	})
-	if err != nil {
-		return info, fmt.Errorf("failed to get registry: %w", err)
-	}
-
-	result, err := res.Recv()
-	if err != nil {
-		return info, fmt.Errorf("failed to receive registry result: %w", err)
-	}
-
-	if err := json.Unmarshal(result.Body, &info); err != nil {
-		return info, fmt.Errorf("failed to unmarshal registry info: %w", err)
-	}
-
-	return info, nil
 }
 
 func NewControlPlaneClient(addr string) (*ControlPlaneClient, error) {

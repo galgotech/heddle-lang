@@ -15,7 +15,7 @@ const (
 	ActionUpdateCapabilities = "update-capabilities"
 	ActionPurgeWorkflow      = "purge-workflow"
 	ActionPurgeAck           = "purge-ack"
-	ActionGetRegistry        = "get-registry"
+	ActionGetWorkerInfo      = "get-worker-info"
 )
 
 // RegistryInfo contains the metadata about all registered steps in the cluster.
@@ -62,9 +62,11 @@ type WorkerHeartbeat struct {
 
 // Task represents a unit of work dispatched to a worker.
 type Task struct {
-	ID             string      `json:"id"`
-	Program        *ir.Program `json:"program"`
-	TargetWorkflow string      `json:"target_workflow,omitempty"`
+	ID             string                        `json:"id"`
+	Program        *ir.Program                   `json:"program"`
+	TargetWorkflow string                        `json:"target_workflow,omitempty"`
+	Strategy       string                        `json:"strategy"`
+	Schemas        map[string]schema.StepSchemas `json:"schemas"`
 }
 
 // TaskResult is the response from a worker after executing a task.
@@ -78,6 +80,7 @@ type TaskResult struct {
 type WorkflowSubmission struct {
 	Source       string `json:"source"`
 	WorkflowName string `json:"workflow_name,omitempty"`
+	Strategy     string `json:"strategy"`
 }
 
 // WorkflowPurge is sent by the control plane to a worker after workflow termination.

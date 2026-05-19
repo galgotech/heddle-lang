@@ -61,7 +61,7 @@ func (c *ControlPlaneLSPClient) GetRegistry(ctx context.Context) (*models.Regist
 
 	// Perform the remote flight RPC action to request the global step registry.
 	res, err := client.DoAction(ctx, &flight.Action{
-		Type: models.ActionGetRegistry,
+		Type: models.ActionGetWorkerInfo,
 	})
 	if err != nil {
 		return nil, err
