@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"google.golang.org/grpc"
@@ -98,5 +99,8 @@ func (c *ControlPlaneLSPClient) Close() error {
 // NewControlPlaneLSPClient instantiates a new ControlPlaneLSPClient for the designated target address.
 // The connection itself must be initialized separately by calling the Connect method.
 func NewControlPlaneLSPClient(addr string) *ControlPlaneLSPClient {
+	if (strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, "./") || strings.HasSuffix(addr, ".sock")) && !strings.Contains(addr, "://") {
+		addr = "unix://" + addr
+	}
 	return &ControlPlaneLSPClient{addr: addr}
 }

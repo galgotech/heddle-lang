@@ -164,7 +164,7 @@ func (s *Session) onLaunch(req *dap.LaunchRequest) {
 
 	// 4. Submit the workflow with "debug" strategy
 	go func() {
-		_, err := s.client.SubmitWorkflow(string(content), args.Workflow, "debug", false)
+		_, err := s.client.SubmitWorkflowDirect(string(content), args.Workflow, "debug")
 		if err != nil {
 			s.send(&dap.OutputEvent{
 				Event: *s.newEvent("output"),
@@ -173,8 +173,8 @@ func (s *Session) onLaunch(req *dap.LaunchRequest) {
 					Category: "stderr",
 				},
 			})
+			s.send(&dap.TerminatedEvent{Event: *s.newEvent("terminated")})
 		}
-		s.send(&dap.TerminatedEvent{Event: *s.newEvent("terminated")})
 	}()
 }
 
@@ -189,6 +189,7 @@ func (s *Session) runStreamReader(ctx context.Context) {
 		rec, err := stream.Recv()
 		if err != nil {
 			s.logger.Info("debug stream closed or cancelled")
+			s.send(&dap.TerminatedEvent{Event: *s.newEvent("terminated")})
 			return
 		}
 
@@ -201,6 +202,14 @@ func (s *Session) runStreamReader(ctx context.Context) {
 					Category: "console",
 				},
 			})
+			if after == "Workflow completed successfully." {
+				s.send(&dap.TerminatedEvent{Event: *s.newEvent("terminated")})
+				return
+			}
+			if strings.HasPrefix(after, "Workflow failed:") {
+				s.send(&dap.TerminatedEvent{Event: *s.newEvent("terminated")})
+				return
+			}
 		} else if after, ok := strings.CutPrefix(msg, "DEBUG_PAUSED:"); ok {
 			// Parse: DEBUG_PAUSED:step_id:line:col:inputs_json
 			parts := strings.SplitN(after, ":", 4)
@@ -445,8 +454,10 @@ func (s *Session) send(msg dap.Message) {
 }
 
 func (s *Session) sendError(req dap.Request, message string) {
+	resp := s.newResponse(req)
+	resp.Success = false
 	s.send(&dap.ErrorResponse{
-		Response: *s.newResponse(req),
+		Response: *resp,
 		Body: dap.ErrorResponseBody{
 			Error: &dap.ErrorMessage{
 				Format: message,

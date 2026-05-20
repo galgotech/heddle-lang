@@ -42,6 +42,19 @@ func (c *ControlPlaneClient) connect() error {
 	return nil
 }
 
+// SubmitWorkflowDirect submits a workflow to the control plane without consuming the interactive stream.
+// This is primarily used by the DAP server which manages its own stream reader loop.
+func (c *ControlPlaneClient) SubmitWorkflowDirect(source string, workflowName string, strategy string) (string, error) {
+	sub := models.WorkflowSubmission{
+		Source:       source,
+		WorkflowName: workflowName,
+		Strategy:     strategy,
+		Async:        false,
+	}
+
+	return c.sendAction(c.ctx, models.ActionSubmitWorkflow, sub)
+}
+
 func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, strategy string, async bool) (string, error) {
 	sub := models.WorkflowSubmission{
 		Source:       source,
@@ -139,6 +152,9 @@ func (c *ControlPlaneClient) GetStream() flight.FlightService_DoExchangeClient {
 }
 
 func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClient, error) {
+	if (strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, "./") || strings.HasSuffix(addr, ".sock")) && !strings.Contains(addr, "://") {
+		addr = "unix://" + addr
+	}
 	metaData, ok := metadata.FromOutgoingContext(ctx)
 	if !ok || (len(metaData.Get("client-id")) == 0 && len(metaData.Get("worker-id")) == 0) {
 		ctx = metadata.AppendToOutgoingContext(ctx, "client-id", "client-"+uuid.New().String()[:8])
@@ -148,6 +164,8 @@ func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClien
 		addr: addr,
 		In:   os.Stdin,
 	}
-	client.connect()
+	if err := client.connect(); err != nil {
+		return nil, err
+	}
 	return client, nil
 }

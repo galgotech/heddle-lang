@@ -37,27 +37,21 @@ var DapCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		l := logger.L()
-		cpAddr := viper.GetString("control-plane-addr")
+		cpAddr, _ := cmd.Flags().GetString("control-plane-addr")
+		addr, _ := cmd.Flags().GetString("addr")
 
-		logger.L().Info("DAP server starting", zap.String("addr", viper.GetString("addr")), zap.String("control-plane-addr", cpAddr))
+		l.Info("DAP server starting", zap.String("addr", addr), zap.String("control-plane-addr", cpAddr))
 
-		server := dap.NewServer(l, viper.GetString("addr"), cpAddr)
+		server := dap.NewServer(l, addr, cpAddr)
 
-		if viper.GetBool("server") {
-			if err := server.Start(context.Background()); err != nil {
-				l.Fatal("DAP server failed", zap.Error(err))
-			}
-		} else {
-			if err := server.StartStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
-				l.Fatal("DAP stdio failed", zap.Error(err))
-			}
+		if err := server.StartStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
+			l.Fatal("DAP stdio failed", zap.Error(err))
 		}
 	},
 }
 
 func init() {
 	DapCmd.PersistentFlags().StringVar(&dapCfgFile, "config", "", "config file (default is ./heddle-dap.yaml)")
-	DapCmd.Flags().Bool("server", false, "Start in server mode")
 	DapCmd.Flags().String("addr", "localhost:4711", "Address to listen on in server mode")
 	DapCmd.Flags().String("log-path", "/tmp/heddle-dap.log", "Path to log file")
 	DapCmd.Flags().String("control-plane-addr", "localhost:50051", "Address of the Heddle Control Plane")

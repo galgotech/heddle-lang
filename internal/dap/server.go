@@ -17,15 +17,6 @@ type Server struct {
 	cpAddr string
 }
 
-// NewServer creates a new DAP server.
-func NewServer(logger *zap.Logger, addr, cpAddr string) *Server {
-	return &Server{
-		logger: logger,
-		addr:   addr,
-		cpAddr: cpAddr,
-	}
-}
-
 // Start begins listening for DAP connections.
 func (s *Server) Start(ctx context.Context) error {
 	ln, err := net.Listen("tcp", s.addr)
@@ -77,4 +68,13 @@ func (s *Server) handleSession(ctx context.Context, r io.Reader, w io.Writer) {
 		cpAddr: s.cpAddr,
 	}
 	session.serve(ctx)
+}
+
+// NewServer creates a new DAP server.
+func NewServer(logger *zap.Logger, addr, cpAddr string) *Server {
+	return &Server{
+		logger: logger,
+		addr:   addr,
+		cpAddr: cpAddr,
+	}
 }
