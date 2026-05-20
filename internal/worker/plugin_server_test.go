@@ -107,7 +107,7 @@ func TestPluginServer_DispatchTask_LocalPlugin(t *testing.T) {
 		WorkflowID:     "wf-1",
 		TaskID:         "step_data_3",
 		PreviousTaskID: "",
-		Step: &ir.StepInstruction{
+		Step: ir.StepInstruction{
 			BaseInstruction: ir.BaseInstruction{
 				ID:   "step_data_3",
 				Type: ir.StepInst,

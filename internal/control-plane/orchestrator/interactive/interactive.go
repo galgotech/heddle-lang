@@ -40,7 +40,7 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 
 		logger.L().Info("[INTERACTIVE] Starting interactive workflow execution", zap.String("workflow", flow.Name))
 		if clientStream != nil {
-			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Starting interactive execution of workflow %s...", flow.Name))})
+			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting interactive execution of workflow %s...", flow.Name)})
 		}
 
 		var runErr error
@@ -54,7 +54,7 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 		if runErr != nil {
 			logger.L().Error("[INTERACTIVE] Task failed", zap.Error(runErr))
 			if clientStream != nil {
-				clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Workflow failed: %v", runErr))})
+				clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
 			}
 			return
 		}
@@ -69,18 +69,21 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
 		if clientStream != nil {
-			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Validation failed for step %s: %v", stepID, err))})
+			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
 		}
 		return err
 	}
 
-	step := prog.Instructions[stepID].(*ir.StepInstruction)
+	step, ok := prog.Instructions[stepID].(ir.StepInstruction)
+	if !ok {
+		return fmt.Errorf("step %s is not a valid instruction", stepID)
+	}
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
 	logger.L().Info("[INTERACTIVE] Prompting approval for step", zap.String("step_id", stepID), zap.String("capability", capability))
 
 	if clientStream != nil {
-		err := clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("PROMPT:%s:%s", stepID, capability))})
+		err := clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "PROMPT:%s:%s", stepID, capability)})
 		if err != nil {
 			return fmt.Errorf("failed to send interactive prompt to client: %w", err)
 		}
@@ -105,7 +108,7 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	}
 
 	if clientStream != nil {
-		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Executing step %s (%s)...", stepID, capability))})
+		clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Executing step %s (%s)...", stepID, capability)})
 	}
 
 	// 1. Find worker
@@ -155,13 +158,13 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 
 	if stepErr != nil {
 		if clientStream != nil {
-			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s failed: %v", stepID, stepErr))})
+			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s failed: %v", stepID, stepErr)})
 		}
 		return stepErr
 	}
 
 	if clientStream != nil {
-		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s completed successfully.", stepID))})
+		clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s completed successfully.", stepID)})
 	}
 
 	// 6. Continue to next steps

@@ -48,10 +48,10 @@ type WorkerCapabilitiesUpdate struct {
 
 // StepExecutionTask represents a single IR step dispatched to a worker.
 type StepExecutionTask struct {
-	WorkflowID     string              `json:"workflow_id"`
-	TaskID         string              `json:"task_id"`
-	PreviousTaskID string              `json:"previous_task_id,omitempty"`
-	Step           *ir.StepInstruction `json:"step"`
+	WorkflowID     string             `json:"workflow_id"`
+	TaskID         string             `json:"task_id"`
+	PreviousTaskID string             `json:"previous_task_id,omitempty"`
+	Step           ir.StepInstruction `json:"step"`
 }
 
 // WorkerHeartbeat is sent periodically by workers to the Control Plane.

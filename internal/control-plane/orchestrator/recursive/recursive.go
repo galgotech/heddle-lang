@@ -76,16 +76,19 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
 		if clientStream != nil {
-			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Validation failed for step %s: %v", stepID, err))})
+			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
 		}
 		return err
 	}
 
-	step := prog.Instructions[stepID].(*ir.StepInstruction)
+	step, ok := prog.Instructions[stepID].(ir.StepInstruction)
+	if !ok {
+		return fmt.Errorf("step %s is not a valid instruction", stepID)
+	}
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
 	if clientStream != nil {
-		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Executing step %s (%s)...", stepID, capability))})
+		clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Executing step %s (%s)...", stepID, capability)})
 	}
 
 	// 1. Find worker
@@ -134,13 +137,13 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 
 	if stepErr != nil {
 		if clientStream != nil {
-			clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s failed: %v", stepID, stepErr))})
+			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s failed: %v", stepID, stepErr)})
 		}
 		return stepErr
 	}
 
 	if clientStream != nil {
-		clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s completed successfully.", stepID))})
+		clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s completed successfully.", stepID)})
 	}
 
 	// 6. Continue to next steps

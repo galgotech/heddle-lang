@@ -46,7 +46,7 @@ func (o *GraphOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string, prog *ir.Program, flow *ir.FlowInstruction, schemas map[string]schema.StepSchemas) error {
 	// Build map of all steps in the flow
-	steps := make(map[string]*ir.StepInstruction)
+	steps := make(map[string]ir.StepInstruction)
 	inDegree := make(map[string]int)
 
 	// Helper to find all steps reachable from heads
@@ -59,7 +59,7 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 		if !ok {
 			return
 		}
-		step, ok := inst.(*ir.StepInstruction)
+		step, ok := inst.(ir.StepInstruction)
 		if !ok {
 			return
 		}
@@ -126,7 +126,7 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 	return nil
 }
 
-func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, prog *ir.Program, step *ir.StepInstruction, prevTaskID string, schemas map[string]schema.StepSchemas) error {
+func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, prog *ir.Program, step ir.StepInstruction, prevTaskID string, schemas map[string]schema.StepSchemas) error {
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, step.ID, schemas); err != nil {
 		return err

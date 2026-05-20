@@ -49,7 +49,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 		logger.L().Info("[DEBUG] Starting debug workflow execution", zap.String("workflow", flow.Name))
 		if clientStream != nil {
-			_ = clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Starting debug execution of workflow %s...", flow.Name))})
+			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting debug execution of workflow %s...", flow.Name)})
 		}
 
 		var runErr error
@@ -63,7 +63,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		if runErr != nil {
 			logger.L().Error("[DEBUG] Workflow execution failed", zap.Error(runErr))
 			if clientStream != nil {
-				_ = clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Workflow failed: %v", runErr))})
+				_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
 			}
 			return
 		}
@@ -88,12 +88,15 @@ func (o *DebugOrchestrator) executeStepDebug(
 ) error {
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
 		if clientStream != nil {
-			_ = clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Validation failed for step %s: %v", stepID, err))})
+			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
 		}
 		return err
 	}
 
-	step := prog.Instructions[stepID].(*ir.StepInstruction)
+	step, ok := prog.Instructions[stepID].(ir.StepInstruction)
+	if !ok {
+		return fmt.Errorf("step %s is not a valid instruction", stepID)
+	}
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
 	// 1. Generate Input Previews
@@ -197,7 +200,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 
 	if stepErr != nil {
 		if clientStream != nil {
-			_ = clientStream.Send(&flight.FlightData{DataBody: []byte(fmt.Sprintf("LOG:Step %s failed: %v", stepID, stepErr))})
+			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s failed: %v", stepID, stepErr)})
 		}
 		return stepErr
 	}
