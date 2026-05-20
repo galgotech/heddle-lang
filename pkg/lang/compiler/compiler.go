@@ -14,7 +14,7 @@ type Compiler struct {
 }
 
 // Compile takes Heddle source code and compiles it into IR.
-func (c *Compiler) Compile(source string) (*ir.Program, error) {
+func (c *Compiler) Compile(source string) (ir.Program, error) {
 	ctx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(ctx)
 
@@ -23,13 +23,13 @@ func (c *Compiler) Compile(source string) (*ir.Program, error) {
 	p := parser.New(l, ctx)
 	program := p.Parse()
 	if len(p.Errors()) > 0 {
-		return nil, fmt.Errorf("parser errors: %v", p.Errors())
+		return ir.Program{}, fmt.Errorf("parser errors: %v", p.Errors())
 	}
 
 	// 2. Semantic Validation
 	v := NewValidator(program, ctx, nil)
 	if err := v.Validate(); err != nil {
-		return nil, err
+		return ir.Program{}, err
 	}
 
 	// 3. Lowering

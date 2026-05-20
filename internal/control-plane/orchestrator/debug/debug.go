@@ -78,7 +78,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 func (o *DebugOrchestrator) executeStepDebug(
 	ctx context.Context,
 	workflowID string,
-	prog *ir.Program,
+	prog ir.Program,
 	stepID string,
 	prevTaskID string,
 	schemas map[string]schema.StepSchemas,
@@ -175,6 +175,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 		TaskID:         stepID,
 		PreviousTaskID: prevTaskID,
 		Step:           step,
+		Resources:      orchestrator.ResolveResources(prog, step),
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {

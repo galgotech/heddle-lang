@@ -33,15 +33,15 @@ type BaseInstruction struct {
 }
 
 // GetID returns the unique identifier for the instruction.
-func (b *BaseInstruction) GetID() string {
+func (b BaseInstruction) GetID() string {
 	return b.ID
 }
 
 // GetType returns the category of the instruction.
-func (b *BaseInstruction) GetType() InstructionType {
+func (b BaseInstruction) GetType() InstructionType {
 	return b.Type
 }
 
-func (b *BaseInstruction) String() string {
+func (b BaseInstruction) String() string {
 	return fmt.Sprintf("[%s] %s", b.Type, b.ID)
 }

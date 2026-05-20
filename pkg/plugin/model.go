@@ -10,7 +10,22 @@ import (
 const (
 	ActionRegisterPlugin  = "register-plugin"
 	ActionPluginHeartbeat = "plugin-heartbeat"
+	ActionResolveSchema   = "resolve-schema"
 )
+
+// ResolveSchemaRequest is sent by the worker to ask a plugin to resolve a dynamic schema
+// based on a specific configuration instance.
+type ResolveSchemaRequest struct {
+	StepName   string `json:"step_name"`
+	ConfigJSON string `json:"config_json"`
+}
+
+// ResolveSchemaResponse contains the resolved schemas for a dynamic step.
+type ResolveSchemaResponse struct {
+	Input  *schema.FrameSchema `json:"input,omitempty"`
+	Output *schema.FrameSchema `json:"output,omitempty"`
+	Error  string              `json:"error,omitempty"`
+}
 
 type StepResponseStatus string
 
@@ -29,14 +44,21 @@ type PluginRegistration struct {
 	Schemas      map[string]schema.StepSchemas              `json:"schemas,omitempty"`
 }
 
+// ResourceDefinition represents the metadata and configuration for a dynamic resource.
+type ResourceDefinition struct {
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config"`
+}
+
 // ExecuteStepRequest encapsulates the metadata for a task delegated to a plugin.
 type ExecuteStepRequest struct {
-	WorkflowID   string            `json:"workflow_id"`
-	TaskID       string            `json:"task_id"`
-	StepName     string            `json:"step_name"`
-	ResourceId   string            `json:"resource_id,omitempty"`
-	ConfigJSON   string            `json:"config_json,omitempty"`
-	InputHandles map[string]string `json:"input_handles"`
+	WorkflowID   string                        `json:"workflow_id"`
+	TaskID       string                        `json:"task_id"`
+	StepName     string                        `json:"step_name"`
+	ResourceId   string                        `json:"resource_id,omitempty"`
+	ConfigJSON   string                        `json:"config_json,omitempty"`
+	InputHandles map[string]string             `json:"input_handles"`
+	Resources    map[string]ResourceDefinition `json:"resources,omitempty"`
 }
 
 // ExecuteStepResponse contains the result of a plugin task execution.

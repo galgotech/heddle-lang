@@ -569,7 +569,7 @@ workflow main ? test {
 
 	// Verify main workflow is still linked correctly
 	flowID := irProg.Workflows[0]
-	flow := irProg.Instructions[flowID].(ir.FlowInstruction)
+	flow := irProg.Instructions[flowID].(*ir.FlowInstruction)
 	aID := flow.Heads[0]
 	aStep := irProg.Instructions[aID].(ir.StepInstruction)
 	assert.Equal(t, "a", aStep.DefinitionName)

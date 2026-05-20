@@ -12,6 +12,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/client"
 	"github.com/galgotech/heddle-lang/internal/config"
+	"github.com/galgotech/heddle-lang/pkg/runtime"
 )
 
 // RunCmd implements the 'run' command.
@@ -71,7 +72,7 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 		// Connection logic
 		var addr string
 		if mode == "local" {
-			addr = "unix:///tmp/heddle-cp.sock"
+			addr = runtime.ControlPlaneUDSPath
 		} else {
 			if target == "" {
 				return fmt.Errorf("--target is required for remote mode when not specified in config")

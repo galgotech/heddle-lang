@@ -44,7 +44,7 @@ func (o *GraphOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 	logger.L().Info("Task completed successfully in graph mode", zap.String("id", task.ID))
 }
 
-func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string, prog *ir.Program, flow *ir.FlowInstruction, schemas map[string]schema.StepSchemas) error {
+func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string, prog ir.Program, flow *ir.FlowInstruction, schemas map[string]schema.StepSchemas) error {
 	// Build map of all steps in the flow
 	steps := make(map[string]ir.StepInstruction)
 	inDegree := make(map[string]int)
@@ -126,7 +126,7 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 	return nil
 }
 
-func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, prog *ir.Program, step ir.StepInstruction, prevTaskID string, schemas map[string]schema.StepSchemas) error {
+func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, prog ir.Program, step ir.StepInstruction, prevTaskID string, schemas map[string]schema.StepSchemas) error {
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, step.ID, schemas); err != nil {
 		return err
@@ -156,6 +156,7 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 		TaskID:         step.ID,
 		PreviousTaskID: prevTaskID,
 		Step:           step,
+		Resources:      orchestrator.ResolveResources(prog, step),
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {

@@ -108,14 +108,17 @@ func newPluginLocal(registry *locality.DataLocalityRegistry) *pluginLocal {
 			Resources: map[string]*schema.ResourceAndConfigSchema{},
 			Schemas: map[string]schema.StepSchemas{
 				"__internal.identity": {
+					Config: &schema.ResourceAndConfigSchema{},
 					Input:  nil,
 					Output: nil,
 				},
 				"__internal.prql": {
+					Config: &schema.ResourceAndConfigSchema{},
 					Input:  nil,
 					Output: nil,
 				},
 				"__internal.data_literal": {
+					Config: &schema.ResourceAndConfigSchema{},
 					Input: &schema.FrameSchema{
 						Fields: []schema.FrameSchemaField{},
 						IsVoid: true,
@@ -123,6 +126,7 @@ func newPluginLocal(registry *locality.DataLocalityRegistry) *pluginLocal {
 					Output: nil,
 				},
 				"__internal.compress": {
+					Config: &schema.ResourceAndConfigSchema{},
 					Input:  nil,
 					Output: nil,
 				},

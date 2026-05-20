@@ -13,6 +13,6 @@ including Control Plane and Worker lifecycle, logging, and health monitoring.`,
 }
 
 func init() {
-	ClusterCmd.AddCommand(cpGroupCmd)
+	ClusterCmd.AddCommand(controlPlaneGroupCmd)
 	ClusterCmd.AddCommand(workerGroupCmd)
 }

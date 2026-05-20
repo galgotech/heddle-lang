@@ -70,13 +70,13 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	task := models.Task{
 		ID:       "task-1",
 		ClientID: "client-1",
-		Program: &ir.Program{
+		Program: ir.Program{
 			Instructions: map[string]any{
 				"flow-1": &ir.FlowInstruction{
 					BaseInstruction: ir.BaseInstruction{ID: "flow-1"},
 					Heads:           []string{stepID},
 				},
-				stepID: &ir.StepInstruction{
+				stepID: ir.StepInstruction{
 					BaseInstruction: ir.BaseInstruction{
 						ID:             stepID,
 						SourceLocation: &ir.SourceLocation{Line: 5, Column: 3},

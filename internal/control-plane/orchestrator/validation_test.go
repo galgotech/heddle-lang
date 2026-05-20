@@ -12,7 +12,7 @@ import (
 )
 
 func TestValidateEdge_EmptyFromID(t *testing.T) {
-	prog := &ir.Program{}
+	prog := ir.Program{}
 
 	err := orchestrator.ValidateEdge(prog, "", "step-1", nil)
 	assert.NoError(t, err)
@@ -36,13 +36,13 @@ func TestValidateEdge_Compatible(t *testing.T) {
 		},
 	}
 
-	prog := &ir.Program{
+	prog := ir.Program{
 		Instructions: map[string]any{
-			"step-1": &ir.StepInstruction{
+			"step-1": ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
 				Call:            []string{"pkg", "from"},
 			},
-			"step-2": &ir.StepInstruction{
+			"step-2": ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
 				Call:            []string{"pkg", "to"},
 			},
@@ -71,13 +71,13 @@ func TestValidateEdge_Incompatible(t *testing.T) {
 		},
 	}
 
-	prog := &ir.Program{
+	prog := ir.Program{
 		Instructions: map[string]any{
-			"step-1": &ir.StepInstruction{
+			"step-1": ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
 				Call:            []string{"pkg", "from"},
 			},
-			"step-2": &ir.StepInstruction{
+			"step-2": ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
 				Call:            []string{"pkg", "to"},
 			},

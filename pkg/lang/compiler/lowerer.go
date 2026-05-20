@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strconv"
 
+	"go.uber.org/zap"
+
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
-	"go.uber.org/zap"
 )
 
 // Lowerer is the compiler component responsible for transforming the high-level AST
@@ -33,35 +34,35 @@ type Lowerer struct {
 
 // Lower executes the multi-pass transformation from AST to Program.
 // The process follows a strict resolution order: Imports -> Resources -> Steps -> Handlers -> Workflows.
-func (l *Lowerer) Lower(program ast.ProgramNode) (*ir.Program, error) {
+func (l *Lowerer) Lower(program ast.ProgramNode) (ir.Program, error) {
 	l.program = &program
 
 	// Phase 1: Establish module namespaces.
 	if err := l.lowerImports(); err != nil {
-		return nil, err
+		return ir.Program{}, err
 	}
 
 	// Phase 2: Register centralized state and connection resources.
 	if err := l.lowerResources(); err != nil {
-		return nil, err
+		return ir.Program{}, err
 	}
 
 	// Phase 3: Prepare bound imperative step definitions for reuse.
 	if err := l.lowerSteps(); err != nil {
-		return nil, err
+		return ir.Program{}, err
 	}
 
 	// Phase 4: Construct reusable error handling pipelines.
 	if err := l.lowerHandlers(); err != nil {
-		return nil, err
+		return ir.Program{}, err
 	}
 
 	// Phase 5: Assemble the execution DAG for each workflow entry point.
 	if err := l.lowerWorkflows(); err != nil {
-		return nil, err
+		return ir.Program{}, err
 	}
 
-	return &ir.Program{
+	return ir.Program{
 		BaseInstruction: ir.BaseInstruction{
 			ID:   "program",
 			Type: ir.ProgramInst,
@@ -223,8 +224,10 @@ func (l *Lowerer) lowerHandlerStatements(node ast.HandlerNode) (string, error) {
 			// Join the previous statement's tail to the current statement's head.
 			if prevStep, ok := l.instructions[prevTailID].(ir.StepInstruction); ok {
 				prevStep.Next = append(prevStep.Next, hStmt)
+				l.instructions[prevTailID] = prevStep
 				if nextStep, ok := l.instructions[hStmt].(ir.StepInstruction); ok {
 					nextStep.Parents = append(nextStep.Parents, prevTailID)
+					l.instructions[hStmt] = nextStep
 				}
 			}
 		}
@@ -441,8 +444,10 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			// Link current step as the successor to the previous one.
 			if prevStep, ok := l.instructions[lastStepID].(ir.StepInstruction); ok {
 				prevStep.Next = append(prevStep.Next, stepID)
+				l.instructions[lastStepID] = prevStep
 				if nextStep, ok := l.instructions[stepID].(ir.StepInstruction); ok {
 					nextStep.Parents = append(nextStep.Parents, lastStepID)
+					l.instructions[stepID] = nextStep
 				}
 			}
 		}
@@ -454,6 +459,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 		aliasName := l.getString(stmt.AssignmentRef)
 		if lastStep, ok := l.instructions[lastStepID].(ir.StepInstruction); ok {
 			lastStep.Assignment = aliasName
+			l.instructions[lastStepID] = lastStep
 			l.aliasMap[aliasName] = lastStepID
 		}
 	}
@@ -555,7 +561,11 @@ func (l *Lowerer) lowerDataframe(ref ast.NodeRef) ([]map[string]any, error) {
 
 // addInstruction registers a new instruction in the program's global instruction map.
 func (l *Lowerer) addInstruction(inst ir.Instruction) {
-	l.instructions[inst.GetID()] = inst
+	if stepInst, ok := inst.(*ir.StepInstruction); ok {
+		l.instructions[inst.GetID()] = *stepInst
+	} else {
+		l.instructions[inst.GetID()] = inst
+	}
 }
 
 // nextID generates a unique identifier for an IR instruction based on the given prefix.

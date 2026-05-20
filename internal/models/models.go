@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
@@ -48,10 +49,11 @@ type WorkerCapabilitiesUpdate struct {
 
 // StepExecutionTask represents a single IR step dispatched to a worker.
 type StepExecutionTask struct {
-	WorkflowID     string             `json:"workflow_id"`
-	TaskID         string             `json:"task_id"`
-	PreviousTaskID string             `json:"previous_task_id,omitempty"`
-	Step           ir.StepInstruction `json:"step"`
+	WorkflowID     string                               `json:"workflow_id"`
+	TaskID         string                               `json:"task_id"`
+	PreviousTaskID string                               `json:"previous_task_id,omitempty"`
+	Step           ir.StepInstruction                   `json:"step"`
+	Resources      map[string]plugin.ResourceDefinition `json:"resources,omitempty"`
 }
 
 // WorkerHeartbeat is sent periodically by workers to the Control Plane.
@@ -64,7 +66,7 @@ type WorkerHeartbeat struct {
 type Task struct {
 	ID             string                        `json:"id"`
 	ClientID       string                        `json:"client_id"`
-	Program        *ir.Program                   `json:"program"`
+	Program        ir.Program                    `json:"program"`
 	TargetWorkflow string                        `json:"target_workflow,omitempty"`
 	Strategy       string                        `json:"strategy"`
 	Schemas        map[string]schema.StepSchemas `json:"schemas"`

@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime"
 )
 
 var Executors = map[string]ExecutorFactory{
@@ -44,7 +45,7 @@ func (m *Maestro) Run(ctx context.Context) error {
 
 	// Start all initial workers
 	for dir, executor := range m.Workers {
-		if err := executor.Start(ctx, "/tmp/heddle-worker.sock"); err != nil {
+		if err := executor.Start(ctx, runtime.WorkerUDSPath); err != nil {
 			logger.L().Error("Worker start failed", zap.Error(err))
 		}
 
@@ -85,7 +86,7 @@ func (m *Maestro) Run(ctx context.Context) error {
 					debounceTimers[key] = time.AfterFunc(500*time.Millisecond, func() {
 						logger.L().Info("File changed, hot-reloading worker...", zap.String("file", event.Name), zap.String("plugin", executor.Name()))
 						executor.Stop()
-						if err := executor.Start(ctx, "/tmp/heddle-worker.sock"); err != nil {
+						if err := executor.Start(ctx, runtime.WorkerUDSPath); err != nil {
 							logger.L().Error("Hot-reload failed", zap.Error(err))
 						}
 					})

@@ -8,7 +8,7 @@ import (
 )
 
 // ValidateEdge checks the schema compatibility of an edge in the DAG between fromID and toID.
-func ValidateEdge(prog *ir.Program, fromID, toID string, schemas map[string]schema.StepSchemas) error {
+func ValidateEdge(prog ir.Program, fromID, toID string, schemas map[string]schema.StepSchemas) error {
 	if fromID == "" {
 		return nil
 	}

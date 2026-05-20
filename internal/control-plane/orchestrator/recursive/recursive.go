@@ -72,7 +72,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 	}
 }
 
-func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workflowID string, prog *ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas, clientStream flight.FlightService_DoExchangeServer) error {
+func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workflowID string, prog ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas, clientStream flight.FlightService_DoExchangeServer) error {
 	// 0. Validate Schema Compatibility
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
 		if clientStream != nil {
@@ -113,6 +113,7 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 		TaskID:         stepID,
 		PreviousTaskID: prevTaskID,
 		Step:           step,
+		Resources:      orchestrator.ResolveResources(prog, step),
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {

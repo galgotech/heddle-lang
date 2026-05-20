@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/galgotech/heddle-lang/pkg/runtime"
 )
 
 func TestStartLocalServices_Ready(t *testing.T) {
@@ -18,8 +20,8 @@ func TestStartLocalServices_Ready(t *testing.T) {
 	defer cancel()
 
 	// Clean up before test
-	os.Remove("/tmp/heddle-cp.sock")
-	os.Remove("/tmp/heddle-worker.sock")
+	os.Remove(runtime.ControlPlaneUDSPath)
+	os.Remove(runtime.WorkerUDSPath)
 
 	err := StartLocalServices(ctx)
 	if err != nil {
@@ -43,8 +45,8 @@ func TestStartCmd_ForegroundTimeout(t *testing.T) {
 	}
 
 	// Clean up before test
-	os.Remove("/tmp/heddle-cp.sock")
-	os.Remove("/tmp/heddle-worker.sock")
+	os.Remove(runtime.ControlPlaneUDSPath)
+	os.Remove(runtime.WorkerUDSPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()

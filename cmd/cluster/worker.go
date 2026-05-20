@@ -12,6 +12,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/internal/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
@@ -75,7 +76,7 @@ func init() {
 	workerRunCmd.Flags().String("config", "", "config file (default is ./heddle-worker.yaml)")
 	workerRunCmd.Flags().String("id", "worker-1", "Unique identifier for this worker instance")
 	workerRunCmd.Flags().String("cp", "localhost:50051", "gRPC address of the Heddle Control Plane")
-	workerRunCmd.Flags().String("socket", "/tmp/heddle-worker.sock", "Path to the Unix Domain Socket for plugins")
+	workerRunCmd.Flags().String("socket", runtime.WorkerUDSPath, "Path to the Unix Domain Socket for plugins")
 	workerRunCmd.Flags().Int("batch-size", 10, "Maximum number of tasks to aggregate per batch")
 	workerRunCmd.Flags().Duration("batch-window", 50*time.Millisecond, "Time window to wait for batch convergence")
 

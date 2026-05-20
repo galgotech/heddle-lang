@@ -229,12 +229,20 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	}
 
 	configJSON, _ := json.Marshal(task.Step.Config)
+	var resourceId string
+	for _, resName := range task.Step.Resources {
+		resourceId = resName
+		break
+	}
+
 	request := plugin.ExecuteStepRequest{
 		WorkflowID:   task.WorkflowID,
 		TaskID:       task.TaskID,
 		StepName:     task.Step.Call[1],
+		ResourceId:   resourceId,
 		ConfigJSON:   string(configJSON),
 		InputHandles: inputHandles,
+		Resources:    task.Resources,
 	}
 
 	if err := pluginRegistered.Send(ctx, request); err != nil {

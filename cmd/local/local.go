@@ -14,6 +14,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/worker"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/runtime"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
@@ -75,7 +76,8 @@ var statusCmd = &cobra.Command{
 			fmt.Printf("Mock: Healthy Control Plane and Worker\n")
 			fmt.Printf("Status: RUNNING (PID: %s)\n", string(data))
 			fmt.Println("Uptime: 2h 45m")
-			fmt.Println("Endpoint: unix:///tmp/heddle-cp.sock")
+			fmt.Printf("Control Plane: %s\n", runtime.ControlPlaneUDSPath)
+			fmt.Printf("Worker: %s\n", runtime.WorkerUDSPath)
 		} else {
 			fmt.Println("Status: STOPPED")
 		}
@@ -106,8 +108,8 @@ func init() {
 func StartLocalServices(ctx context.Context) error {
 	defer logger.Sync()
 
-	cpSocket := "unix:///tmp/heddle-cp.sock"
-	workerSocket := "/tmp/heddle-worker.sock"
+	cpSocket := runtime.ControlPlaneUDSPath
+	workerSocket := runtime.WorkerUDSPath
 
 	errCh := make(chan error, 2)
 

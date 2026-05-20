@@ -14,12 +14,12 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
-var cpGroupCmd = &cobra.Command{
+var controlPlaneGroupCmd = &cobra.Command{
 	Use:   "cp",
 	Short: "Control Plane Management in the cluster",
 }
 
-var cpRunCmd = &cobra.Command{
+var controlPlaneRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Starts the Control Plane binary in cluster mode",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -43,7 +43,7 @@ var cpRunCmd = &cobra.Command{
 	},
 }
 
-var cpLogsCmd = &cobra.Command{
+var controlPlaneLogsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Streams Control Plane logs",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -56,7 +56,7 @@ var cpLogsCmd = &cobra.Command{
 	},
 }
 
-var cpHealthCmd = &cobra.Command{
+var controlPlaneHealthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Checks the health and uptime of the Control Plane",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -68,11 +68,11 @@ var cpHealthCmd = &cobra.Command{
 }
 
 func init() {
-	cpRunCmd.Flags().StringP("port", "p", "50051", "Port for the Control Plane")
-	cpRunCmd.Flags().String("config", "", "config file (default is ./heddle-cp.yaml)")
-	viper.BindPFlag("port", cpRunCmd.Flags().Lookup("port"))
+	controlPlaneRunCmd.Flags().StringP("port", "p", "50051", "Port for the Control Plane")
+	controlPlaneRunCmd.Flags().String("config", "", "config file (default is ./heddle-cp.yaml)")
+	viper.BindPFlag("port", controlPlaneRunCmd.Flags().Lookup("port"))
 
-	cpGroupCmd.AddCommand(cpRunCmd)
-	cpGroupCmd.AddCommand(cpLogsCmd)
-	cpGroupCmd.AddCommand(cpHealthCmd)
+	controlPlaneGroupCmd.AddCommand(controlPlaneRunCmd)
+	controlPlaneGroupCmd.AddCommand(controlPlaneLogsCmd)
+	controlPlaneGroupCmd.AddCommand(controlPlaneHealthCmd)
 }
