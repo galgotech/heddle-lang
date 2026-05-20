@@ -26,14 +26,14 @@ workflow main {
 	require.NotNil(t, irProg)
 
 	for id, inst := range irProg.Instructions {
-		if s, ok := inst.(*ir.StepInstruction); ok {
+		if s, ok := inst.(ir.StepInstruction); ok {
 			t.Logf("Step ID: %s, DefName: %s, Location: %+v", id, s.DefinitionName, s.SourceLocation)
 		}
 	}
 
-	var defStep, callStep *ir.StepInstruction
+	var defStep, callStep ir.StepInstruction
 	for id, inst := range irProg.Instructions {
-		if s, ok := inst.(*ir.StepInstruction); ok && s.DefinitionName == "log_msg" {
+		if s, ok := inst.(ir.StepInstruction); ok && s.DefinitionName == "log_msg" {
 			if id == "step_1" {
 				defStep = s
 			} else if id == "step_call_2" {

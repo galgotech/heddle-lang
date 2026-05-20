@@ -13,8 +13,8 @@ func ValidateEdge(prog *ir.Program, fromID, toID string, schemas map[string]sche
 		return nil
 	}
 
-	fromStep, ok1 := prog.Instructions[fromID].(*ir.StepInstruction)
-	toStep, ok2 := prog.Instructions[toID].(*ir.StepInstruction)
+	fromStep, ok1 := prog.Instructions[fromID].(ir.StepInstruction)
+	toStep, ok2 := prog.Instructions[toID].(ir.StepInstruction)
 	if !ok1 || !ok2 {
 		return nil
 	}

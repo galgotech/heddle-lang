@@ -221,9 +221,9 @@ func (l *Lowerer) lowerHandlerStatements(node ast.HandlerNode) (string, error) {
 		}
 		if prevTailID != "" {
 			// Join the previous statement's tail to the current statement's head.
-			if prevStep, ok := l.instructions[prevTailID].(*ir.StepInstruction); ok {
+			if prevStep, ok := l.instructions[prevTailID].(ir.StepInstruction); ok {
 				prevStep.Next = append(prevStep.Next, hStmt)
-				if nextStep, ok := l.instructions[hStmt].(*ir.StepInstruction); ok {
+				if nextStep, ok := l.instructions[hStmt].(ir.StepInstruction); ok {
 					nextStep.Parents = append(nextStep.Parents, prevTailID)
 				}
 			}
@@ -267,7 +267,7 @@ func (l *Lowerer) lowerWorkflows() error {
 
 			// A step is a workflow head if it has no incoming data dependencies (parents).
 			if headID != "" {
-				if step, ok := l.instructions[headID].(*ir.StepInstruction); ok {
+				if step, ok := l.instructions[headID].(ir.StepInstruction); ok {
 					if len(step.Parents) == 0 {
 						flow.Heads = append(flow.Heads, headID)
 					}
@@ -366,10 +366,10 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			}
 
 			stepID = l.nextID("step_call")
-			orig := l.instructions[origID].(*ir.StepInstruction)
+			orig := l.instructions[origID].(ir.StepInstruction)
 
 			// Clone the base definition to ensure call-specific state isolation.
-			inst := *orig
+			inst := orig
 			inst.ID = stepID
 			inst.SourceLocation = l.getCallLocation(callRef)
 			if call.TrapRef.End > 0 {
@@ -439,9 +439,9 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 		}
 		if lastStepID != "" {
 			// Link current step as the successor to the previous one.
-			if prevStep, ok := l.instructions[lastStepID].(*ir.StepInstruction); ok {
+			if prevStep, ok := l.instructions[lastStepID].(ir.StepInstruction); ok {
 				prevStep.Next = append(prevStep.Next, stepID)
-				if nextStep, ok := l.instructions[stepID].(*ir.StepInstruction); ok {
+				if nextStep, ok := l.instructions[stepID].(ir.StepInstruction); ok {
 					nextStep.Parents = append(nextStep.Parents, lastStepID)
 				}
 			}
@@ -452,7 +452,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 	// Record assignment targets to enable later variable reference resolution.
 	if stmt.AssignmentRef.End > 0 {
 		aliasName := l.getString(stmt.AssignmentRef)
-		if lastStep, ok := l.instructions[lastStepID].(*ir.StepInstruction); ok {
+		if lastStep, ok := l.instructions[lastStepID].(ir.StepInstruction); ok {
 			lastStep.Assignment = aliasName
 			l.aliasMap[aliasName] = lastStepID
 		}

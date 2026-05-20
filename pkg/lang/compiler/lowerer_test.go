@@ -56,9 +56,9 @@ workflow main {
 	assert.Equal(t, "localhost", pgRes.Config["host"])
 
 	// Verify Steps
-	var fetchStep *ir.StepInstruction
+	var fetchStep ir.StepInstruction
 	for _, inst := range irProg.Instructions {
-		if s, ok := inst.(*ir.StepInstruction); ok && s.DefinitionName == "fetch_users" {
+		if s, ok := inst.(ir.StepInstruction); ok && s.DefinitionName == "fetch_users" {
 			fetchStep = s
 			break
 		}
@@ -114,14 +114,14 @@ workflow main ? on_error {
 
 	// Find handler step (should be the implicit identity step from '*')
 	handlerStepID := flow.Handler
-	handlerStep := irProg.Instructions[handlerStepID].(*ir.StepInstruction)
+	handlerStep := irProg.Instructions[handlerStepID].(ir.StepInstruction)
 	assert.Equal(t, "identity", handlerStep.DefinitionName)
 	assert.Equal(t, []string{"__internal", "identity"}, handlerStep.Call)
 	assert.True(t, handlerStep.Config["is_catch_all"].(bool))
 
 	// Next step in handler should be io.stderr
 	require.NotEmpty(t, handlerStep.Next)
-	stderrStep := irProg.Instructions[handlerStep.Next[0]].(*ir.StepInstruction)
+	stderrStep := irProg.Instructions[handlerStep.Next[0]].(ir.StepInstruction)
 	assert.Equal(t, []string{"std/io", "stderr"}, stderrStep.Call)
 }
 
@@ -268,7 +268,7 @@ workflow FraudDetection ? alert_on_fail {
 
 	for i, expected := range sequence {
 		require.NotEmpty(t, currID, "DAG ended prematurely at step %d", i)
-		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		step := irProg.Instructions[currID].(ir.StepInstruction)
 
 		if expected.Name != "" {
 			assert.Equal(t, expected.Name, step.DefinitionName, "Step %d name mismatch", i)
@@ -278,10 +278,10 @@ workflow FraudDetection ? alert_on_fail {
 		if expected.Handler {
 			assert.NotEmpty(t, step.Handler, "Step %d should have a handler", i)
 			// Verify handler content (starts with identity step '*')
-			hStep := irProg.Instructions[step.Handler].(*ir.StepInstruction)
+			hStep := irProg.Instructions[step.Handler].(ir.StepInstruction)
 			assert.Equal(t, "identity", hStep.DefinitionName)
 			require.NotEmpty(t, hStep.Next)
-			nextHStep := irProg.Instructions[hStep.Next[0]].(*ir.StepInstruction)
+			nextHStep := irProg.Instructions[hStep.Next[0]].(ir.StepInstruction)
 			assert.Equal(t, "produce_dead_letter_queue", nextHStep.DefinitionName)
 		}
 
@@ -346,7 +346,7 @@ workflow main {
 	count := 0
 	for curr != "" {
 		count++
-		step := irProg.Instructions[curr].(*ir.StepInstruction)
+		step := irProg.Instructions[curr].(ir.StepInstruction)
 		if len(step.Next) > 0 {
 			curr = step.Next[0]
 		} else {
@@ -426,7 +426,7 @@ workflow main ? recover {
 	chain1 := []string{"s1", "s2", "s1", "s2"}
 	for _, name := range chain1 {
 		require.NotEmpty(t, currID)
-		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		step := irProg.Instructions[currID].(ir.StepInstruction)
 		assert.Equal(t, name, step.DefinitionName)
 		if len(step.Next) > 0 {
 			currID = step.Next[0]
@@ -440,7 +440,7 @@ workflow main ? recover {
 	chain2 := []string{"prql", "s3"}
 	for _, name := range chain2 {
 		require.NotEmpty(t, currID)
-		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		step := irProg.Instructions[currID].(ir.StepInstruction)
 		assert.Equal(t, name, step.DefinitionName)
 		if len(step.Next) > 0 {
 			currID = step.Next[0]
@@ -454,7 +454,7 @@ workflow main ? recover {
 	chain3 := []string{"s4", "prql", "r1"}
 	for _, name := range chain3 {
 		require.NotEmpty(t, currID)
-		step := irProg.Instructions[currID].(*ir.StepInstruction)
+		step := irProg.Instructions[currID].(ir.StepInstruction)
 		assert.Equal(t, name, step.DefinitionName)
 		if len(step.Next) > 0 {
 			currID = step.Next[0]
@@ -500,7 +500,7 @@ workflow main {
 	require.Len(t, flow.Heads, 1)
 
 	dataStepID := flow.Heads[0]
-	dataStep := irProg.Instructions[dataStepID].(*ir.StepInstruction)
+	dataStep := irProg.Instructions[dataStepID].(ir.StepInstruction)
 	assert.Equal(t, "data_literal", dataStep.DefinitionName)
 	assert.Equal(t, []string{"__internal", "data_literal"}, dataStep.Call)
 
@@ -518,7 +518,7 @@ workflow main {
 	// Verify link to io.print
 	require.Len(t, dataStep.Next, 1)
 	printStepID := dataStep.Next[0]
-	printStep := irProg.Instructions[printStepID].(*ir.StepInstruction)
+	printStep := irProg.Instructions[printStepID].(ir.StepInstruction)
 	assert.Equal(t, []string{"std/io", "print"}, printStep.Call)
 }
 
@@ -552,9 +552,9 @@ workflow main ? test {
 	require.NoError(t, err)
 
 	// Verify handler has an identity step at the head
-	var handlerStep *ir.StepInstruction
+	var handlerStep ir.StepInstruction
 	for _, inst := range irProg.Instructions {
-		if s, ok := inst.(*ir.StepInstruction); ok && s.DefinitionName == "identity" {
+		if s, ok := inst.(ir.StepInstruction); ok && s.DefinitionName == "identity" {
 			handlerStep = s
 			break
 		}
@@ -564,13 +564,13 @@ workflow main ? test {
 
 	// Verify identity step links to io.print
 	require.NotEmpty(t, handlerStep.Next)
-	nextStep := irProg.Instructions[handlerStep.Next[0]].(*ir.StepInstruction)
+	nextStep := irProg.Instructions[handlerStep.Next[0]].(ir.StepInstruction)
 	assert.Equal(t, []string{"std/io", "print"}, nextStep.Call)
 
 	// Verify main workflow is still linked correctly
 	flowID := irProg.Workflows[0]
-	flow := irProg.Instructions[flowID].(*ir.FlowInstruction)
+	flow := irProg.Instructions[flowID].(ir.FlowInstruction)
 	aID := flow.Heads[0]
-	aStep := irProg.Instructions[aID].(*ir.StepInstruction)
+	aStep := irProg.Instructions[aID].(ir.StepInstruction)
 	assert.Equal(t, "a", aStep.DefinitionName)
 }

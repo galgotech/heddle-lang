@@ -126,7 +126,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		// Validate compatibility by verifying that all required capabilities are registered.
 		schemas := make(map[string]schema.StepSchemas)
 		for _, inst := range program.Instructions {
-			step, ok := inst.(*ir.StepInstruction)
+			step, ok := inst.(ir.StepInstruction)
 			if !ok {
 				continue
 			}
