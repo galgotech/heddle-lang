@@ -225,16 +225,6 @@ The Data Plane utilizes the following routing mechanisms:
 
 Heddle provides native software development kits (**SDKs**) to write custom step and resource definitions in Python, Go, Node.js (TypeScript), and Rust. All SDKs leverage the Apache Arrow memory layout to guarantee zero-copy efficiency.
 
-
-
-
-## Support and Community
-
-If you encounter issues or have design proposals, please contact the development team. We encourage open discussion to improve developer experience and performance characteristics. You can find help through the following channels:
-- **Issue Tracker**: Submit bug reports and feature requests on our GitHub Issues page.
-- **Discussion Board**: Join other Heddle developers to ask questions and share feedback.
-- **Project Documentation**: Read our comprehensive manuals at the official docs portal.
-
 ---
 
 ## License
