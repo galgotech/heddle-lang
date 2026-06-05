@@ -2,6 +2,8 @@ package logger
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,8 +18,9 @@ func TestLoggerInit(t *testing.T) {
 }
 
 func TestLoggerWithOutputPaths(t *testing.T) {
-	// Test with a temporary file
-	tmpFile := "/tmp/test-heddle-logger.log"
+	// Test with a temporary file in a temp directory
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "test-heddle-logger.log")
 	err := Init(Config{
 		Development: true,
 		OutputPaths: []string{tmpFile},
@@ -26,6 +29,13 @@ func TestLoggerWithOutputPaths(t *testing.T) {
 
 	L().Info("test message")
 	_ = Sync()
+
+	// Read and verify log content
+	content, err := os.ReadFile(tmpFile)
+	assert.NoError(t, err)
+	logStr := string(content)
+	assert.Contains(t, logStr, "logger/logger_test.go")
+	assert.NotContains(t, logStr, "logger/logger.go")
 }
 
 func TestFieldHelpers(t *testing.T) {

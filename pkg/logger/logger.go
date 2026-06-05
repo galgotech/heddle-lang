@@ -71,7 +71,7 @@ func init() {
 	config := zap.NewDevelopmentConfig()
 	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 
-	logger, err := config.Build()
+	logger, err := config.Build(zap.AddCallerSkip(1))
 	if err != nil {
 		// Fallback to basic production logger if development build fails
 		globalLogger = NewNop()
@@ -120,7 +120,7 @@ func Init(cfg Config) error {
 		zapCfg.OutputPaths = cfg.OutputPaths
 	}
 
-	logger, err := zapCfg.Build()
+	logger, err := zapCfg.Build(zap.AddCallerSkip(1))
 	if err != nil {
 		return err
 	}
