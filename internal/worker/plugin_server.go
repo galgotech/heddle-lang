@@ -45,14 +45,19 @@ type PluginServer struct {
 }
 
 func (s *PluginServer) Start(ctx context.Context) error {
-	// Remove existing socket if any
-	if _, err := os.Stat(s.socketPath); err == nil {
-		os.Remove(s.socketPath)
+	path := s.socketPath
+	if after, ok := strings.CutPrefix(path, "unix://"); ok {
+		path = after
 	}
 
-	lis, err := net.Listen("unix", s.socketPath)
+	// Remove existing socket if any
+	if _, err := os.Stat(path); err == nil {
+		os.Remove(path)
+	}
+
+	lis, err := net.Listen("unix", path)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", s.socketPath, err)
+		return fmt.Errorf("failed to listen on %s: %w", path, err)
 	}
 	defer lis.Close()
 
