@@ -43,6 +43,9 @@ theme:
 
 nav:
   - Home: index.md
+  - Getting Started: getstarted.md
+  - Config Reference: config.md
+  - CLI Reference: commandline.md
   - Examples: examples.md
   - Language Reference:
     - Specification: grammar/lang-spec.md

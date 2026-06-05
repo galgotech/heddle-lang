@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -112,7 +113,7 @@ func (w *Worker) startHeartbeat(ctx context.Context) {
 
 func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 	for reg := range w.pluginServer.PluginSyncRegiter() {
-		w.capabilities[reg.Namespace] = reg.Capabilities
+		w.capabilities[reg.Namespace] = slices.Concat(slices.Sorted(maps.Keys(reg.Schemas)), slices.Sorted(maps.Keys(reg.Resources)))
 		w.schemas[reg.Namespace] = reg.Schemas
 
 		cabalities := []string{}

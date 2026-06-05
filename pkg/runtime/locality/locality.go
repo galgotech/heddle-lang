@@ -32,7 +32,6 @@ type Metadata struct {
 	TaskID      string
 	IODirection IODirection
 	Paths       map[string]string // physical paths in /dev/shm
-	DirtyPaths  map[string]string // physical paths of dirty bitmap in /dev/shm
 }
 
 // NewMetadata creates a new Metadata instance ensuring all required fields are provided.
@@ -45,13 +44,12 @@ func NewMetadata(workflowID, taskID string, dir IODirection, paths map[string]st
 	}
 }
 
-func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, paths map[string]string, dirtyPaths map[string]string) Metadata {
+func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, paths map[string]string) Metadata {
 	return Metadata{
 		WorkflowID:  workflowID,
 		TaskID:      taskID,
 		IODirection: dir,
 		Paths:       paths,
-		DirtyPaths:  dirtyPaths,
 	}
 }
 

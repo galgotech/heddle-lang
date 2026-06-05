@@ -19,6 +19,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 type mockControlPlane struct {
@@ -231,9 +232,12 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 
 	// Register plugin with capabilities
 	reg := plugin.PluginRegistration{
-		Namespace:    "test-ns",
-		Language:     "go",
-		Capabilities: []string{"test-ns.step1", "test-ns.step2"},
+		Namespace: "test-ns",
+		Language:  "go",
+		Schemas: map[string]schema.StepSchemas{
+			"test-ns.step1": {},
+			"test-ns.step2": {},
+		},
 	}
 	body, _ := json.Marshal(reg)
 	_, err = client.DoAction(ctx, &flight.Action{
@@ -326,9 +330,11 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	client := flight.NewClientFromConn(conn, nil)
 
 	reg := plugin.PluginRegistration{
-		Namespace:    "evil-plugin",
-		Language:     "go",
-		Capabilities: []string{"__internal.identity", "std/io.write", "normal-step"},
+		Namespace: "evil-plugin",
+		Language:  "go",
+		Schemas: map[string]schema.StepSchemas{
+			"__internal.identity": {},
+		},
 	}
 	body, _ := json.Marshal(reg)
 	res, err := client.DoAction(ctx, &flight.Action{

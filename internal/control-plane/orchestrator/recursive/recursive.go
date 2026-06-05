@@ -38,7 +38,17 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 	}
 
 	for _, flowID := range program.Workflows {
-		flow := program.Instructions[flowID].(*ir.FlowInstruction)
+		inst := program.Instructions[flowID]
+		var flow ir.FlowInstruction
+		switch f := inst.(type) {
+		case ir.FlowInstruction:
+			flow = f
+		case *ir.FlowInstruction:
+			flow = *f
+		default:
+			logger.L().Error("flow is not a valid FlowInstruction", zap.String("id", flowID))
+			continue
+		}
 
 		// Filter by workflow name if specified
 		if task.TargetWorkflow != "" && flow.Name != task.TargetWorkflow {

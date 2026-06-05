@@ -17,7 +17,7 @@ import (
 // ExecutePrint implements std/io.print as an internal step.
 func ExecutePrint(ctx context.Context, request plugin.ExecuteStepRequest) (plugin.ExecuteStepResponse, error) {
 	columns := make(map[string]arrow.Array)
-	for fieldName, path := range request.InputHandles {
+	for fieldName, path := range request.InputRef {
 		arr, err := locality.ReadArrowArrayFromPath(path)
 		if err != nil {
 			logger.L().Error("Failed to read input from SHM", zap.Error(err), zap.String("path", path))

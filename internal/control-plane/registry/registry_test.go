@@ -71,14 +71,12 @@ func TestUpdateCapabilities(t *testing.T) {
 		Capabilities: []string{"test.cap1", "test.cap2"},
 		Schemas: map[string]schema.StepSchemas{
 			"test.cap1": {
-				Input: &schema.FrameSchema{
-					Fields: []schema.FrameSchemaField{
+				Input: schema.FrameSchema{
+					Columns: []schema.ColumnSchema{
 						{Name: "col1", ArrowType: "int64"},
 					},
 				},
-				Output: &schema.FrameSchema{
-					IsVoid: true,
-				},
+				Output: schema.FrameSchema{},
 			},
 		},
 	}
@@ -96,7 +94,7 @@ func TestUpdateCapabilities(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{"test.cap1", "test.cap2"}, caps)
 	assert.Len(t, schemas, 1)
-	assert.Equal(t, "col1", schemas["test.cap1"].Input.Fields[0].Name)
+	assert.Equal(t, "col1", schemas["test.cap1"].Input.Columns[0].Name)
 }
 
 func TestHeartbeat(t *testing.T) {
@@ -163,8 +161,8 @@ func TestGetRegistryInfo(t *testing.T) {
 	r.UpdateCapabilities("worker-active", models.WorkerCapabilitiesUpdate{
 		Schemas: map[string]schema.StepSchemas{
 			"step.active": {
-				Input: &schema.FrameSchema{
-					Fields: []schema.FrameSchemaField{
+				Input: schema.FrameSchema{
+					Columns: []schema.ColumnSchema{
 						{Name: "col1", ArrowType: "utf8"},
 					},
 				},
@@ -177,8 +175,8 @@ func TestGetRegistryInfo(t *testing.T) {
 	r.UpdateCapabilities("worker-inactive", models.WorkerCapabilitiesUpdate{
 		Schemas: map[string]schema.StepSchemas{
 			"step.inactive": {
-				Input: &schema.FrameSchema{
-					Fields: []schema.FrameSchemaField{
+				Input: schema.FrameSchema{
+					Columns: []schema.ColumnSchema{
 						{Name: "col2", ArrowType: "bool"},
 					},
 				},
@@ -193,7 +191,7 @@ func TestGetRegistryInfo(t *testing.T) {
 	assert.Len(t, info.Steps, 1)
 	assert.Contains(t, info.Steps, "step.active")
 	assert.NotContains(t, info.Steps, "step.inactive")
-	assert.Equal(t, "col1", info.Steps["step.active"].Input.Fields[0].Name)
+	assert.Equal(t, "col1", info.Steps["step.active"].Input.Columns[0].Name)
 }
 
 func TestWorkflowClientMapping(t *testing.T) {
@@ -214,4 +212,3 @@ func TestWorkflowClientMapping(t *testing.T) {
 	_, ok = r.GetClientIDForWorkflow("wf-1")
 	assert.False(t, ok)
 }
-

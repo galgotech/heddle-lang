@@ -9,48 +9,32 @@ import (
 func TestCompatible(t *testing.T) {
 	tests := []struct {
 		name    string
-		output  *FrameSchema
-		input   *FrameSchema
+		output  FrameSchema
+		input   FrameSchema
 		wantErr bool
 	}{
 		{
-			name:   "Nil schemas are compatible",
-			output: nil,
-			input:  nil,
-		},
-		{
-			name:   "Void schemas are compatible",
-			output: &FrameSchema{IsVoid: true},
-			input:  &FrameSchema{IsVoid: true},
-		},
-		{
-			name:    "Void and non-void are incompatible",
-			output:  &FrameSchema{IsVoid: true},
-			input:   &FrameSchema{IsVoid: false},
-			wantErr: true,
-		},
-		{
 			name: "Matching non-void schemas are compatible",
-			output: &FrameSchema{
-				Fields: []FrameSchemaField{
+			output: FrameSchema{
+				Columns: []ColumnSchema{
 					{Name: "id", ArrowType: "int64"},
 				},
 			},
-			input: &FrameSchema{
-				Fields: []FrameSchemaField{
+			input: FrameSchema{
+				Columns: []ColumnSchema{
 					{Name: "id", ArrowType: "int64"},
 				},
 			},
 		},
 		{
 			name: "Type mismatch is incompatible",
-			output: &FrameSchema{
-				Fields: []FrameSchemaField{
+			output: FrameSchema{
+				Columns: []ColumnSchema{
 					{Name: "id", ArrowType: "int64"},
 				},
 			},
-			input: &FrameSchema{
-				Fields: []FrameSchemaField{
+			input: FrameSchema{
+				Columns: []ColumnSchema{
 					{Name: "id", ArrowType: "utf8"},
 				},
 			},
@@ -58,13 +42,13 @@ func TestCompatible(t *testing.T) {
 		},
 		{
 			name: "Field count mismatch is incompatible",
-			output: &FrameSchema{
-				Fields: []FrameSchemaField{
+			output: FrameSchema{
+				Columns: []ColumnSchema{
 					{Name: "id", ArrowType: "int64"},
 				},
 			},
-			input: &FrameSchema{
-				Fields: []FrameSchemaField{
+			input: FrameSchema{
+				Columns: []ColumnSchema{
 					{Name: "id", ArrowType: "int64"},
 					{Name: "name", ArrowType: "utf8"},
 				},

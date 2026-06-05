@@ -41,7 +41,17 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 	allOutputs := make(map[string]map[string]string) // stepID -> fieldName -> SHMPath
 
 	for _, flowID := range program.Workflows {
-		flow := program.Instructions[flowID].(*ir.FlowInstruction)
+		inst := program.Instructions[flowID]
+		var flow ir.FlowInstruction
+		switch f := inst.(type) {
+		case ir.FlowInstruction:
+			flow = f
+		case *ir.FlowInstruction:
+			flow = *f
+		default:
+			logger.L().Error("flow is not a valid FlowInstruction", zap.String("id", flowID))
+			continue
+		}
 
 		if task.TargetWorkflow != "" && flow.Name != task.TargetWorkflow {
 			continue

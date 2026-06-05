@@ -72,9 +72,9 @@ func ExecuteDataLiteral(ctx context.Context, request plugin.ExecuteStepRequest) 
 	}
 
 	return plugin.ExecuteStepResponse{
-		TaskID:        request.TaskID,
-		Status:        plugin.StepResponseSuccess,
-		OutputHandles: paths,
+		TaskID:    request.TaskID,
+		Status:    plugin.StepResponseSuccess,
+		OutputRef: paths,
 	}, nil
 }
 

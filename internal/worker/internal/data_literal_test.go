@@ -34,11 +34,11 @@ func TestExecuteDataLiteral(t *testing.T) {
 	assert.Equal(t, plugin.StepResponseSuccess, res.Status)
 
 	// Verify OutputHandles are present
-	assert.NotEmpty(t, res.OutputHandles["id"])
-	assert.NotEmpty(t, res.OutputHandles["name"])
+	assert.NotEmpty(t, res.OutputRef["id"])
+	assert.NotEmpty(t, res.OutputRef["name"])
 
 	// Read back from SHM and verify (smoke test)
-	arr, err := locality.ReadArrowArrayFromPath(res.OutputHandles["id"])
+	arr, err := locality.ReadArrowArrayFromPath(res.OutputRef["id"])
 	require.NoError(t, err)
 	assert.Equal(t, 2, arr.Len())
 	arr.Release()
@@ -62,7 +62,7 @@ func TestExecuteDataLiteral_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "task-data-empty", res.TaskID)
 	assert.Equal(t, plugin.StepResponseSuccess, res.Status)
-	assert.Empty(t, res.OutputHandles)
+	assert.Empty(t, res.OutputRef)
 }
 
 func TestExecuteDataLiteral_Validation(t *testing.T) {

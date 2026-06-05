@@ -331,7 +331,7 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 	if int(ref) < len(v.ctx.PipeChainNodes) {
 		pc := v.ctx.PipeChainNodes[ref]
 		if pc.CallRefsEnd > pc.CallRefsStart {
-			var lastOutputSchema *schema.FrameSchema
+			var lastOutputSchema schema.FrameSchema
 			for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
 				callRef := v.ctx.CallRefs[i]
 				call := v.ctx.CallNodes[callRef]
@@ -340,17 +340,10 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 				// Type Checking
 				if v.schemas != nil {
 					currentSchemas := v.resolveCallSchemas(call)
-					if currentSchemas != nil {
-						if lastOutputSchema != nil && currentSchemas.Input != nil {
-							if err := schema.Compatible(lastOutputSchema, currentSchemas.Input); err != nil {
-								v.addErrorAtRange(fmt.Sprintf("Type mismatch: %v", err), v.ctx.CallRanges[callRef])
-							}
-						}
-						lastOutputSchema = currentSchemas.Output
-					} else {
-						// Step not found in registry, can't validate types
-						lastOutputSchema = nil
+					if err := schema.Compatible(lastOutputSchema, currentSchemas.Input); err != nil {
+						v.addErrorAtRange(fmt.Sprintf("Type mismatch: %v", err), v.ctx.CallRanges[callRef])
 					}
+					lastOutputSchema = currentSchemas.Output
 				}
 			}
 		}

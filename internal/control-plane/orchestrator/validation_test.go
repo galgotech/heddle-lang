@@ -21,15 +21,15 @@ func TestValidateEdge_EmptyFromID(t *testing.T) {
 func TestValidateEdge_Compatible(t *testing.T) {
 	schemas := map[string]schema.StepSchemas{
 		"pkg.from": {
-			Output: &schema.FrameSchema{
-				Fields: []schema.FrameSchemaField{
+			Output: schema.FrameSchema{
+				Columns: []schema.ColumnSchema{
 					{Name: "col1", ArrowType: "int64"},
 				},
 			},
 		},
 		"pkg.to": {
-			Input: &schema.FrameSchema{
-				Fields: []schema.FrameSchemaField{
+			Input: schema.FrameSchema{
+				Columns: []schema.ColumnSchema{
 					{Name: "col1", ArrowType: "int64"},
 				},
 			},
@@ -56,15 +56,15 @@ func TestValidateEdge_Compatible(t *testing.T) {
 func TestValidateEdge_Incompatible(t *testing.T) {
 	schemas := map[string]schema.StepSchemas{
 		"pkg.from": {
-			Output: &schema.FrameSchema{
-				Fields: []schema.FrameSchemaField{
+			Output: schema.FrameSchema{
+				Columns: []schema.ColumnSchema{
 					{Name: "col1", ArrowType: "int64"},
 				},
 			},
 		},
 		"pkg.to": {
-			Input: &schema.FrameSchema{
-				Fields: []schema.FrameSchemaField{
+			Input: schema.FrameSchema{
+				Columns: []schema.ColumnSchema{
 					{Name: "col1", ArrowType: "utf8"},
 				},
 			},

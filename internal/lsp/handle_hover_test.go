@@ -80,23 +80,23 @@ workflow main {
 		Steps: map[string]schema.StepSchemas{
 			"io.print": {
 				Documentation: "Prints values to standard output.",
-				Input: &schema.FrameSchema{
-					Fields: []schema.FrameSchemaField{
+				Input: schema.FrameSchema{
+					Columns: []schema.ColumnSchema{
 						{Name: "message", ArrowType: "utf8"},
 					},
 				},
-				Output: &schema.FrameSchema{IsVoid: true},
+				Output: schema.FrameSchema{},
 			},
 			"postgres.query": {
 				Documentation: "Executes a SQL query.",
-				Config: &schema.ResourceAndConfigSchema{
-					Fields: []schema.ConfigField{
+				Config: schema.FieldSchema{
+					Fields: []schema.Field{
 						{Name: "sql", Type: "string"},
 					},
 				},
-				Input: &schema.FrameSchema{IsVoid: true},
-				Output: &schema.FrameSchema{
-					Fields: []schema.FrameSchemaField{
+				Input: schema.FrameSchema{},
+				Output: schema.FrameSchema{
+					Columns: []schema.ColumnSchema{
 						{Name: "id", ArrowType: "int64"},
 					},
 				},
@@ -105,8 +105,8 @@ workflow main {
 		Resources: map[string]schema.ResourceSchemas{
 			"postgres.connection": {
 				Documentation: "Postgres database connector.",
-				Config: &schema.ResourceAndConfigSchema{
-					Fields: []schema.ConfigField{
+				Config: schema.FieldSchema{
+					Fields: []schema.Field{
 						{Name: "host", Type: "string"},
 					},
 				},

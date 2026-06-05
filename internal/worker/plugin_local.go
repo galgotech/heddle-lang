@@ -66,22 +66,19 @@ func newPluginStdio(registry *locality.DataLocalityRegistry) *pluginLocal {
 			"std/io.print": std.ExecutePrint,
 		},
 		pluginRegistration: plugin.PluginRegistration{
-			Namespace:    "std/io",
-			Language:     "go",
-			Version:      "0.0.1",
-			Capabilities: []string{"std/io.print"},
-			Resources:    map[string]*schema.ResourceAndConfigSchema{},
+			Namespace: "std/io",
+			Language:  "go",
+			Version:   "0.0.1",
+			Resources: map[string]schema.FieldSchema{},
 			Schemas: map[string]schema.StepSchemas{
 				"std/io.print": {
-					Input: &schema.FrameSchema{
-						Fields: []schema.FrameSchemaField{
+					Input: schema.FrameSchema{
+						Columns: []schema.ColumnSchema{
 							{Name: "value", ArrowType: "string"},
 						},
-						IsVoid: false,
 					},
-					Output: &schema.FrameSchema{
-						Fields: []schema.FrameSchemaField{},
-						IsVoid: true,
+					Output: schema.FrameSchema{
+						Columns: []schema.ColumnSchema{},
 					},
 				},
 			},
@@ -100,35 +97,29 @@ func newPluginLocal(registry *locality.DataLocalityRegistry) *pluginLocal {
 			Namespace: "__internal",
 			Language:  "go",
 			Version:   "0.0.1",
-			Capabilities: []string{
-				"__internal.identity",
-				"__internal.prql",
-				"__internal.data_literal",
-			},
-			Resources: map[string]*schema.ResourceAndConfigSchema{},
+			Resources: map[string]schema.FieldSchema{},
 			Schemas: map[string]schema.StepSchemas{
 				"__internal.identity": {
-					Config: &schema.ResourceAndConfigSchema{},
-					Input:  nil,
-					Output: nil,
+					Config: schema.FieldSchema{},
+					Input:  schema.FrameSchema{},
+					Output: schema.FrameSchema{},
 				},
 				"__internal.prql": {
-					Config: &schema.ResourceAndConfigSchema{},
-					Input:  nil,
-					Output: nil,
+					Config: schema.FieldSchema{},
+					Input:  schema.FrameSchema{},
+					Output: schema.FrameSchema{},
 				},
 				"__internal.data_literal": {
-					Config: &schema.ResourceAndConfigSchema{},
-					Input: &schema.FrameSchema{
-						Fields: []schema.FrameSchemaField{},
-						IsVoid: true,
+					Config: schema.FieldSchema{},
+					Input: schema.FrameSchema{
+						Columns: []schema.ColumnSchema{},
 					},
-					Output: nil,
+					Output: schema.FrameSchema{},
 				},
 				"__internal.compress": {
-					Config: &schema.ResourceAndConfigSchema{},
-					Input:  nil,
-					Output: nil,
+					Config: schema.FieldSchema{},
+					Input:  schema.FrameSchema{},
+					Output: schema.FrameSchema{},
 				},
 			},
 		},

@@ -87,7 +87,7 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal registration: %v", err)
 		}
 
-		for _, cap := range pluginRegistration.Capabilities {
+		for cap := range pluginRegistration.Schemas {
 			if strings.HasPrefix(cap, "__internal.") || strings.HasPrefix(cap, "std/") {
 				logger.L().Error("Plugin attempted to register protected capability", zap.String("capability", cap), zap.String("namespace", pluginRegistration.Namespace))
 				return status.Errorf(codes.PermissionDenied, "plugin %s attempted to register protected capability %s", pluginRegistration.Namespace, cap)
@@ -166,7 +166,7 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 		}
 
 		// Layer 2: Validate OutputHandles path before registering
-		for _, outPath := range resp.OutputHandles {
+		for _, outPath := range resp.OutputRef {
 			if outPath != "" {
 				if err := validateSHMPath(outPath); err != nil {
 					logger.L().Error("Plugin provided invalid SHM output path", zap.Error(err), zap.String("path", outPath))
@@ -198,33 +198,20 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 	// Zero-Copy Input: resolve SHM path from registry metadata
 	var inputHandles map[string]string
-	isInputVoid := len(task.Step.InputType) > 0 && task.Step.InputType[0] == models.VoidType
-	if !isInputVoid {
-		capability := fmt.Sprintf("%s.%s", task.Step.Call[0], task.Step.Call[1])
-		if stepSchema, ok := pluginRegistered.PluginRegistration().Schemas[capability]; ok {
-			if stepSchema.Input != nil && stepSchema.Input.IsVoid {
-				isInputVoid = true
-			}
-		}
-	}
 
-	if s.registry != nil && !isInputVoid {
+	if s.registry != nil && task.PreviousTaskID != "" {
 		handle := task.PreviousTaskID
-		if handle != "" {
-			meta, ok := s.registry.GetMetadata(task.WorkflowID, handle, locality.Output)
-			if ok {
-				// Layer 2: Validate SHM path before dispatching
-				for _, p := range meta.Paths {
-					if err := validateSHMPath(p); err != nil {
-						return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
-					}
+		meta, ok := s.registry.GetMetadata(task.WorkflowID, handle, locality.Output)
+		if ok {
+			// Layer 2: Validate SHM path before dispatching
+			for _, p := range meta.Paths {
+				if err := validateSHMPath(p); err != nil {
+					return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
 				}
-				inputHandles = meta.Paths
-			} else {
-				return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
 			}
+			inputHandles = meta.Paths
 		} else {
-			return models.TaskResult{}, fmt.Errorf("critical error: task %s expects input but PreviousTaskID is empty", task.TaskID)
+			return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
 		}
 	}
 
@@ -236,13 +223,13 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	}
 
 	request := plugin.ExecuteStepRequest{
-		WorkflowID:   task.WorkflowID,
-		TaskID:       task.TaskID,
-		StepName:     task.Step.Call[1],
-		ResourceId:   resourceId,
-		ConfigJSON:   string(configJSON),
-		InputHandles: inputHandles,
-		Resources:    task.Resources,
+		WorkflowID:  task.WorkflowID,
+		TaskID:      task.TaskID,
+		StepName:    task.Step.Call[1],
+		ResourceRef: resourceId,
+		ConfigJSON:  string(configJSON),
+		InputRef:    inputHandles,
+		Resources:   task.Resources,
 	}
 
 	if err := pluginRegistered.Send(ctx, request); err != nil {
@@ -255,18 +242,9 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	}
 
 	// Zero-Copy Output: register SHM path in registry
-	isOutputVoid := len(task.Step.OutputType) > 0 && task.Step.OutputType[0] == models.VoidType
-	if !isOutputVoid {
-		capability := fmt.Sprintf("%s.%s", task.Step.Call[0], task.Step.Call[1])
-		if stepSchema, ok := pluginRegistered.PluginRegistration().Schemas[capability]; ok {
-			if stepSchema.Output != nil && stepSchema.Output.IsVoid {
-				isOutputVoid = true
-			}
-		}
-	}
-	if len(resp.OutputHandles) > 0 && s.registry != nil && !isOutputVoid {
+	if len(resp.OutputRef) > 0 && s.registry != nil {
 		// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
-		for _, outPath := range resp.OutputHandles {
+		for _, outPath := range resp.OutputRef {
 			if err := validateSHMPath(outPath); err != nil {
 				return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
 			}
@@ -274,7 +252,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 		handle := task.TaskID
 		// Layer 4: Registry.Put now validates permissions/ownership
-		if err := s.registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputHandles, resp.DirtyHandles)); err != nil {
+		if err := s.registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputRef)); err != nil {
 			return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
 		}
 		logger.L().Info("Registered SHM output in registry", zap.String("handle", handle))
@@ -284,7 +262,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		TaskID:        resp.TaskID,
 		Status:        string(resp.Status),
 		ErrorMessage:  resp.ErrorMessage,
-		OutputHandles: resp.OutputHandles,
+		OutputHandles: resp.OutputRef,
 	}, nil
 }
 

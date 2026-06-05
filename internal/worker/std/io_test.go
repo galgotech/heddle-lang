@@ -16,10 +16,10 @@ func TestExecutePrint_WithRedirectedOutput(t *testing.T) {
 	ctx := plugin.WithOutputWriter(context.Background(), buf)
 
 	req := plugin.ExecuteStepRequest{
-		WorkflowID:   "wf-print",
-		TaskID:       "task-print",
-		StepName:     "print",
-		InputHandles: map[string]string{},
+		WorkflowID: "wf-print",
+		TaskID:     "task-print",
+		StepName:   "print",
+		InputRef:   map[string]string{},
 	}
 
 	res, err := ExecutePrint(ctx, req)

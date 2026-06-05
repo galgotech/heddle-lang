@@ -158,7 +158,7 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 	// Render details if available in registry
 	if registry != nil {
 		if isResource {
-			if res, ok := registry.Resources[targetName]; ok && res.Config != nil && len(res.Config.Fields) > 0 {
+			if res, ok := registry.Resources[targetName]; ok && len(res.Config.Fields) > 0 {
 				markdown.WriteString("#### ⚙️ Configuration\n")
 				markdown.WriteString("| Field | Type |\n")
 				markdown.WriteString("|---|---|\n")
@@ -170,7 +170,7 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 		} else {
 			if step, ok := registry.Steps[targetName]; ok {
 				// Config
-				if step.Config != nil && len(step.Config.Fields) > 0 {
+				if len(step.Config.Fields) > 0 {
 					markdown.WriteString("#### ⚙️ Configuration\n")
 					markdown.WriteString("| Field | Type |\n")
 					markdown.WriteString("|---|---|\n")
@@ -179,34 +179,29 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 					}
 					markdown.WriteString("\n")
 				}
+
 				// Input Frame
-				if step.Input != nil {
-					markdown.WriteString("#### 📥 Input HeddleFrame\n")
-					if step.Input.IsVoid {
-						markdown.WriteString("`void` (No input required)\n\n")
-					} else if len(step.Input.Fields) > 0 {
-						markdown.WriteString("| Column | Arrow Type |\n")
-						markdown.WriteString("|---|---|\n")
-						for _, f := range step.Input.Fields {
-							markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
-						}
-						markdown.WriteString("\n")
+				markdown.WriteString("#### 📥 Input HeddleFrame\n")
+				if len(step.Input.Columns) > 0 {
+					markdown.WriteString("| Column | Arrow Type |\n")
+					markdown.WriteString("|---|---|\n")
+					for _, f := range step.Input.Columns {
+						markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
 					}
+					markdown.WriteString("\n")
 				}
+
 				// Output Frame
-				if step.Output != nil {
-					markdown.WriteString("#### 📤 Output HeddleFrame\n")
-					if step.Output.IsVoid {
-						markdown.WriteString("`void` (No output returned)\n\n")
-					} else if len(step.Output.Fields) > 0 {
-						markdown.WriteString("| Column | Arrow Type |\n")
-						markdown.WriteString("|---|---|\n")
-						for _, f := range step.Output.Fields {
-							markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
-						}
-						markdown.WriteString("\n")
+				markdown.WriteString("#### 📤 Output HeddleFrame\n")
+				if len(step.Output.Columns) > 0 {
+					markdown.WriteString("| Column | Arrow Type |\n")
+					markdown.WriteString("|---|---|\n")
+					for _, f := range step.Output.Columns {
+						markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
 					}
+					markdown.WriteString("\n")
 				}
+
 				// Source code preview
 				if step.SourceCode != "" {
 					markdown.WriteString("#### 🔍 Source Implementation\n")

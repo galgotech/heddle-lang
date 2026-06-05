@@ -23,9 +23,7 @@ func TestWorkerInfo_UpdateCapabilities(t *testing.T) {
 		Capabilities: []string{"cap.1", "cap.2"},
 		Schemas: map[string]schema.StepSchemas{
 			"cap.2": {
-				Input: &schema.FrameSchema{
-					IsVoid: true,
-				},
+				Input: schema.FrameSchema{},
 			},
 		},
 	}
@@ -35,7 +33,6 @@ func TestWorkerInfo_UpdateCapabilities(t *testing.T) {
 	assert.ElementsMatch(t, []string{"cap.1", "cap.2"}, info.Capabilities)
 	assert.Len(t, info.Schemas, 1)
 	assert.Contains(t, info.Schemas, "cap.2")
-	assert.True(t, info.Schemas["cap.2"].Input.IsVoid)
 }
 
 func TestWorkerInfo_GetSchemaForCapability(t *testing.T) {
@@ -47,12 +44,11 @@ func TestWorkerInfo_GetSchemaForCapability(t *testing.T) {
 	// 2. Get schema when capability exists
 	info.Schemas = map[string]schema.StepSchemas{
 		"cap.1": {
-			Input: &schema.FrameSchema{IsVoid: true},
+			Input: schema.FrameSchema{},
 		},
 	}
-	s, ok := info.GetSchemaForCapability("cap.1")
+	_, ok = info.GetSchemaForCapability("cap.1")
 	assert.True(t, ok)
-	assert.True(t, s.Input.IsVoid)
 
 	// 3. Get schema when capability does not exist
 	_, ok = info.GetSchemaForCapability("cap.none")
@@ -73,15 +69,11 @@ func TestWorkerStream_BasicAccessors(t *testing.T) {
 		Capabilities: []string{"cap.1"},
 		Schemas: map[string]schema.StepSchemas{
 			"cap.1": {
-				Input: &schema.FrameSchema{IsVoid: true},
+				Input: schema.FrameSchema{},
 			},
 		},
 	}
 	w.UpdateCapabilities(update)
-
-	s, ok := w.GetSchemaForCapability("cap.1")
-	assert.True(t, ok)
-	assert.True(t, s.Input.IsVoid)
 
 	// Test LastSeen
 	assert.Zero(t, w.lastSeen)
