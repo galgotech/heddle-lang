@@ -23,7 +23,7 @@ func TestWorkerInfo_UpdateCapabilities(t *testing.T) {
 		Capabilities: []string{"cap.1", "cap.2"},
 		Schemas: map[string]schema.StepSchemas{
 			"cap.2": {
-				Input: schema.FrameSchema{},
+				Input: []schema.ColumnSchema{},
 			},
 		},
 	}
@@ -44,7 +44,7 @@ func TestWorkerInfo_GetSchemaForCapability(t *testing.T) {
 	// 2. Get schema when capability exists
 	info.Schemas = map[string]schema.StepSchemas{
 		"cap.1": {
-			Input: schema.FrameSchema{},
+			Input: []schema.ColumnSchema{},
 		},
 	}
 	_, ok = info.GetSchemaForCapability("cap.1")
@@ -69,7 +69,7 @@ func TestWorkerStream_BasicAccessors(t *testing.T) {
 		Capabilities: []string{"cap.1"},
 		Schemas: map[string]schema.StepSchemas{
 			"cap.1": {
-				Input: schema.FrameSchema{},
+				Input: []schema.ColumnSchema{},
 			},
 		},
 	}

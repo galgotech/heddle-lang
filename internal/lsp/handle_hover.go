@@ -182,10 +182,10 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 
 				// Input Frame
 				markdown.WriteString("#### 📥 Input HeddleFrame\n")
-				if len(step.Input.Columns) > 0 {
+				if len(step.Input) > 0 {
 					markdown.WriteString("| Column | Arrow Type |\n")
 					markdown.WriteString("|---|---|\n")
-					for _, f := range step.Input.Columns {
+					for _, f := range step.Input {
 						markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
 					}
 					markdown.WriteString("\n")
@@ -193,10 +193,10 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 
 				// Output Frame
 				markdown.WriteString("#### 📤 Output HeddleFrame\n")
-				if len(step.Output.Columns) > 0 {
+				if len(step.Output) > 0 {
 					markdown.WriteString("| Column | Arrow Type |\n")
 					markdown.WriteString("|---|---|\n")
-					for _, f := range step.Output.Columns {
+					for _, f := range step.Output {
 						markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
 					}
 					markdown.WriteString("\n")

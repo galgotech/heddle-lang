@@ -44,15 +44,6 @@ func NewMetadata(workflowID, taskID string, dir IODirection, paths map[string]st
 	}
 }
 
-func NewMetadataWithDirty(workflowID, taskID string, dir IODirection, paths map[string]string) Metadata {
-	return Metadata{
-		WorkflowID:  workflowID,
-		TaskID:      taskID,
-		IODirection: dir,
-		Paths:       paths,
-	}
-}
-
 // DataLocalityRegistry manages the mapping of data identifiers to their physical locations
 // in /dev/shm. Data is stored via WriteArrowToShm and accessed via ReadArrowFromPath.
 // The registry tracks only Metadata (including the SHM path) — no in-process copies.

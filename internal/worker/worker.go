@@ -142,7 +142,7 @@ func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 			Body: body,
 		})
 
-		logger.L().Info("Sent update to control plane, checking err")
+		logger.L().Info("Sent update to control plane")
 		if err != nil {
 			logger.L().Error("failed to update capabilities: %w", logger.Error(err))
 			continue

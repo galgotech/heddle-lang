@@ -80,12 +80,10 @@ workflow main {
 		Steps: map[string]schema.StepSchemas{
 			"io.print": {
 				Documentation: "Prints values to standard output.",
-				Input: schema.FrameSchema{
-					Columns: []schema.ColumnSchema{
-						{Name: "message", ArrowType: "utf8"},
-					},
+				Input: []schema.ColumnSchema{
+					{Name: "message", ArrowType: "utf8"},
 				},
-				Output: schema.FrameSchema{},
+				Output: []schema.ColumnSchema{},
 			},
 			"postgres.query": {
 				Documentation: "Executes a SQL query.",
@@ -94,11 +92,9 @@ workflow main {
 						{Name: "sql", Type: "string"},
 					},
 				},
-				Input: schema.FrameSchema{},
-				Output: schema.FrameSchema{
-					Columns: []schema.ColumnSchema{
-						{Name: "id", ArrowType: "int64"},
-					},
+				Input: []schema.ColumnSchema{},
+				Output: []schema.ColumnSchema{
+					{Name: "id", ArrowType: "int64"},
 				},
 			},
 		},

@@ -331,7 +331,7 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 	if int(ref) < len(v.ctx.PipeChainNodes) {
 		pc := v.ctx.PipeChainNodes[ref]
 		if pc.CallRefsEnd > pc.CallRefsStart {
-			var lastOutputSchema schema.FrameSchema
+			var lastOutputSchema []schema.ColumnSchema
 			for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
 				callRef := v.ctx.CallRefs[i]
 				call := v.ctx.CallNodes[callRef]

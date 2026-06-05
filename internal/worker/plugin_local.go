@@ -9,7 +9,6 @@ import (
 	"github.com/galgotech/heddle-lang/internal/worker/internal"
 	"github.com/galgotech/heddle-lang/internal/worker/std"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
-	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
@@ -53,14 +52,14 @@ func (p *pluginLocal) LastHeartbeat(hb plugin.Heartbeat) {
 
 }
 
-func NewNativePlugins(registry *locality.DataLocalityRegistry) []pluginSdk {
+func NewNativePlugins() []pluginSdk {
 	return []pluginSdk{
-		newPluginStdio(registry),
-		newPluginLocal(registry),
+		newPluginStdio(),
+		newPluginLocal(),
 	}
 }
 
-func newPluginStdio(registry *locality.DataLocalityRegistry) *pluginLocal {
+func newPluginStdio() *pluginLocal {
 	return &pluginLocal{
 		registrySteps: map[string]stepFunc{
 			"std/io.print": std.ExecutePrint,
@@ -72,21 +71,17 @@ func newPluginStdio(registry *locality.DataLocalityRegistry) *pluginLocal {
 			Resources: map[string]schema.FieldSchema{},
 			Schemas: map[string]schema.StepSchemas{
 				"std/io.print": {
-					Input: schema.FrameSchema{
-						Columns: []schema.ColumnSchema{
-							{Name: "value", ArrowType: "string"},
-						},
+					Input: []schema.ColumnSchema{
+						{Name: "value", ArrowType: "string"},
 					},
-					Output: schema.FrameSchema{
-						Columns: []schema.ColumnSchema{},
-					},
+					Output: []schema.ColumnSchema{},
 				},
 			},
 		},
 	}
 }
 
-func newPluginLocal(registry *locality.DataLocalityRegistry) *pluginLocal {
+func newPluginLocal() *pluginLocal {
 	return &pluginLocal{
 		registrySteps: map[string]stepFunc{
 			"__internal.identity":     internal.ExecuteIdentity,
@@ -101,25 +96,23 @@ func newPluginLocal(registry *locality.DataLocalityRegistry) *pluginLocal {
 			Schemas: map[string]schema.StepSchemas{
 				"__internal.identity": {
 					Config: schema.FieldSchema{},
-					Input:  schema.FrameSchema{},
-					Output: schema.FrameSchema{},
+					Input:  []schema.ColumnSchema{},
+					Output: []schema.ColumnSchema{},
 				},
 				"__internal.prql": {
 					Config: schema.FieldSchema{},
-					Input:  schema.FrameSchema{},
-					Output: schema.FrameSchema{},
+					Input:  []schema.ColumnSchema{},
+					Output: []schema.ColumnSchema{},
 				},
 				"__internal.data_literal": {
 					Config: schema.FieldSchema{},
-					Input: schema.FrameSchema{
-						Columns: []schema.ColumnSchema{},
-					},
-					Output: schema.FrameSchema{},
+					Input:  []schema.ColumnSchema{},
+					Output: []schema.ColumnSchema{},
 				},
 				"__internal.compress": {
 					Config: schema.FieldSchema{},
-					Input:  schema.FrameSchema{},
-					Output: schema.FrameSchema{},
+					Input:  []schema.ColumnSchema{},
+					Output: []schema.ColumnSchema{},
 				},
 			},
 		},

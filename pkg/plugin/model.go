@@ -22,9 +22,9 @@ type ResolveSchemaRequest struct {
 
 // ResolveSchemaResponse contains the resolved schemas for a dynamic step.
 type ResolveSchemaResponse struct {
-	Input  schema.FrameSchema `json:"input,omitempty"`
-	Output schema.FrameSchema `json:"output,omitempty"`
-	Error  string             `json:"error,omitempty"`
+	Input  []schema.ColumnSchema `json:"input,omitempty"`
+	Output []schema.ColumnSchema `json:"output,omitempty"`
+	Error  string                `json:"error,omitempty"`
 }
 
 type StepResponseStatus string
@@ -77,13 +77,13 @@ type Heartbeat struct {
 
 // SDKPluginStepDefinition represents step information passed from the SDK plugin.
 type SDKPluginStepDefinition struct {
-	Name          string              `json:"name"`
-	Config        *schema.FieldSchema `json:"config,omitempty"`
-	Input         *schema.FrameSchema `json:"input,omitempty"`
-	Output        *schema.FrameSchema `json:"output,omitempty"`
-	Documentation string              `json:"documentation,omitempty"`
-	SourceFile    string              `json:"source_file,omitempty"`
-	SourceLine    int                 `json:"source_line,omitempty"`
+	Name          string                `json:"name"`
+	Config        *schema.FieldSchema   `json:"config,omitempty"`
+	Input         []schema.ColumnSchema `json:"input,omitempty"`
+	Output        []schema.ColumnSchema `json:"output,omitempty"`
+	Documentation string                `json:"documentation,omitempty"`
+	SourceFile    string                `json:"source_file,omitempty"`
+	SourceLine    int                   `json:"source_line,omitempty"`
 }
 
 // SDKPluginResourceDefinition represents resource information passed from the SDK plugin.

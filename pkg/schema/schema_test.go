@@ -9,49 +9,37 @@ import (
 func TestCompatible(t *testing.T) {
 	tests := []struct {
 		name    string
-		output  FrameSchema
-		input   FrameSchema
+		output  []ColumnSchema
+		input   []ColumnSchema
 		wantErr bool
 	}{
 		{
 			name: "Matching non-void schemas are compatible",
-			output: FrameSchema{
-				Columns: []ColumnSchema{
-					{Name: "id", ArrowType: "int64"},
-				},
+			output: []ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
 			},
-			input: FrameSchema{
-				Columns: []ColumnSchema{
-					{Name: "id", ArrowType: "int64"},
-				},
+			input: []ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
 			},
 		},
 		{
 			name: "Type mismatch is incompatible",
-			output: FrameSchema{
-				Columns: []ColumnSchema{
-					{Name: "id", ArrowType: "int64"},
-				},
+			output: []ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
 			},
-			input: FrameSchema{
-				Columns: []ColumnSchema{
-					{Name: "id", ArrowType: "utf8"},
-				},
+			input: []ColumnSchema{
+				{Name: "id", ArrowType: "utf8"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "Field count mismatch is incompatible",
-			output: FrameSchema{
-				Columns: []ColumnSchema{
-					{Name: "id", ArrowType: "int64"},
-				},
+			output: []ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
 			},
-			input: FrameSchema{
-				Columns: []ColumnSchema{
-					{Name: "id", ArrowType: "int64"},
-					{Name: "name", ArrowType: "utf8"},
-				},
+			input: []ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+				{Name: "name", ArrowType: "utf8"},
 			},
 			wantErr: true,
 		},

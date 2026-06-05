@@ -35,7 +35,11 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 		}
 
 		// Load config
-		cfgFile, _ := cmd.Flags().GetString("config")
+		cfgFile, err := cmd.Flags().GetString("config")
+		if err != nil {
+			return fmt.Errorf("failed to get config: %w", err)
+		}
+
 		cfg, err := config.LoadHeddleConfig(cfgFile)
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
@@ -45,7 +49,11 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 		}
 
 		// Flag overrides
-		mode, _ := cmd.Flags().GetString("mode")
+		mode, err := cmd.Flags().GetString("mode")
+		if err != nil {
+			return fmt.Errorf("failed to get mode: %w", err)
+		}
+
 		if mode == "" && cfg.Client.Mode != "" {
 			mode = cfg.Client.Mode
 		} else if mode == "" {
@@ -101,8 +109,8 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 
 		interactiveFlag, _ := cmd.Flags().GetBool("interactive")
 		interativaFlag, _ := cmd.Flags().GetBool("interativa")
-		isInteractive := interactiveFlag || interativaFlag
 
+		isInteractive := interactiveFlag || interativaFlag
 		strategy := "recursive"
 		if isInteractive {
 			strategy = "interactive"

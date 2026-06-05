@@ -32,11 +32,12 @@ var startCmd = &cobra.Command{
 		daemon, _ := cmd.Flags().GetBool("daemon")
 		if daemon {
 			fmt.Println("Simulating starting local processes in background...")
-			if err := os.WriteFile(pidFile, []byte("12345"), 0644); err != nil {
+			pid := os.Getpid()
+			if err := os.WriteFile(pidFile, fmt.Appendf(nil, "%d", pid), 0644); err != nil {
 				fmt.Printf("Error writing PID file: %v\n", err)
 				return
 			}
-			fmt.Printf("Mock: Heddle daemon started. PID: 12345 (saved to %s)\n", pidFile)
+			fmt.Printf("Mock: Heddle daemon started. PID: %d (saved to %s)\n", pid, pidFile)
 			return
 		}
 
@@ -107,7 +108,7 @@ func init() {
 func StartLocalServices(ctx context.Context) error {
 	defer logger.Sync()
 
-	cpSocket := runtime.ControlPlaneUDSPath
+	controlplaneSocket := runtime.ControlPlaneUDSPath
 	workerSocket := runtime.WorkerUDSPath
 
 	errCh := make(chan error, 2)
@@ -117,7 +118,7 @@ func StartLocalServices(ctx context.Context) error {
 	cp := controlplane.NewControlPlaneServer(workerRegistry)
 	go func() {
 		defer logger.Sync()
-		if err := cp.Listen(cpSocket); err != nil {
+		if err := cp.Listen(controlplaneSocket); err != nil {
 			errCh <- fmt.Errorf("control plane failed: %w", err)
 		}
 	}()
@@ -133,9 +134,9 @@ func StartLocalServices(ctx context.Context) error {
 
 	// 2. Start Worker
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := worker.NewNativePlugins(registry)
+	nativePlugins := worker.NewNativePlugins()
 	pluginServer := worker.NewPluginServer(registry, nativePlugins, workerSocket)
-	worker, err := worker.NewWorker(pluginServer, cpSocket)
+	worker, err := worker.NewWorker(pluginServer, controlplaneSocket)
 	if err != nil {
 		return fmt.Errorf("failed to create worker: %w", err)
 	}

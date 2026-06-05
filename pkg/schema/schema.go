@@ -10,11 +10,6 @@ type ColumnSchema struct {
 	ArrowType string `json:"arrow_type"` // e.g. "int64", "utf8", "bool"
 }
 
-// FrameSchema defines the structure of a HeddleFrame.
-type FrameSchema struct {
-	Columns []ColumnSchema `json:"fields"`
-}
-
 // Field represents a single field in a step configuration.
 type Field struct {
 	Name string `json:"name"`
@@ -39,25 +34,25 @@ type ResourceSchemas struct {
 // StepSchemas contains the input, output and config schemas for a step,
 // as well as metadata for developer experience (LSP).
 type StepSchemas struct {
-	Config        FieldSchema `json:"config,omitempty"`
-	Input         FrameSchema `json:"input,omitempty"`
-	Output        FrameSchema `json:"output,omitempty"`
-	Documentation string      `json:"documentation,omitempty"`
-	SourceCode    string      `json:"source_code,omitempty"`
-	SourceFile    string      `json:"source_file,omitempty"`
-	SourceLine    int         `json:"source_line,omitempty"`
+	Config        FieldSchema    `json:"config,omitempty"`
+	Input         []ColumnSchema `json:"input,omitempty"`
+	Output        []ColumnSchema `json:"output,omitempty"`
+	Documentation string         `json:"documentation,omitempty"`
+	SourceCode    string         `json:"source_code,omitempty"`
+	SourceFile    string         `json:"source_file,omitempty"`
+	SourceLine    int            `json:"source_line,omitempty"`
 }
 
 // Compatible checks if the output schema of one step is compatible with
 // the input schema of the next. Returns nil if compatible.
-func Compatible(output, input FrameSchema) error {
-	if len(output.Columns) != len(input.Columns) {
-		return fmt.Errorf("schema mismatch: output has %d fields, input has %d fields", len(output.Columns), len(input.Columns))
+func Compatible(output, input []ColumnSchema) error {
+	if len(output) != len(input) {
+		return fmt.Errorf("schema mismatch: output has %d fields, input has %d fields", len(output), len(input))
 	}
 
-	for i := range output.Columns {
-		of := output.Columns[i]
-		inf := input.Columns[i]
+	for i := range output {
+		of := output[i]
+		inf := input[i]
 		if of.ArrowType != inf.ArrowType {
 			return fmt.Errorf("type mismatch at field %d (%s): output is %s, input is %s", i, of.Name, of.ArrowType, inf.ArrowType)
 		}

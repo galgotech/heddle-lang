@@ -93,7 +93,7 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	socketPath := "/tmp/heddle-worker-test.sock"
 	os.Remove(socketPath)
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := NewNativePlugins(registry)
+	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
 
 	w, err := NewWorker(ps, lis.Addr().String())
@@ -125,7 +125,7 @@ func TestWorker_PluginServer(t *testing.T) {
 	os.Remove(socketPath)
 
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := NewNativePlugins(registry)
+	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -183,7 +183,7 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	os.Remove(socketPath)
 
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := NewNativePlugins(registry)
+	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
 	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	os.Remove(socketPath)
 
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := NewNativePlugins(registry)
+	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
 	w, err := NewWorker(ps, lis.Addr().String())
 	require.NoError(t, err)

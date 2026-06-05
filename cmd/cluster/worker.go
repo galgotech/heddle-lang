@@ -33,7 +33,7 @@ var workerRunCmd = &cobra.Command{
 		socket := viper.GetString("socket")
 
 		registry := locality.NewDataLocalityRegistry()
-		nativePlugins := worker.NewNativePlugins(registry)
+		nativePlugins := worker.NewNativePlugins()
 		pluginServer := worker.NewPluginServer(registry, nativePlugins, socket)
 		worker, err := worker.NewWorker(pluginServer, cpAddr)
 		if err != nil {

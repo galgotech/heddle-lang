@@ -57,7 +57,7 @@ func (m *mockDoActionServer) Context() context.Context {
 
 func TestPluginHeartbeat(t *testing.T) {
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := NewNativePlugins(registry)
+	nativePlugins := NewNativePlugins()
 	server := NewPluginServer(registry, nativePlugins, "/tmp/test.sock")
 	namespace := "test-plugin"
 
@@ -97,7 +97,7 @@ func TestPluginHeartbeat(t *testing.T) {
 
 func TestPluginServer_DispatchTask_LocalPlugin(t *testing.T) {
 	registry := locality.NewDataLocalityRegistry()
-	nativePlugins := NewNativePlugins(registry)
+	nativePlugins := NewNativePlugins()
 	pluginServer := NewPluginServer(registry, nativePlugins, "/tmp/test-dispatch.sock")
 	for _, p := range nativePlugins {
 		pluginServer.registerPlugin(p)

@@ -256,7 +256,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 
 		handle := task.TaskID
 		// Layer 4: Registry.Put now validates permissions/ownership
-		if err := s.registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputRef)); err != nil {
+		if err := s.registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, resp.OutputRef)); err != nil {
 			return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
 		}
 		logger.L().Info("Registered SHM output in registry", logger.String("handle", handle))
