@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 
 	"github.com/galgotech/heddle-lang/internal/lsp"
 )
@@ -22,8 +22,8 @@ func (d dummyRW) Close() error {
 }
 
 func TestServerStart(t *testing.T) {
-	logger := zap.NewNop()
-	server := lsp.NewServer(logger, "localhost:50051")
+	log := logger.NewNop()
+	server := lsp.NewServer(log, "localhost:50051")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

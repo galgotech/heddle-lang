@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
@@ -37,7 +36,7 @@ func (o *GraphOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		case *ir.FlowInstruction:
 			flow = *f
 		default:
-			logger.L().Error("flow is not a valid FlowInstruction", zap.String("id", flowID))
+			logger.L().Error("flow is not a valid FlowInstruction", logger.String("id", flowID))
 			continue
 		}
 
@@ -47,11 +46,11 @@ func (o *GraphOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		}
 
 		if err := o.executeGraph(ctx, task.ID, program, flow, task.Schemas); err != nil {
-			logger.L().Error("Task failed in graph mode", zap.Error(err))
+			logger.L().Error("Task failed in graph mode", logger.Error(err))
 			return
 		}
 	}
-	logger.L().Info("Task completed successfully in graph mode", zap.String("id", task.ID))
+	logger.L().Info("Task completed successfully in graph mode", logger.String("id", task.ID))
 }
 
 func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string, prog ir.Program, flow ir.FlowInstruction, schemas map[string]schema.StepSchemas) error {

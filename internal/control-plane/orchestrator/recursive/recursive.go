@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
@@ -34,7 +33,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
 
 	if clientStream == nil {
-		logger.L().Warn("Stream will not be sent to client", zap.String("client_id", task.ClientID))
+		logger.L().Warn("Stream will not be sent to client", logger.String("client_id", task.ClientID))
 	}
 
 	for _, flowID := range program.Workflows {
@@ -46,7 +45,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 		case *ir.FlowInstruction:
 			flow = *f
 		default:
-			logger.L().Error("flow is not a valid FlowInstruction", zap.String("id", flowID))
+			logger.L().Error("flow is not a valid FlowInstruction", logger.String("id", flowID))
 			continue
 		}
 
@@ -68,7 +67,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 		}
 
 		if runErr != nil {
-			logger.L().Error("Task failed", zap.Error(runErr))
+			logger.L().Error("Task failed", logger.Error(runErr))
 			if clientStream != nil {
 				clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
 			}
@@ -76,7 +75,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 		}
 	}
 
-	logger.L().Info("Task completed successfully", zap.String("id", task.ID))
+	logger.L().Info("Task completed successfully", logger.String("id", task.ID))
 	if clientStream != nil {
 		clientStream.Send(&flight.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
 	}

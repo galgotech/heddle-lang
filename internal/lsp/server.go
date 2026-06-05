@@ -7,7 +7,8 @@ import (
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
+
+	"github.com/galgotech/heddle-lang/pkg/logger"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
@@ -20,7 +21,7 @@ import (
 // to the Heddle Control Plane to dynamically fetch and cross-reference registered steps and connectors.
 type Server struct {
 	// logger provides structured, level-based diagnostic reporting.
-	logger *zap.Logger
+	logger logger.Logger
 	// controlPlane manages the gRPC/LSP client connection to the Heddle Control Plane.
 	controlPlane *ControlPlaneLSPClient
 	// files caches active in-memory document buffers, mapping protocol.DocumentURI to source strings.
@@ -33,7 +34,7 @@ type Server struct {
 // It establishes a baseline connection to the Heddle Control Plane, spawns the main
 // message-handling loop in a background goroutine, and blocks until the stream terminates.
 func (s *Server) Start(ctx context.Context, rw io.ReadWriteCloser) error {
-	s.logger.Info("Heddle Language Server starting on stdio", zap.String("control_plane", s.controlPlane.addr))
+	s.logger.Info("Heddle Language Server starting on stdio", logger.String("control_plane", s.controlPlane.addr))
 
 	// Initialize the JSON-RPC 2.0 stream and high-performance connection wrappers.
 	stream := jsonrpc2.NewStream(rw)
@@ -42,7 +43,7 @@ func (s *Server) Start(ctx context.Context, rw io.ReadWriteCloser) error {
 	// Pre-establish a connection to the Heddle Control Plane to populate step schemas.
 	// In the event of network/startup failures, fallback gracefully to on-demand reconnection retries.
 	if err := s.controlPlane.Connect(ctx); err != nil {
-		s.logger.Warn("Initial connection to control plane failed (will retry on demand)", zap.Error(err))
+		s.logger.Warn("Initial connection to control plane failed (will retry on demand)", logger.Error(err))
 	}
 
 	// Register the unified request multiplexer and process incoming messages asynchronously.
@@ -174,7 +175,7 @@ func (s *Server) logTrace(ctx context.Context, conn jsonrpc2.Conn, message strin
 }
 
 // NewServer initializes a new Server instance configured with a structured logger and a Control Plane client.
-func NewServer(logger *zap.Logger, cpAddr string) *Server {
+func NewServer(logger logger.Logger, cpAddr string) *Server {
 	return &Server{
 		logger:       logger,
 		controlPlane: NewControlPlaneLSPClient(cpAddr),

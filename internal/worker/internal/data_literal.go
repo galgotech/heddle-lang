@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-	"go.uber.org/zap"
-
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
@@ -18,7 +16,7 @@ import (
 )
 
 func ExecuteDataLiteral(ctx context.Context, request plugin.ExecuteStepRequest) (plugin.ExecuteStepResponse, error) {
-	logger.L().Info("Executing data_literal step", zap.String("task_id", request.TaskID))
+	logger.L().Info("Executing data_literal step", logger.String("task_id", request.TaskID))
 
 	if request.ConfigJSON == "" {
 		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: missing step config JSON")
@@ -68,7 +66,7 @@ func ExecuteDataLiteral(ctx context.Context, request plugin.ExecuteStepRequest) 
 			return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
 		}
 		paths[field.Name] = path
-		logger.L().Info("Allocated data_literal column to SHM", zap.String("handle", handle), zap.String("field", field.Name), zap.String("path", path))
+		logger.L().Info("Allocated data_literal column to SHM", logger.String("handle", handle), logger.String("field", field.Name), logger.String("path", path))
 	}
 
 	return plugin.ExecuteStepResponse{

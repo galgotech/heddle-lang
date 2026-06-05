@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
 	"github.com/apache/arrow/go/v18/arrow/flight"
 
 	"github.com/galgotech/heddle-lang/internal/models"
@@ -97,7 +96,7 @@ func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServe
 				return
 			}
 			if resp == nil {
-				logger.L().Warn("Received nil response from worker", zap.String("worker_id", w.workerInfo.ID))
+				logger.L().Warn("Received nil response from worker", logger.String("worker_id", w.workerInfo.ID))
 				continue
 			}
 
@@ -118,13 +117,13 @@ func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServe
 						continue
 					}
 				}
-				logger.L().Info("Received control signaling message", zap.Any("metadata", resp.AppMetadata))
+				logger.L().Info("Received control signaling message", logger.Any("metadata", resp.AppMetadata))
 				continue
 			}
 
 			var result models.TaskResult
 			if err := json.Unmarshal(resp.DataBody, &result); err != nil {
-				logger.L().Warn("Failed to unmarshal result", zap.Error(err))
+				logger.L().Warn("Failed to unmarshal result", logger.Error(err))
 			} else if w.registry != nil {
 				w.registry.RouteResult(result)
 			}

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"go.uber.org/zap"
-
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
@@ -302,7 +300,7 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			call.FunctionRef == ast.NilNode &&
 			!call.IsPrql &&
 			call.DataframeRef == ast.NilNode {
-			logger.L().Warn("Skipping structural placeholder call", zap.Any("call", call))
+			logger.L().Warn("Skipping structural placeholder call", logger.Any("call", call))
 			continue
 		}
 

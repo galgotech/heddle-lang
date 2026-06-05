@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -64,11 +63,11 @@ func (s *PluginServer) Start(ctx context.Context) error {
 	srv := grpc.NewServer()
 	flight.RegisterFlightServiceServer(srv, s)
 
-	logger.L().Info("Plugin server listening", zap.String("socket", s.socketPath))
+	logger.L().Info("Plugin server listening", logger.String("socket", s.socketPath))
 
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			logger.L().Error("Plugin server failed", zap.Error(err))
+			logger.L().Error("Plugin server failed", logger.Error(err))
 		}
 	}()
 
@@ -94,7 +93,7 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 
 		for cap := range pluginRegistration.Schemas {
 			if strings.HasPrefix(cap, "__internal.") || strings.HasPrefix(cap, "std/") {
-				logger.L().Error("Plugin attempted to register protected capability", zap.String("capability", cap), zap.String("namespace", pluginRegistration.Namespace))
+				logger.L().Error("Plugin attempted to register protected capability", logger.String("capability", cap), logger.String("namespace", pluginRegistration.Namespace))
 				return status.Errorf(codes.PermissionDenied, "plugin %s attempted to register protected capability %s", pluginRegistration.Namespace, cap)
 			}
 		}
@@ -111,7 +110,7 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 		if err := json.Unmarshal(action.Body, &heartbeat); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal heartbeat: %v", err)
 		}
-		logger.L().Debug("Heartbeat from plugin", zap.String("namespace", heartbeat.Namespace))
+		logger.L().Debug("Heartbeat from plugin", logger.String("namespace", heartbeat.Namespace))
 
 		s.pluginsMU.RLock()
 		defer s.pluginsMU.RUnlock()
@@ -133,7 +132,7 @@ func (s *PluginServer) registerPlugin(body pluginSdk) {
 	namespace := body.PluginRegistration().Namespace
 	s.plugins[namespace] = body
 
-	logger.L().Info("Plugin registered", zap.String("namespace", namespace))
+	logger.L().Info("Plugin registered", logger.String("namespace", namespace))
 	s.pluginSyncRegister <- body.PluginRegistration()
 }
 
@@ -155,18 +154,18 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 	}
 	pluginRegistered.Stream(stream)
 
-	logger.L().Info("Plugin connected to exchange stream", zap.String("namespace", namespace))
+	logger.L().Info("Plugin connected to exchange stream", logger.String("namespace", namespace))
 
 	for {
 		data, err := stream.Recv()
 		if err != nil {
-			logger.L().Error("Plugin stream closed", zap.Error(err), zap.String("namespace", namespace))
+			logger.L().Error("Plugin stream closed", logger.Error(err), logger.String("namespace", namespace))
 			return err
 		}
 
 		var resp plugin.ExecuteStepResponse
 		if err := json.Unmarshal(data.DataBody, &resp); err != nil {
-			logger.L().Error("Failed to unmarshal plugin response", zap.Error(err))
+			logger.L().Error("Failed to unmarshal plugin response", logger.Error(err))
 			continue
 		}
 
@@ -174,7 +173,7 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 		for _, outPath := range resp.OutputRef {
 			if outPath != "" {
 				if err := validateSHMPath(outPath); err != nil {
-					logger.L().Error("Plugin provided invalid SHM output path", zap.Error(err), zap.String("path", outPath))
+					logger.L().Error("Plugin provided invalid SHM output path", logger.Error(err), logger.String("path", outPath))
 					resp.Status = models.TaskStatusFailed
 					resp.ErrorMessage = "security error: invalid output handle path"
 				}
@@ -260,7 +259,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		if err := s.registry.Put(locality.NewMetadataWithDirty(task.WorkflowID, handle, locality.Output, resp.OutputRef)); err != nil {
 			return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
 		}
-		logger.L().Info("Registered SHM output in registry", zap.String("handle", handle))
+		logger.L().Info("Registered SHM output in registry", logger.String("handle", handle))
 	}
 
 	return models.TaskResult{

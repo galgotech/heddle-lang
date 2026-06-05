@@ -9,8 +9,6 @@ import (
 	"sync"
 	"syscall"
 
-	"go.uber.org/zap"
-
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -36,7 +34,7 @@ func (e *GoExecutor) Start(ctx context.Context, socketPath string) error {
 		Pdeathsig: syscall.SIGKILL,
 	}
 
-	logger.L().Info("Spawning worker via go run...", zap.String("plugin", e.PluginName))
+	logger.L().Info("Spawning worker via go run...", logger.String("plugin", e.PluginName))
 	if err := e.Cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start process for %s/%s: %w", e.Namespace, e.PluginName, err)
 	}
@@ -49,7 +47,7 @@ func (e *GoExecutor) Stop() error {
 	defer e.mu.Unlock()
 
 	if e.Cmd != nil && e.Cmd.Process != nil {
-		logger.L().Info("Gracefully stopping plugin process...", zap.String("plugin", e.PluginName))
+		logger.L().Info("Gracefully stopping plugin process...", logger.String("plugin", e.PluginName))
 		if err := e.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			e.Cmd.Process.Kill()
 		}

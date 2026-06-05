@@ -11,7 +11,6 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -66,7 +65,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	if _, err := res.Recv(); err != nil {
 		return fmt.Errorf("failed to receive registration result: %w", err)
 	}
-	logger.L().Info("Worker registered with control plane", zap.String("id", w.GetID()))
+	logger.L().Info("Worker registered with control plane", logger.String("id", w.GetID()))
 
 	// 2. Start Heartbeats
 	go w.startHeartbeat(ctx)
@@ -77,7 +76,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	// 4. Start Plugin Server (UDS)
 	go func() {
 		if err := w.pluginServer.Start(ctx); err != nil {
-			logger.L().Error("Plugin server error", zap.Error(err))
+			logger.L().Error("Plugin server error", logger.Error(err))
 		}
 	}()
 	<-w.pluginServer.Ready
@@ -103,7 +102,7 @@ func (w *Worker) startHeartbeat(ctx context.Context) {
 				Body: body,
 			})
 			if err != nil {
-				logger.L().Error("Heartbeat failed", zap.Error(err))
+				logger.L().Error("Heartbeat failed", logger.Error(err))
 			}
 		case <-ctx.Done():
 			return
@@ -133,11 +132,11 @@ func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 		}
 		body, err := json.Marshal(update)
 		if err != nil {
-			logger.L().Error("failed to marshal capabilities update: %w", zap.Error(err))
+			logger.L().Error("failed to marshal capabilities update: %w", logger.Error(err))
 			continue
 		}
 
-		logger.L().Info("Sending update to control plane", zap.Strings("capabilities", cabalities))
+		logger.L().Info("Sending update to control plane", logger.Strings("capabilities", cabalities))
 		res, err := w.controlPlaneFlight.DoAction(ctx, &flight.Action{
 			Type: models.ActionUpdateCapabilities,
 			Body: body,
@@ -145,15 +144,15 @@ func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 
 		logger.L().Info("Sent update to control plane, checking err")
 		if err != nil {
-			logger.L().Error("failed to update capabilities: %w", zap.Error(err))
+			logger.L().Error("failed to update capabilities: %w", logger.Error(err))
 			continue
 		}
 		if _, err := res.Recv(); err != nil {
-			logger.L().Error("failed to receive update result: %w", zap.Error(err))
+			logger.L().Error("failed to receive update result: %w", logger.Error(err))
 			continue
 		}
 
-		logger.L().Info("Worker capabilities updated", zap.Strings("capabilities", cabalities))
+		logger.L().Info("Worker capabilities updated", logger.Strings("capabilities", cabalities))
 	}
 }
 
@@ -168,7 +167,7 @@ func (w *Worker) run(ctx context.Context) error {
 		close(w.Ready)
 	})
 
-	logger.L().Info("Worker task loop started", zap.String("id", w.GetID()))
+	logger.L().Info("Worker task loop started", logger.String("id", w.GetID()))
 	for {
 		data, err := stream.Recv()
 		if err != nil {
@@ -180,7 +179,7 @@ func (w *Worker) run(ctx context.Context) error {
 			var ctrl models.ControlMessage
 			if err := json.Unmarshal(data.AppMetadata, &ctrl); err == nil {
 				if ctrl.Type == models.ActionPurgeWorkflow && ctrl.PurgeData != nil {
-					logger.L().Info("SHM purged for workflow", zap.String("id", ctrl.PurgeData.WorkflowID))
+					logger.L().Info("SHM purged for workflow", logger.String("id", ctrl.PurgeData.WorkflowID))
 
 					// Send Acknowledgment
 					ack := models.ControlMessage{
@@ -192,7 +191,7 @@ func (w *Worker) run(ctx context.Context) error {
 					}
 					ackBody, _ := json.Marshal(ack)
 					if err := stream.Send(&flight.FlightData{AppMetadata: ackBody}); err != nil {
-						logger.L().Error("Failed to send purge ack", zap.Error(err))
+						logger.L().Error("Failed to send purge ack", logger.Error(err))
 					}
 				}
 			}
@@ -201,11 +200,11 @@ func (w *Worker) run(ctx context.Context) error {
 
 		var task models.StepExecutionTask
 		if err := json.Unmarshal(data.DataBody, &task); err != nil {
-			logger.L().Error("Failed to unmarshal task", zap.Error(err))
+			logger.L().Error("Failed to unmarshal task", logger.Error(err))
 			continue
 		}
 
-		logger.L().Info("Received task", zap.String("id", task.TaskID), zap.String("step", task.Step.Call[1]))
+		logger.L().Info("Received task", logger.String("id", task.TaskID), logger.String("step", task.Step.Call[1]))
 
 		go func(t models.StepExecutionTask) {
 			var result models.TaskResult
@@ -221,7 +220,7 @@ func (w *Worker) run(ctx context.Context) error {
 			result, err = w.pluginServer.DispatchTask(taskCtx, t)
 
 			if err != nil {
-				logger.L().Error("Failed to execute task", zap.Error(err))
+				logger.L().Error("Failed to execute task", logger.Error(err))
 				// Send failure result back
 				result = models.TaskResult{
 					TaskID:       t.TaskID,
@@ -231,7 +230,7 @@ func (w *Worker) run(ctx context.Context) error {
 			}
 			respBody, _ := json.Marshal(result)
 			if err := stream.Send(&flight.FlightData{DataBody: respBody}); err != nil {
-				logger.L().Error("Failed to send task result", zap.Error(err))
+				logger.L().Error("Failed to send task result", logger.Error(err))
 			}
 		}(task)
 	}

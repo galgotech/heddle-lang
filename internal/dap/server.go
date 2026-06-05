@@ -7,12 +7,12 @@ import (
 	"net"
 	"sync"
 
-	"go.uber.org/zap"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 // Server implements the Heddle Debug Adapter Protocol server.
 type Server struct {
-	logger *zap.Logger
+	logger logger.Logger
 	addr   string
 	cpAddr string
 }
@@ -25,7 +25,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	defer ln.Close()
 
-	s.logger.Info("Heddle DAP Server listening", zap.String("addr", s.addr))
+	s.logger.Info("Heddle DAP Server listening", logger.String("addr", s.addr))
 
 	go func() {
 		<-ctx.Done()
@@ -39,7 +39,7 @@ func (s *Server) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				s.logger.Error("failed to accept connection", zap.Error(err))
+				s.logger.Error("failed to accept connection", logger.Error(err))
 				continue
 			}
 		}
@@ -71,7 +71,7 @@ func (s *Server) handleSession(ctx context.Context, r io.Reader, w io.Writer) {
 }
 
 // NewServer creates a new DAP server.
-func NewServer(logger *zap.Logger, addr, cpAddr string) *Server {
+func NewServer(logger logger.Logger, addr, cpAddr string) *Server {
 	return &Server{
 		logger: logger,
 		addr:   addr,

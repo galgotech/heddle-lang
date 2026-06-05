@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 
 	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
@@ -52,7 +51,7 @@ var startCmd = &cobra.Command{
 		defer cancel()
 
 		if err := StartLocalServices(ctx); err != nil {
-			logger.L().Error("Failed to start local services", zap.Error(err))
+			logger.L().Error("Failed to start local services", logger.Error(err))
 			return
 		}
 
@@ -60,7 +59,7 @@ var startCmd = &cobra.Command{
 
 		select {
 		case sig := <-sigChan:
-			logger.L().Info("Received shutdown signal", zap.String("signal", sig.String()))
+			logger.L().Info("Received shutdown signal", logger.String("signal", sig.String()))
 		case <-ctx.Done():
 			logger.L().Info("Context cancelled, shutting down")
 		}

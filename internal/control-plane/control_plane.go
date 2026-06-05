@@ -12,7 +12,6 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -77,7 +76,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		}
 
 		s.registry.Register(workerID, reg)
-		logger.L().Info("Worker registered", zap.String("id", workerID), zap.String("address", reg.Address))
+		logger.L().Info("Worker registered", logger.String("id", workerID), logger.String("address", reg.Address))
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case models.ActionHeartbeat:
@@ -100,7 +99,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if ok := s.registry.UpdateCapabilities(workerID, update); !ok {
 			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
 		}
-		logger.L().Info("Worker capabilities updated", zap.String("id", workerID), zap.Strings("capabilities", update.Capabilities))
+		logger.L().Info("Worker capabilities updated", logger.String("id", workerID), logger.Strings("capabilities", update.Capabilities))
 		return stream.Send(&flight.Result{Body: []byte("OK")})
 
 	case models.ActionSubmitWorkflow:
@@ -163,7 +162,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		}
 		go orch.OrchestrateTask(context.WithoutCancel(ctx), task)
 
-		logger.L().Info("Workflow compiled and queued", zap.String("client_id", clientID), zap.String("task_id", task.ID))
+		logger.L().Info("Workflow compiled and queued", logger.String("client_id", clientID), logger.String("task_id", task.ID))
 		return stream.Send(&flight.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
 
 	case models.ActionGetWorkerInfo:
@@ -196,7 +195,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		s.registry.ProcessStream(workerID, stream)
 		defer s.registry.StopStream(workerID)
 
-		logger.L().Info("Worker connected", zap.String("id", workerID))
+		logger.L().Info("Worker connected", logger.String("id", workerID))
 
 		<-ctx.Done()
 		return ctx.Err()
@@ -207,7 +206,7 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 		s.registry.ProcessClientStream(clientID, stream)
 		defer s.registry.StopClientStream(clientID)
 
-		logger.L().Info("Client connected", zap.String("id", clientID))
+		logger.L().Info("Client connected", logger.String("id", clientID))
 
 		<-ctx.Done()
 		return ctx.Err()
@@ -239,7 +238,7 @@ func (s *ControlPlaneServer) Listen(addr string) error {
 	srv := grpc.NewServer()
 	flight.RegisterFlightServiceServer(srv, s)
 
-	logger.L().Info("Control Plane listening", zap.String("address", addr))
+	logger.L().Info("Control Plane listening", logger.String("address", addr))
 
 	errCh := make(chan error, 1)
 	go func() {

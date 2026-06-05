@@ -8,19 +8,19 @@ import (
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 // handleCompletion processes a "textDocument/completion" LSP request to retrieve completion candidates.
 // It parses the active document context, determines if the cursor is within a suggestable region,
 // and queries the step registry fetched from the Control Plane to return matching namespaces or steps.
-func handleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error), logger *zap.Logger) error {
+func handleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request, files *sync.Map, registryGetter func(context.Context) (*models.RegistryInfo, error), log logger.Logger) error {
 	var params protocol.CompletionParams
 	// Unmarshal the incoming request parameters to extract the file URI and cursor position.
 	if err := json.Unmarshal(req.Params(), &params); err != nil {
@@ -38,7 +38,7 @@ func handleCompletion(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.
 	// If the control plane is unreachable or returns an error, gracefully fallback to an empty registry.
 	registry, err := registryGetter(ctx)
 	if err != nil {
-		logger.Warn("Failed to get registry from control plane", zap.Error(err))
+		log.Warn("Failed to get registry from control plane", logger.Error(err))
 	}
 
 	if registry == nil {

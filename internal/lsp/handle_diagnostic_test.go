@@ -6,11 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 func TestGetSyntaxDiagnostics(t *testing.T) {
@@ -68,15 +68,15 @@ func TestGetSyntaxDiagnostics(t *testing.T) {
 }
 
 func TestGetSemanticDiagnostics_Basics(t *testing.T) {
-	logger := zap.NewNop()
-	s := NewServer(logger, "localhost:50051")
+	log := logger.NewNop()
+	s := NewServer(log, "localhost:50051")
 	ctx := context.Background()
 	astCtx := ast.AcquireASTContext()
 	defer ast.ReleaseASTContext(astCtx)
 
 	t.Run("Empty Program handles gracefully", func(t *testing.T) {
 		prog := ast.ProgramNode{}
-		diagnostics := getSemanticDiagnostics(ctx, prog, astCtx, s.getRegistry, logger)
+		diagnostics := getSemanticDiagnostics(ctx, prog, astCtx, s.getRegistry, log)
 		// Even if the Control Plane is unreachable, it should return an empty slice rather than crashing
 		assert.NotNil(t, diagnostics)
 		assert.Len(t, diagnostics, 0)

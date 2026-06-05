@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/apache/arrow/go/v18/arrow"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
@@ -20,7 +19,7 @@ func ExecutePrint(ctx context.Context, request plugin.ExecuteStepRequest) (plugi
 	for fieldName, path := range request.InputRef {
 		arr, err := locality.ReadArrowArrayFromPath(path)
 		if err != nil {
-			logger.L().Error("Failed to read input from SHM", zap.Error(err), zap.String("path", path))
+			logger.L().Error("Failed to read input from SHM", logger.Error(err), logger.String("path", path))
 		} else {
 			columns[fieldName] = arr
 			defer arr.Release()

@@ -5,7 +5,66 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var globalLogger *zap.Logger
+// Logger defines the interface for structured logging.
+type Logger interface {
+	Debug(msg string, fields ...Field)
+	Info(msg string, fields ...Field)
+	Warn(msg string, fields ...Field)
+	Error(msg string, fields ...Field)
+	Fatal(msg string, fields ...Field)
+	With(fields ...Field) Logger
+	Sync() error
+}
+
+// Field represents a key-value pair to add context to a log entry.
+type Field struct {
+	zapField zap.Field
+}
+
+type zapLogger struct {
+	l *zap.Logger
+}
+
+func (z *zapLogger) Debug(msg string, fields ...Field) {
+	z.l.Debug(msg, toZapFields(fields)...)
+}
+
+func (z *zapLogger) Info(msg string, fields ...Field) {
+	z.l.Info(msg, toZapFields(fields)...)
+}
+
+func (z *zapLogger) Warn(msg string, fields ...Field) {
+	z.l.Warn(msg, toZapFields(fields)...)
+}
+
+func (z *zapLogger) Error(msg string, fields ...Field) {
+	z.l.Error(msg, toZapFields(fields)...)
+}
+
+func (z *zapLogger) Fatal(msg string, fields ...Field) {
+	z.l.Fatal(msg, toZapFields(fields)...)
+}
+
+func (z *zapLogger) With(fields ...Field) Logger {
+	return &zapLogger{l: z.l.With(toZapFields(fields)...)}
+}
+
+func (z *zapLogger) Sync() error {
+	return z.l.Sync()
+}
+
+func toZapFields(fields []Field) []zap.Field {
+	if len(fields) == 0 {
+		return nil
+	}
+	zf := make([]zap.Field, len(fields))
+	for i, f := range fields {
+		zf[i] = f.zapField
+	}
+	return zf
+}
+
+var globalLogger Logger
 
 func init() {
 	// Initialize with a sane default for development
@@ -15,9 +74,10 @@ func init() {
 	logger, err := config.Build()
 	if err != nil {
 		// Fallback to basic production logger if development build fails
-		logger = zap.NewNop()
+		globalLogger = NewNop()
+	} else {
+		globalLogger = &zapLogger{l: logger}
 	}
-	globalLogger = logger
 }
 
 // Config defines the configuration for the logger
@@ -65,19 +125,19 @@ func Init(cfg Config) error {
 		return err
 	}
 
-	globalLogger = logger
+	globalLogger = &zapLogger{l: logger}
 	zap.ReplaceGlobals(logger)
 	return nil
 }
 
 // L returns the global logger instance
-func L() *zap.Logger {
+func L() Logger {
 	return globalLogger
 }
 
-// S returns the global sugared logger instance
-func S() *zap.SugaredLogger {
-	return globalLogger.Sugar()
+// NewNop returns a no-op logger instance
+func NewNop() Logger {
+	return &zapLogger{l: zap.NewNop()}
 }
 
 // Sync flushes any buffered log entries
@@ -86,22 +146,30 @@ func Sync() error {
 }
 
 // Field helpers to avoid importing zap everywhere
-func String(key, val string) zap.Field {
-	return zap.String(key, val)
+func String(key, val string) Field {
+	return Field{zapField: zap.String(key, val)}
 }
 
-func Int(key string, val int) zap.Field {
-	return zap.Int(key, val)
+func Strings(key string, val []string) Field {
+	return Field{zapField: zap.Strings(key, val)}
 }
 
-func Float64(key string, val float64) zap.Field {
-	return zap.Float64(key, val)
+func Int(key string, val int) Field {
+	return Field{zapField: zap.Int(key, val)}
 }
 
-func Error(err error) zap.Field {
-	return zap.Error(err)
+func Int64(key string, val int64) Field {
+	return Field{zapField: zap.Int64(key, val)}
 }
 
-func Any(key string, val any) zap.Field {
-	return zap.Any(key, val)
+func Float64(key string, val float64) Field {
+	return Field{zapField: zap.Float64(key, val)}
+}
+
+func Error(err error) Field {
+	return Field{zapField: zap.Error(err)}
+}
+
+func Any(key string, val any) Field {
+	return Field{zapField: zap.Any(key, val)}
 }

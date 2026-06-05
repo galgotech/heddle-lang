@@ -9,8 +9,6 @@ import (
 	"strings"
 	"text/template"
 
-	"go.uber.org/zap"
-
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -60,7 +58,7 @@ func (s *ScaffoldService) Init(projectName string) error {
 		return err
 	}
 
-	logger.L().Info("Heddle project initialized successfully", zap.String("project", projectName), zap.String("workflow", workflowPath))
+	logger.L().Info("Heddle project initialized successfully", logger.String("project", projectName), logger.String("workflow", workflowPath))
 	return nil
 }
 
@@ -110,14 +108,14 @@ func (s *ScaffoldService) WorkerAdd(language, fullName string) error {
 		}
 	}
 
-	logger.L().Info("Worker scaffolded successfully", zap.String("path", baseDir))
+	logger.L().Info("Worker scaffolded successfully", logger.String("path", baseDir))
 	return nil
 }
 
 func (s *ScaffoldService) WorkerValidate() (int, error) {
 	workersDir := "workers"
 	if _, err := os.Stat(workersDir); os.IsNotExist(err) {
-		logger.L().Warn("Workers directory not found", zap.String("dir", workersDir))
+		logger.L().Warn("Workers directory not found", logger.String("dir", workersDir))
 		return 0, nil
 	}
 
@@ -133,7 +131,7 @@ func (s *ScaffoldService) WorkerValidate() (int, error) {
 
 			parts := strings.Split(rel, string(os.PathSeparator))
 			if len(parts) != 2 {
-				logger.L().Error("Invalid worker directory depth", zap.String("path", dir))
+				logger.L().Error("Invalid worker directory depth", logger.String("path", dir))
 				return nil
 			}
 
@@ -142,7 +140,7 @@ func (s *ScaffoldService) WorkerValidate() (int, error) {
 
 			fullName := fmt.Sprintf("%s/%s", namespace, workerName)
 			if !namespaceRegex.MatchString(fullName) {
-				logger.L().Error("Invalid worker name format", zap.String("name", fullName))
+				logger.L().Error("Invalid worker name format", logger.String("name", fullName))
 				return nil
 			}
 
@@ -155,6 +153,6 @@ func (s *ScaffoldService) WorkerValidate() (int, error) {
 		return 0, fmt.Errorf("failed to walk workers directory: %w", err)
 	}
 
-	logger.L().Info("Validation complete", zap.Int("valid_workers", validCount))
+	logger.L().Info("Validation complete", logger.Int("valid_workers", validCount))
 	return validCount, nil
 }

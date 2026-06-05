@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"go.uber.org/zap"
-
 	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
@@ -91,7 +89,7 @@ func (s *ScaffoldService) scaffoldGoWorker(baseDir, namespace, workerName string
 	goModCmd.Stdout = os.Stdout
 	goModCmd.Stderr = os.Stderr
 	if err := goModCmd.Run(); err != nil {
-		logger.L().Error("failed to run go mod init", zap.Error(err))
+		logger.L().Error("failed to run go mod init", logger.Error(err))
 		return fmt.Errorf("failed to run go mod init: %w", err)
 	}
 
@@ -101,7 +99,7 @@ func (s *ScaffoldService) scaffoldGoWorker(baseDir, namespace, workerName string
 	tidyCmd.Stdout = os.Stdout
 	tidyCmd.Stderr = os.Stderr
 	if err := tidyCmd.Run(); err != nil {
-		logger.L().Error("failed to run go mod tidy", zap.Error(err))
+		logger.L().Error("failed to run go mod tidy", logger.Error(err))
 		return fmt.Errorf("failed to run go mod tidy: %w", err)
 	}
 

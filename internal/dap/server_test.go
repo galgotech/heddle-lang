@@ -12,16 +12,16 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/go-dap"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 func TestDAPServer_Start(t *testing.T) {
-	logger := zap.NewNop()
+	log := logger.NewNop()
 	addr := "localhost:0" // random port
 	cpAddr := "localhost:50051"
 
-	s := NewServer(logger, addr, cpAddr)
+	s := NewServer(log, addr, cpAddr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -74,7 +74,7 @@ func TestDAPSession_LaunchFailureOfflineControlPlane(t *testing.T) {
 	rw := bufio.NewReadWriter(bufio.NewReader(&readBuf), bufio.NewWriter(&writeBuf))
 
 	s := &Session{
-		logger: zap.NewNop(),
+		logger: logger.NewNop(),
 		rw:     rw,
 		cpAddr: "127.0.0.1:59999", // closed/offline port
 	}
@@ -141,7 +141,7 @@ func TestDAPSession_LaunchSuccess(t *testing.T) {
 	defer c2.Close()
 
 	s := &Session{
-		logger: zap.NewNop(),
+		logger: logger.NewNop(),
 		rw:     bufio.NewReadWriter(bufio.NewReader(c1), bufio.NewWriter(c1)),
 		cpAddr: lis.Addr().String(),
 	}

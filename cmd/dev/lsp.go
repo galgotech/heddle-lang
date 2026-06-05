@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/internal/lsp"
@@ -51,7 +50,7 @@ var LspCmd = &cobra.Command{
 		defer rw.Close()
 
 		if err := server.Start(cmd.Context(), rw); err != nil {
-			l.Fatal("LSP server failed", zap.Error(err))
+			l.Fatal("LSP server failed", logger.Error(err))
 		}
 	},
 }

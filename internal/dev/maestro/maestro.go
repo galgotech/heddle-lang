@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime"
@@ -46,12 +45,12 @@ func (m *Maestro) Run(ctx context.Context) error {
 	// Start all initial workers
 	for dir, executor := range m.Workers {
 		if err := executor.Start(ctx, runtime.WorkerUDSPath); err != nil {
-			logger.L().Error("Worker start failed", zap.Error(err))
+			logger.L().Error("Worker start failed", logger.Error(err))
 		}
 
 		// Watch the directory
 		if err := m.watchRecursive(dir); err != nil {
-			logger.L().Error("Failed to watch worker directory", zap.Error(err))
+			logger.L().Error("Failed to watch worker directory", logger.Error(err))
 		}
 	}
 
@@ -84,10 +83,10 @@ func (m *Maestro) Run(ctx context.Context) error {
 					}
 
 					debounceTimers[key] = time.AfterFunc(500*time.Millisecond, func() {
-						logger.L().Info("File changed, hot-reloading worker...", zap.String("file", event.Name), zap.String("plugin", executor.Name()))
+						logger.L().Info("File changed, hot-reloading worker...", logger.String("file", event.Name), logger.String("plugin", executor.Name()))
 						executor.Stop()
 						if err := executor.Start(ctx, runtime.WorkerUDSPath); err != nil {
-							logger.L().Error("Hot-reload failed", zap.Error(err))
+							logger.L().Error("Hot-reload failed", logger.Error(err))
 						}
 					})
 				}
@@ -101,7 +100,7 @@ func (m *Maestro) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			logger.L().Error("Watcher error", zap.Error(err))
+			logger.L().Error("Watcher error", logger.Error(err))
 		}
 	}
 }
@@ -122,14 +121,14 @@ func (m *Maestro) scanWorkers() error {
 			// Load and validate configuration from worker.toml
 			meta, err := LoadWorkerConfig(path)
 			if err != nil {
-				logger.L().Error("Invalid worker configuration", zap.String("path", path), zap.Error(err))
+				logger.L().Error("Invalid worker configuration", logger.String("path", path), logger.Error(err))
 				return nil
 			}
 
 			if factory, ok := Executors[meta.Worker.Runtime]; ok {
 				m.Workers[dir] = factory(meta.Worker.Namespace, meta.Worker.Name, dir)
 			} else {
-				logger.L().Error("Unsupported runtime", zap.String("runtime", meta.Worker.Runtime), zap.String("path", path))
+				logger.L().Error("Unsupported runtime", logger.String("runtime", meta.Worker.Runtime), logger.String("path", path))
 			}
 		}
 		return nil

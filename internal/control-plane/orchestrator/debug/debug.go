@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
@@ -49,7 +48,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		case *ir.FlowInstruction:
 			flow = *f
 		default:
-			logger.L().Error("flow is not a valid FlowInstruction", zap.String("id", flowID))
+			logger.L().Error("flow is not a valid FlowInstruction", logger.String("id", flowID))
 			continue
 		}
 
@@ -57,7 +56,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 			continue
 		}
 
-		logger.L().Info("[DEBUG] Starting debug workflow execution", zap.String("workflow", flow.Name))
+		logger.L().Info("[DEBUG] Starting debug workflow execution", logger.String("workflow", flow.Name))
 		if clientStream != nil {
 			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting debug execution of workflow %s...", flow.Name)})
 		}
@@ -71,7 +70,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		}
 
 		if runErr != nil {
-			logger.L().Error("[DEBUG] Workflow execution failed", zap.Error(runErr))
+			logger.L().Error("[DEBUG] Workflow execution failed", logger.Error(runErr))
 			if clientStream != nil {
 				_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
 			}
@@ -79,7 +78,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		}
 	}
 
-	logger.L().Info("[DEBUG] Workflow execution completed successfully", zap.String("id", task.ID))
+	logger.L().Info("[DEBUG] Workflow execution completed successfully", logger.String("id", task.ID))
 	if clientStream != nil {
 		_ = clientStream.Send(&flight.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
 	}
@@ -135,7 +134,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 		col = step.SourceLocation.Column
 	}
 
-	logger.L().Info("[DEBUG] Paused at step", zap.String("step_id", stepID), zap.Int("line", line), zap.Int("col", col))
+	logger.L().Info("[DEBUG] Paused at step", logger.String("step_id", stepID), logger.Int("line", line), logger.Int("col", col))
 
 	if clientStream != nil {
 		// Send DEBUG_PAUSED message
@@ -154,14 +153,14 @@ func (o *DebugOrchestrator) executeStepDebug(
 		if cmd == "STOP" {
 			return fmt.Errorf("debug session stopped by user")
 		}
-		logger.L().Info("[DEBUG] Step resumed by client", zap.String("step_id", stepID))
+		logger.L().Info("[DEBUG] Step resumed by client", logger.String("step_id", stepID))
 	} else {
 		// Headless/test mode simulator
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(10 * time.Millisecond):
-			logger.L().Info("[DEBUG] Step auto-resumed (headless)", zap.String("step_id", stepID))
+			logger.L().Info("[DEBUG] Step auto-resumed (headless)", logger.String("step_id", stepID))
 		}
 	}
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/internal/dap"
@@ -40,12 +39,12 @@ var DapCmd = &cobra.Command{
 		cpAddr, _ := cmd.Flags().GetString("control-plane-addr")
 		addr, _ := cmd.Flags().GetString("addr")
 
-		l.Info("DAP server starting", zap.String("addr", addr), zap.String("control-plane-addr", cpAddr))
+		l.Info("DAP server starting", logger.String("addr", addr), logger.String("control-plane-addr", cpAddr))
 
 		server := dap.NewServer(l, addr, cpAddr)
 
 		if err := server.StartStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
-			l.Fatal("DAP stdio failed", zap.Error(err))
+			l.Fatal("DAP stdio failed", logger.Error(err))
 		}
 	},
 }

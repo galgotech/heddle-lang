@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
@@ -39,7 +38,7 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 		case *ir.FlowInstruction:
 			flow = *f
 		default:
-			logger.L().Error("flow is not a valid FlowInstruction", zap.String("id", flowID))
+			logger.L().Error("flow is not a valid FlowInstruction", logger.String("id", flowID))
 			continue
 		}
 
@@ -48,7 +47,7 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 			continue
 		}
 
-		logger.L().Info("[INTERACTIVE] Starting interactive workflow execution", zap.String("workflow", flow.Name))
+		logger.L().Info("[INTERACTIVE] Starting interactive workflow execution", logger.String("workflow", flow.Name))
 		if clientStream != nil {
 			clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting interactive execution of workflow %s...", flow.Name)})
 		}
@@ -62,14 +61,14 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 		}
 
 		if runErr != nil {
-			logger.L().Error("[INTERACTIVE] Task failed", zap.Error(runErr))
+			logger.L().Error("[INTERACTIVE] Task failed", logger.Error(runErr))
 			if clientStream != nil {
 				clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
 			}
 			return
 		}
 	}
-	logger.L().Info("[INTERACTIVE] Task completed successfully", zap.String("id", task.ID))
+	logger.L().Info("[INTERACTIVE] Task completed successfully", logger.String("id", task.ID))
 	if clientStream != nil {
 		clientStream.Send(&flight.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
 	}
@@ -90,7 +89,7 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	}
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
-	logger.L().Info("[INTERACTIVE] Prompting approval for step", zap.String("step_id", stepID), zap.String("capability", capability))
+	logger.L().Info("[INTERACTIVE] Prompting approval for step", logger.String("step_id", stepID), logger.String("capability", capability))
 
 	if clientStream != nil {
 		err := clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "PROMPT:%s:%s", stepID, capability)})
@@ -106,14 +105,14 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 		if string(msg.DataBody) != "APPROVE" {
 			return fmt.Errorf("step execution rejected by user")
 		}
-		logger.L().Info("[INTERACTIVE] Step approved for execution", zap.String("step_id", stepID))
+		logger.L().Info("[INTERACTIVE] Step approved for execution", logger.String("step_id", stepID))
 	} else {
 		// Simulate interactive step gate / approval latency when clientStream is nil (headless or mock environments)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(10 * time.Millisecond):
-			logger.L().Info("[INTERACTIVE] Step approved for execution (headless)", zap.String("step_id", stepID))
+			logger.L().Info("[INTERACTIVE] Step approved for execution (headless)", logger.String("step_id", stepID))
 		}
 	}
 

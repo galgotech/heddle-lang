@@ -13,9 +13,9 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/go-dap"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/client"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 type TimetravelStep struct {
@@ -25,7 +25,7 @@ type TimetravelStep struct {
 }
 
 type Session struct {
-	logger *zap.Logger
+	logger logger.Logger
 	rw     *bufio.ReadWriter
 	sendMu sync.Mutex
 	cpAddr string
@@ -52,7 +52,7 @@ func (s *Session) serve(ctx context.Context) {
 		msg, err := dap.ReadProtocolMessage(s.rw.Reader)
 		if err != nil {
 			if err != context.Canceled {
-				s.logger.Debug("session closed", zap.Error(err))
+				s.logger.Debug("session closed", logger.Error(err))
 			}
 			return
 		}
@@ -91,7 +91,7 @@ func (s *Session) handleMessage(ctx context.Context, msg dap.Message) {
 		s.onVariables(req)
 	default:
 		if r, ok := msg.(dap.RequestMessage); ok {
-			s.logger.Debug("unhandled request", zap.String("command", r.GetRequest().Command))
+			s.logger.Debug("unhandled request", logger.String("command", r.GetRequest().Command))
 		}
 	}
 }
@@ -123,7 +123,7 @@ func (s *Session) onLaunch(req *dap.LaunchRequest) {
 		return
 	}
 
-	s.logger.Info("launching debug session", zap.String("program", args.Program), zap.String("workflow", args.Workflow))
+	s.logger.Info("launching debug session", logger.String("program", args.Program), logger.String("workflow", args.Workflow))
 	s.programPath = args.Program
 	s.workflow = args.Workflow
 
@@ -448,7 +448,7 @@ func (s *Session) send(msg dap.Message) {
 
 	err := dap.WriteProtocolMessage(s.rw.Writer, msg)
 	if err != nil {
-		s.logger.Error("failed to write message", zap.Error(err))
+		s.logger.Error("failed to write message", logger.Error(err))
 	}
 	s.rw.Flush()
 }

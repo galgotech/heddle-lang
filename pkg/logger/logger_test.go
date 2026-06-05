@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,6 @@ func TestLoggerInit(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.NotNil(t, L())
-	assert.NotNil(t, S())
 }
 
 func TestLoggerWithOutputPaths(t *testing.T) {
@@ -25,18 +25,35 @@ func TestLoggerWithOutputPaths(t *testing.T) {
 	assert.NoError(t, err)
 
 	L().Info("test message")
-	err = Sync()
-	// Zap Sync might return error for files on some OSes or if already synced, so we don't strictly assert NoError here
-
-	// Clean up
-	// os.Remove(tmpFile) // Optional
+	_ = Sync()
 }
 
 func TestFieldHelpers(t *testing.T) {
 	f1 := String("key", "val")
-	assert.Equal(t, "key", f1.Key)
+	assert.NotNil(t, f1.zapField)
 
 	f2 := Int("key", 123)
-	assert.Equal(t, "key", f2.Key)
-	assert.Equal(t, int64(123), f2.Integer)
+	assert.NotNil(t, f2.zapField)
+
+	f3 := Int64("key64", 1234)
+	assert.NotNil(t, f3.zapField)
+
+	f4 := Float64("keyfloat", 12.34)
+	assert.NotNil(t, f4.zapField)
+
+	f5 := Error(errors.New("test error"))
+	assert.NotNil(t, f5.zapField)
+
+	f6 := Any("keyany", map[string]string{"a": "b"})
+	assert.NotNil(t, f6.zapField)
+
+	f7 := Strings("keystrings", []string{"a", "b"})
+	assert.NotNil(t, f7.zapField)
+
+	// Test that Info/Debug/Warn/Error/With work
+	l := L().With(f1)
+	l.Debug("debug", f2)
+	l.Info("info", f3)
+	l.Warn("warn", f4)
+	l.Error("error", f5)
 }

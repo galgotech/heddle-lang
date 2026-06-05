@@ -4,13 +4,13 @@ import (
 	"context"
 
 	"go.lsp.dev/protocol"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 // getSyntaxDiagnostics converts parser errors into LSP diagnostic format.
@@ -31,14 +31,14 @@ func getSyntaxDiagnostics(parserErrors []parser.ParserError) []protocol.Diagnost
 }
 
 // getSemanticDiagnostics performs semantic and type validation and converts errors into LSP diagnostic format.
-func getSemanticDiagnostics(ctx context.Context, prog ast.ProgramNode, astCtx *ast.ASTContext, registryGetter func(context.Context) (*models.RegistryInfo, error), logger *zap.Logger) []protocol.Diagnostic {
+func getSemanticDiagnostics(ctx context.Context, prog ast.ProgramNode, astCtx *ast.ASTContext, registryGetter func(context.Context) (*models.RegistryInfo, error), log logger.Logger) []protocol.Diagnostic {
 	diagnostics := []protocol.Diagnostic{}
 
 	// Fetch schemas from Control Plane
 	var steps map[string]schema.StepSchemas
 	registry, err := registryGetter(ctx)
 	if err != nil {
-		logger.Warn("Failed to fetch registry for AOT validation", zap.Error(err))
+		log.Warn("Failed to fetch registry for AOT validation", logger.Error(err))
 	}
 	if registry != nil {
 		steps = registry.Steps

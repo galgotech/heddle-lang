@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/internal/worker"
@@ -38,12 +37,12 @@ var workerRunCmd = &cobra.Command{
 		pluginServer := worker.NewPluginServer(registry, nativePlugins, socket)
 		worker, err := worker.NewWorker(pluginServer, cpAddr)
 		if err != nil {
-			logger.L().Fatal("Failed to initialize worker", zap.Error(err))
+			logger.L().Fatal("Failed to initialize worker", logger.Error(err))
 		}
 
-		logger.L().Info("Starting worker", zap.String("id", worker.GetID()), zap.String("control-plane", cpAddr))
+		logger.L().Info("Starting worker", logger.String("id", worker.GetID()), logger.String("control-plane", cpAddr))
 		if err := worker.Start(ctx); err != nil {
-			logger.L().Fatal("Worker exited with error", zap.Error(err))
+			logger.L().Fatal("Worker exited with error", logger.Error(err))
 		}
 	},
 }

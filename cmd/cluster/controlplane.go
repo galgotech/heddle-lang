@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 
 	"github.com/galgotech/heddle-lang/internal/config"
 	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
@@ -31,14 +30,14 @@ var controlPlaneRunCmd = &cobra.Command{
 
 		port := viper.GetInt("port")
 		logger.L().Info("Heddle Control Plane starting",
-			zap.Int("port", port),
-			zap.String("standard", "Apache Arrow Flight"))
+			logger.Int("port", port),
+			logger.String("standard", "Apache Arrow Flight"))
 
 		workerRegistry := registry.NewWorkerRegistry()
 		cp := controlplane.NewControlPlaneServer(workerRegistry)
 		err := cp.Listen(fmt.Sprintf(":%d", port))
 		if err != nil {
-			logger.L().Fatal("failed to start control plane", zap.Error(err))
+			logger.L().Fatal("failed to start control plane", logger.Error(err))
 		}
 	},
 }
