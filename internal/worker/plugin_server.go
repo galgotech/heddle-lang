@@ -246,7 +246,7 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	}
 
 	// Zero-Copy Output: register SHM path in registry
-	if len(resp.OutputRef) > 0 && s.registry != nil {
+	if s.registry != nil {
 		// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
 		for _, outPath := range resp.OutputRef {
 			if err := validateSHMPath(outPath); err != nil {

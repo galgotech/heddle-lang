@@ -21,6 +21,8 @@ var rootCmd = &cobra.Command{
 	Short: "Heddle is a strictly-typed, domain-specific programming language for data orchestration",
 	Long: `Heddle Lang provides a high-performance orchestration engine with zero-copy data routing
 and a strictly-typed DSL. This CLI tool manages all components of the Heddle ecosystem.`,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfgFile, _ := cmd.Flags().GetString("config")
 		cfg, err := config.LoadHeddleConfig(cfgFile)

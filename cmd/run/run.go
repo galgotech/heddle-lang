@@ -81,7 +81,7 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			addr = target
 		}
 
-		fmt.Printf("Simulating execution of DAG file %s in %s mode...\n", filePath, mode)
+		fmt.Printf("Execution of DAG file %s in %s...\n", filePath, mode)
 		fmt.Printf("Connecting to Control Plane at %s...\n", addr)
 
 		// Real submission logic (since the CP might be running)
