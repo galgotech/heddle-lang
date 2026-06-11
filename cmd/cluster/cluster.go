@@ -7,9 +7,9 @@ import (
 // ClusterCmd is the root command for running Heddle in cluster mode.
 var ClusterCmd = &cobra.Command{
 	Use:   "cluster",
-	Short: "Remote Infrastructure Orchestration and Telemetry",
+	Short: "Distributed Execution",
 	Long: `Manage Heddle components in a cluster environment, 
-including Control Plane and Worker lifecycle, logging, and health monitoring.`,
+including Control Plane and Worker lifecycle.`,
 }
 
 func init() {

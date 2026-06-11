@@ -25,10 +25,6 @@ func TestRunCmd_FlagsRegistration(t *testing.T) {
 	require.NotNil(t, asyncFlag, "expected --async flag to be registered")
 	assert.Equal(t, "bool", asyncFlag.Value.Type())
 
-	assincronaFlag := RunCmd.Flags().Lookup("assincrona")
-	require.NotNil(t, assincronaFlag, "expected --assincrona flag to be registered")
-	assert.Equal(t, "bool", assincronaFlag.Value.Type())
-
 	interactiveFlag := RunCmd.Flags().Lookup("interactive")
 	require.NotNil(t, interactiveFlag, "expected --interactive flag to be registered")
 	assert.Equal(t, "bool", interactiveFlag.Value.Type())
@@ -78,20 +74,6 @@ workflow hello {
 		assert.NoError(t, err)
 	})
 
-	t.Run("Async execution via --assincrona", func(t *testing.T) {
-		RunCmd.SetArgs([]string{
-			"--mode", "remote",
-			"--target", lis.Addr().String(),
-			"--assincrona",
-			tmpFile.Name(),
-		})
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		err = RunCmd.ExecuteContext(ctx)
-		assert.NoError(t, err)
-	})
 }
 
 func TestSubmitWorkflow_Interactive(t *testing.T) {

@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/galgotech/heddle-lang/cmd/initcmd"
+	"github.com/galgotech/heddle-lang/cmd/run"
 )
 
 // WorkflowCmd represents the workflow group
@@ -72,6 +75,8 @@ var rmCmd = &cobra.Command{
 }
 
 func init() {
+	WorkflowCmd.AddCommand(run.RunCmd)
+	WorkflowCmd.AddCommand(initcmd.InitCmd)
 	WorkflowCmd.AddCommand(lsCmd)
 	WorkflowCmd.AddCommand(statsCmd)
 	WorkflowCmd.AddCommand(stopCmd)

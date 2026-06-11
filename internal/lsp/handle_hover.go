@@ -132,7 +132,7 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 			markdown.WriteString("Binds to connector: `" + bindsTo + "`\n\n")
 		}
 	} else {
-		markdown.WriteString("### ⚡ Step: **" + symbolName + "**\n")
+		markdown.WriteString("### Step: **" + symbolName + "**\n")
 		if bindsTo != "" {
 			markdown.WriteString("Binds to: `" + bindsTo + "`\n\n")
 		}

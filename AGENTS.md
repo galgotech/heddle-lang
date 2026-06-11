@@ -39,7 +39,7 @@ The Heddle repository organizes its components into logical modules to isolate c
 The `/cmd/` directory houses the command-line interface (**CLI**) logic. The main CLI application uses the Cobra library to register and coordinate the following subcommands:
 
 *   [`/cmd/main.go`](./cmd/main.go): The entry point for the global `heddle` command. It initializes the logger and parses user-supplied configuration flags.
-*   [`/cmd/run/`](./cmd/run/): Provides the command to execute a Heddle script directly.
+*   [`/cmd/run/`](./cmd/run/): Provides the subcommand to execute a Heddle script directly, registered under the `workflow` command.
 *   [`/cmd/local/`](./cmd/local/): Implements the command for local single-node execution.
 *   [`/cmd/cluster/`](./cmd/cluster/): Configures and launches a multi-node cluster deployment.
 *   [`/cmd/dev/`](./cmd/dev/): Orchestrates local developer services. It starts the Language Server Protocol (**LSP**) server, the Debug Adapter Protocol (**DAP**) server, and file-watching daemons.

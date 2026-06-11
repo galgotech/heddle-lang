@@ -9,7 +9,7 @@ import (
 // InspectCmd represents the inspect group
 var InspectCmd = &cobra.Command{
 	Use:   "inspect",
-	Short: "Global observability tool",
+	Short: "Observability tool",
 }
 
 var cpCmd = &cobra.Command{

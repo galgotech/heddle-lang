@@ -1,4 +1,4 @@
-package dev
+package initcmd
 
 import (
 	"github.com/spf13/cobra"

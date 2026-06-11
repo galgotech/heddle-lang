@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/galgotech/heddle-lang/cmd/cluster"
+	"github.com/galgotech/heddle-lang/cmd/completion"
 	"github.com/galgotech/heddle-lang/cmd/dev"
 	"github.com/galgotech/heddle-lang/cmd/inspect"
 	"github.com/galgotech/heddle-lang/cmd/local"
-	"github.com/galgotech/heddle-lang/cmd/run"
 	"github.com/galgotech/heddle-lang/cmd/workflow"
 	"github.com/galgotech/heddle-lang/internal/config"
 	"github.com/galgotech/heddle-lang/pkg/logger"
@@ -55,12 +55,14 @@ func init() {
 	rootCmd.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().String("log-format", "console", "log format (console, json)")
 
-	rootCmd.AddCommand(run.RunCmd)
+	// run.RunCmd.GroupID = "run"
+
 	rootCmd.AddCommand(workflow.WorkflowCmd)
 	rootCmd.AddCommand(inspect.InspectCmd)
 	rootCmd.AddCommand(local.LocalCmd)
 	rootCmd.AddCommand(cluster.ClusterCmd)
 	rootCmd.AddCommand(dev.DevCmd)
+	rootCmd.AddCommand(completion.CompletionCmd)
 }
 
 func main() {

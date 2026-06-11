@@ -35,9 +35,13 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 		}
 
 		// Load config
-		cfgFile, err := cmd.Flags().GetString("config")
-		if err != nil {
-			return fmt.Errorf("failed to get config: %w", err)
+		var cfgFile string
+		if cmd.Flags().Lookup("config") != nil {
+			var err error
+			cfgFile, err = cmd.Flags().GetString("config")
+			if err != nil {
+				return fmt.Errorf("failed to get config: %w", err)
+			}
 		}
 
 		cfg, err := config.LoadHeddleConfig(cfgFile)
@@ -133,7 +137,6 @@ func init() {
 	RunCmd.Flags().String("workflow", "", "Specific workflow name to execute")
 
 	RunCmd.Flags().BoolP("async", "a", false, "Asynchronous execution (releases terminal)")
-	RunCmd.Flags().Bool("assincrona", false, "Asynchronous execution (releases terminal)")
 	RunCmd.Flags().BoolP("interactive", "i", false, "Interactive execution (user must confirm each step)")
 	RunCmd.Flags().Bool("interativa", false, "Interactive execution (user must confirm each step)")
 

@@ -156,12 +156,12 @@ Follow these numbered steps to build the Heddle command-line interface (**CLI**)
 The Heddle CLI is the primary entry point to manage, inspect, and run orchestration tasks. 
 
 The following list details the supported subcommands:
-- `heddle run <script>`: Executes a Heddle DSL script directly.
+- `heddle workflow run <script>`: Executes a Heddle DSL script directly.
 - `heddle local`: Starts a local, single-node execution environment.
 - `heddle cluster`: Configures and launches a multi-node cluster deployment.
 - `heddle dev`: Launches local developer daemons including the LSP and DAP servers.
 - `heddle inspect`: Examines the abstract syntax tree (**AST**) and compiled intermediate representation (**IR**).
-- `heddle workflow`: Manages and lists current active workflow definitions.
+- `heddle workflow`: Manages, lists, initializes, and runs workflow definitions.
 
 ---
 
