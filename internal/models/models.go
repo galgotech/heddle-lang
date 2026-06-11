@@ -31,11 +31,6 @@ const (
 	TaskStatusFailed  = "FAILED"
 )
 
-// Standard type names
-const (
-	VoidType = "void"
-)
-
 // WorkerRegistration contains metadata sent by a worker when it registers with the Control Plane.
 type WorkerRegistration struct {
 	Address string `json:"address"`

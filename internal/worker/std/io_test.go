@@ -5,9 +5,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/galgotech/heddle-lang/pkg/plugin"
 )
 
 func TestExecutePrint_WithRedirectedOutput(t *testing.T) {

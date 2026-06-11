@@ -256,6 +256,12 @@ The debugger exposes three distinct virtual scopes for variables inspection:
 
 Use the project's Cobra CLI and Makefile to build, test, and run Heddle.
 
+### Prerequisites
+
+Ensure the local system environment meets the following requirements:
+*   **Go Toolchain:** Go compiler version 1.26 or higher is required.
+*   **GNU Make:** Version 4.0 or higher is required.
+
 ### 5.1 Common Commands
 
 Introduce development workflows with these terminal commands:

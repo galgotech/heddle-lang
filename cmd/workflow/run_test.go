@@ -1,4 +1,4 @@
-package run
+package workflow
 
 import (
 	"bytes"

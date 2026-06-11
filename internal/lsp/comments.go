@@ -8,12 +8,8 @@ import (
 // along with any leading/trailing empty lines and common block asterisks, returning a cleaned technical description.
 func CleanBlockComment(comment string) string {
 	comment = strings.TrimSpace(comment)
-	if strings.HasPrefix(comment, "/*") {
-		comment = comment[2:]
-	}
-	if strings.HasSuffix(comment, "*/") {
-		comment = comment[:len(comment)-2]
-	}
+	comment = strings.TrimPrefix(comment, "/*")
+	comment = strings.TrimSuffix(comment, "*/")
 
 	lines := strings.Split(comment, "\n")
 	var cleanedLines []string

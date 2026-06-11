@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/galgotech/heddle-lang/pkg/plugin"
-	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/galgotech/heddle-lang/pkg/plugin"
+	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
 func TestExecuteDataLiteral(t *testing.T) {

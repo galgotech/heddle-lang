@@ -23,7 +23,7 @@ func TestStartLocalServices_Ready(t *testing.T) {
 	os.Remove(runtime.ControlPlaneUDSPath)
 	os.Remove(runtime.WorkerUDSPath)
 
-	err := StartLocalServices(ctx)
+	err := startLocalServices(ctx)
 	if err != nil {
 		t.Fatalf("StartLocalServices failed: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestStartLocalServices_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	err := StartLocalServices(ctx)
+	err := startLocalServices(ctx)
 	if err == nil {
 		t.Error("Expected error for cancelled context, got nil")
 	}

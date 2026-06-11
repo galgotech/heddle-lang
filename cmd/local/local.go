@@ -23,34 +23,25 @@ var LocalCmd = &cobra.Command{
 	Short: "Starts Control Plane and Worker",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Starting Heddle local services in foreground...")
+		defer logger.Sync()
 
 		// Set up signal handling for graceful shutdown
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-		defer signal.Stop(sigChan)
+		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
 
-		ctx, cancel := context.WithCancel(cmd.Context())
-		defer cancel()
-
-		if err := StartLocalServices(ctx); err != nil {
+		if err := startLocalServices(ctx); err != nil {
 			logger.L().Error("Failed to start local services", logger.Error(err))
 			return
 		}
 
 		fmt.Println("Heddle local services are running. Press Ctrl+C to stop...")
 
-		select {
-		case sig := <-sigChan:
-			logger.L().Info("Received shutdown signal", logger.String("signal", sig.String()))
-		case <-ctx.Done():
-			logger.L().Info("Context cancelled, shutting down")
-		}
+		<-ctx.Done()
+		logger.L().Info("Context cancelled, shutting down")
 	},
 }
 
-func StartLocalServices(ctx context.Context) error {
-	defer logger.Sync()
-
+func startLocalServices(ctx context.Context) error {
 	controlplaneSocket := runtime.ControlPlaneUDSPath
 	workerSocket := runtime.WorkerUDSPath
 

@@ -62,9 +62,7 @@ func extractCommentContent(lines []string) []string {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "//") {
 			lineText := strings.TrimPrefix(trimmed, "//")
-			if strings.HasPrefix(lineText, " ") {
-				lineText = lineText[1:]
-			}
+			lineText = strings.TrimPrefix(lineText, " ")
 			content = append(content, lineText)
 			continue
 		}
@@ -86,9 +84,7 @@ func extractCommentContent(lines []string) []string {
 		}
 		if strings.HasPrefix(trimmed, "*") {
 			trimmed = trimmed[1:]
-			if strings.HasPrefix(trimmed, " ") {
-				trimmed = trimmed[1:]
-			}
+			trimmed = strings.TrimPrefix(trimmed, " ")
 		}
 		if trimmed != "" || len(content) > 0 {
 			content = append(content, trimmed)

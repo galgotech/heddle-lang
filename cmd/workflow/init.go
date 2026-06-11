@@ -1,4 +1,4 @@
-package initcmd
+package workflow
 
 import (
 	"github.com/spf13/cobra"

@@ -124,17 +124,27 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 
 	var markdown strings.Builder
 	if isWorkflow {
-		markdown.WriteString("### 🔄 Workflow: **" + symbolName + "**\n")
+		markdown.WriteString("### Workflow: **")
+		markdown.WriteString(symbolName)
+		markdown.WriteString("**\n")
 		markdown.WriteString("Orchestrated Directed Acyclic Graph (DAG) flow definition.\n\n")
 	} else if isResource {
-		markdown.WriteString("### 🔌 Resource: **" + symbolName + "**\n")
+		markdown.WriteString("### Resource: **")
+		markdown.WriteString(symbolName)
+		markdown.WriteString("**\n")
 		if bindsTo != "" {
-			markdown.WriteString("Binds to connector: `" + bindsTo + "`\n\n")
+			markdown.WriteString("Binds to connector: `")
+			markdown.WriteString(bindsTo)
+			markdown.WriteString("`\n\n")
 		}
 	} else {
-		markdown.WriteString("### Step: **" + symbolName + "**\n")
+		markdown.WriteString("### Step: **")
+		markdown.WriteString(symbolName)
+		markdown.WriteString("**\n")
 		if bindsTo != "" {
-			markdown.WriteString("Binds to: `" + bindsTo + "`\n\n")
+			markdown.WriteString("Binds to: `")
+			markdown.WriteString(bindsTo)
+			markdown.WriteString("`\n\n")
 		}
 	}
 
@@ -152,7 +162,8 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 	}
 
 	if docString != "" {
-		markdown.WriteString(docString + "\n\n")
+		markdown.WriteString(docString)
+		markdown.WriteString("\n\n")
 	}
 
 	// Render details if available in registry
@@ -163,7 +174,11 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 				markdown.WriteString("| Field | Type |\n")
 				markdown.WriteString("|---|---|\n")
 				for _, f := range res.Config.Fields {
-					markdown.WriteString("| `" + f.Name + "` | `" + f.Type + "` |\n")
+					markdown.WriteString("| `")
+					markdown.WriteString(f.Name)
+					markdown.WriteString("` | `")
+					markdown.WriteString(f.Type)
+					markdown.WriteString("` |\n")
 				}
 				markdown.WriteString("\n")
 			}
@@ -175,7 +190,11 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 					markdown.WriteString("| Field | Type |\n")
 					markdown.WriteString("|---|---|\n")
 					for _, f := range step.Config.Fields {
-						markdown.WriteString("| `" + f.Name + "` | `" + f.Type + "` |\n")
+						markdown.WriteString("| `")
+						markdown.WriteString(f.Name)
+						markdown.WriteString("` | `")
+						markdown.WriteString(f.Type)
+						markdown.WriteString("` |\n")
 					}
 					markdown.WriteString("\n")
 				}
@@ -186,7 +205,11 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 					markdown.WriteString("| Column | Arrow Type |\n")
 					markdown.WriteString("|---|---|\n")
 					for _, f := range step.Input {
-						markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
+						markdown.WriteString("| `")
+						markdown.WriteString(f.Name)
+						markdown.WriteString("` | `")
+						markdown.WriteString(f.ArrowType)
+						markdown.WriteString("` |\n")
 					}
 					markdown.WriteString("\n")
 				}
@@ -197,7 +220,11 @@ func handleHover(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 					markdown.WriteString("| Column | Arrow Type |\n")
 					markdown.WriteString("|---|---|\n")
 					for _, f := range step.Output {
-						markdown.WriteString("| `" + f.Name + "` | `" + f.ArrowType + "` |\n")
+						markdown.WriteString("| `")
+						markdown.WriteString(f.Name)
+						markdown.WriteString("` | `")
+						markdown.WriteString(f.ArrowType)
+						markdown.WriteString("` |\n")
 					}
 					markdown.WriteString("\n")
 				}

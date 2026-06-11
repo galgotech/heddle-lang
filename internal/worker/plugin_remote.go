@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 )
 
