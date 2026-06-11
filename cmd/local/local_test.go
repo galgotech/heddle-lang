@@ -39,7 +39,7 @@ func TestStartLocalServices_ContextCancel(t *testing.T) {
 	}
 }
 
-func TestStartCmd_ForegroundTimeout(t *testing.T) {
+func TestLocalCmd_ForegroundTimeout(t *testing.T) {
 	if os.Getenv("CI") == "" {
 		t.Skip("Skipping integration test in non-CI environment")
 	}
@@ -51,17 +51,17 @@ func TestStartCmd_ForegroundTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	LocalCmd.SetArgs([]string{"start"})
+	LocalCmd.SetArgs([]string{})
 
 	startTime := time.Now()
 	err := LocalCmd.ExecuteContext(ctx)
 	duration := time.Since(startTime)
 
 	if err != nil {
-		t.Logf("startCmd exited with expected context timeout/error: %v", err)
+		t.Logf("LocalCmd exited with expected context timeout/error: %v", err)
 	}
 
 	if duration < 150*time.Millisecond {
-		t.Errorf("Expected startCmd to run for at least 150ms (foreground wait), but it completed in %v", duration)
+		t.Errorf("Expected LocalCmd to run for at least 150ms (foreground wait), but it completed in %v", duration)
 	}
 }

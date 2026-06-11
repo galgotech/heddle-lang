@@ -52,27 +52,16 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			cfg = &config.HeddleConfig{}
 		}
 
-		// Flag overrides
-		mode, err := cmd.Flags().GetString("mode")
-		if err != nil {
-			return fmt.Errorf("failed to get mode: %w", err)
-		}
-
-		if mode == "" && cfg.Client.Mode != "" {
-			mode = cfg.Client.Mode
-		} else if mode == "" {
+		// Read execution mode and target from configuration
+		mode := cfg.Client.Mode
+		if mode == "" {
 			mode = "local"
 		}
 
-		target, _ := cmd.Flags().GetString("target")
-		if target == "" && cfg.Client.Target != "" {
-			target = cfg.Client.Target
-		}
+		target := cfg.Client.Target
 
-		timeoutStr, _ := cmd.Flags().GetString("timeout")
-		if timeoutStr == "" && cfg.Client.Workflow.Timeout != "" {
-			timeoutStr = cfg.Client.Workflow.Timeout
-		} else if timeoutStr == "" {
+		timeoutStr := cfg.Client.Workflow.Timeout
+		if timeoutStr == "" {
 			timeoutStr = "30s"
 		}
 
@@ -87,7 +76,7 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			addr = runtime.ControlPlaneUDSPath
 		} else {
 			if target == "" {
-				return fmt.Errorf("--target is required for remote mode when not specified in config")
+				return fmt.Errorf("target is required for remote mode when not specified in config")
 			}
 			addr = target
 		}
@@ -104,19 +93,23 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 			return fmt.Errorf("failed to connect to control plane: %w", err)
 		}
 
-		workflowName, err := cmd.Flags().GetString("workflow")
+		workflowName, err := cmd.Flags().GetString("flow")
 		if err != nil {
-			return fmt.Errorf("failed to get workflow name: %w", err)
+			return fmt.Errorf("failed to get flow name: %w", err)
 		}
 
-		asyncFlag, _ := cmd.Flags().GetBool("async")
+		asyncFlag, err := cmd.Flags().GetBool("async")
+		if err != nil {
+			return fmt.Errorf("failed to get async flag: %w", err)
+		}
 
-		interactiveFlag, _ := cmd.Flags().GetBool("interactive")
-		interativaFlag, _ := cmd.Flags().GetBool("interativa")
+		interactiveFlag, err := cmd.Flags().GetBool("interactive")
+		if err != nil {
+			return fmt.Errorf("failed to get interactive flag: %w", err)
+		}
 
-		isInteractive := interactiveFlag || interativaFlag
 		strategy := "recursive"
-		if isInteractive {
+		if interactiveFlag {
 			strategy = "interactive"
 		}
 
@@ -131,19 +124,12 @@ If mode is 'remote', it connects to the specified target address via gRPC.`,
 }
 
 func init() {
-	RunCmd.Flags().String("timeout", "30s", "Timeout for plugin handshake (e.g., 30s)")
-	RunCmd.Flags().String("mode", "local", "Defines the execution mode: 'local' or 'remote'")
-	RunCmd.Flags().String("target", "", "Control Plane address (Required if --mode=remote and absent in config)")
-	RunCmd.Flags().String("workflow", "", "Specific workflow name to execute")
+	RunCmd.Flags().String("flow", "", "Specific workflow name to execute")
 
 	RunCmd.Flags().BoolP("async", "a", false, "Asynchronous execution (releases terminal)")
 	RunCmd.Flags().BoolP("interactive", "i", false, "Interactive execution (user must confirm each step)")
-	RunCmd.Flags().Bool("interativa", false, "Interactive execution (user must confirm each step)")
 
-	viper.BindPFlag("client.mode", RunCmd.Flags().Lookup("mode"))
-	viper.BindPFlag("client.target", RunCmd.Flags().Lookup("target"))
-	viper.BindPFlag("client.workflow.timeout", RunCmd.Flags().Lookup("timeout"))
-	viper.BindPFlag("client.workflow.name", RunCmd.Flags().Lookup("workflow"))
+	viper.BindPFlag("client.workflow.name", RunCmd.Flags().Lookup("flow"))
 	viper.BindPFlag("client.workflow.async", RunCmd.Flags().Lookup("async"))
 	viper.BindPFlag("client.workflow.interactive", RunCmd.Flags().Lookup("interactive"))
 }

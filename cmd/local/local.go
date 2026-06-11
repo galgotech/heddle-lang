@@ -17,30 +17,11 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 )
 
-const pidFile = "/tmp/heddle.pid"
-
-// LocalCmd is the group command for local engine management.
+// LocalCmd is the command to start the engine locally.
 var LocalCmd = &cobra.Command{
 	Use:   "local",
-	Short: "Engine lifecycle management on the LOCAL MACHINE",
-}
-
-var startCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Starts the local Control Plane and Worker",
+	Short: "Starts Control Plane and Worker",
 	Run: func(cmd *cobra.Command, args []string) {
-		daemon, _ := cmd.Flags().GetBool("daemon")
-		if daemon {
-			fmt.Println("Simulating starting local processes in background...")
-			pid := os.Getpid()
-			if err := os.WriteFile(pidFile, fmt.Appendf(nil, "%d", pid), 0644); err != nil {
-				fmt.Printf("Error writing PID file: %v\n", err)
-				return
-			}
-			fmt.Printf("Mock: Heddle daemon started. PID: %d (saved to %s)\n", pid, pidFile)
-			return
-		}
-
 		fmt.Println("Starting Heddle local services in foreground...")
 
 		// Set up signal handling for graceful shutdown
@@ -65,44 +46,6 @@ var startCmd = &cobra.Command{
 			logger.L().Info("Context cancelled, shutting down")
 		}
 	},
-}
-
-var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Displays the current status and health of the daemon local",
-	Run: func(cmd *cobra.Command, args []string) {
-		if _, err := os.Stat(pidFile); err == nil {
-			data, _ := os.ReadFile(pidFile)
-			fmt.Printf("Mock: Healthy Control Plane and Worker\n")
-			fmt.Printf("Status: RUNNING (PID: %s)\n", string(data))
-			fmt.Println("Uptime: 2h 45m")
-			fmt.Printf("Control Plane: %s\n", runtime.ControlPlaneUDSPath)
-			fmt.Printf("Worker: %s\n", runtime.WorkerUDSPath)
-		} else {
-			fmt.Println("Status: STOPPED")
-		}
-	},
-}
-
-var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Gracefully terminates local background processes",
-	Run: func(cmd *cobra.Command, args []string) {
-		if _, err := os.Stat(pidFile); err == nil {
-			fmt.Println("Gracefully terminating local background processes...")
-			os.Remove(pidFile)
-			fmt.Println("Mock: Heddle services stopped.")
-		} else {
-			fmt.Println("No local processes are running in background.")
-		}
-	},
-}
-
-func init() {
-	startCmd.Flags().Bool("daemon", false, "Runs background processes (detached from the terminal)")
-	LocalCmd.AddCommand(startCmd)
-	LocalCmd.AddCommand(statusCmd)
-	LocalCmd.AddCommand(stopCmd)
 }
 
 func StartLocalServices(ctx context.Context) error {

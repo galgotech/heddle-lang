@@ -70,6 +70,9 @@ func LoadHeddleConfig(cfgFile string) (*HeddleConfig, error) {
 	v.AutomaticEnv()
 
 	v.SetDefault("log.level", "info")
+	v.SetDefault("client.mode", "local")
+	v.SetDefault("client.target", "")
+	v.SetDefault("client.workflow.timeout", "30s")
 
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)

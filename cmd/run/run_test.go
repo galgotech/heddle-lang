@@ -59,9 +59,10 @@ workflow hello {
 
 	// 1. Test Asynchronous execution (should submit and release the terminal immediately)
 	t.Run("Async execution via --async", func(t *testing.T) {
+		t.Setenv("HEDDLE_CLIENT_MODE", "remote")
+		t.Setenv("HEDDLE_CLIENT_TARGET", lis.Addr().String())
+
 		RunCmd.SetArgs([]string{
-			"--mode", "remote",
-			"--target", lis.Addr().String(),
 			"--async",
 			tmpFile.Name(),
 		})
