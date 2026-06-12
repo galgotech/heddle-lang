@@ -100,7 +100,7 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 	}
 
 	// 1. Find worker
-	worker := o.registry.FindWorkerStreamForStep(capability)
+	worker := o.registry.FindWorkerByCapability(capability)
 	if worker == nil {
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}

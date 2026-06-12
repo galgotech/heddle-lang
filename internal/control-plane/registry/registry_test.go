@@ -48,15 +48,15 @@ func TestRegister(t *testing.T) {
 	}
 	r.Register("worker-1", reg)
 
-	r.wokersMu.RLock()
+	r.workersMu.RLock()
 	w, ok := r.workers["worker-1"]
-	r.wokersMu.RUnlock()
+	r.workersMu.RUnlock()
 
 	assert.True(t, ok)
 	assert.Equal(t, "worker-1", w.GetID())
 	assert.Equal(t, reg.Address, w.workerInfo.Registration.Address)
-	assert.NotZero(t, w.lastSeen)
-	assert.Equal(t, 0, w.activeTasks)
+	assert.NotZero(t, w.GetLastSeen())
+	assert.Equal(t, 0, w.GetActiveTasks())
 	assert.NotNil(t, w.workerInfo.Schemas)
 }
 
@@ -84,9 +84,9 @@ func TestUpdateCapabilities(t *testing.T) {
 
 	assert.True(t, r.UpdateCapabilities("worker-1", update))
 
-	r.wokersMu.RLock()
+	r.workersMu.RLock()
 	w := r.workers["worker-1"]
-	r.wokersMu.RUnlock()
+	r.workersMu.RUnlock()
 
 	w.workerInfo.mu.RLock()
 	caps := w.workerInfo.Capabilities
@@ -109,43 +109,65 @@ func TestHeartbeat(t *testing.T) {
 	r.Register("worker-1", reg)
 
 	// Set lastSeen to sometime in the past to verify it gets updated
-	r.wokersMu.Lock()
-	r.workers["worker-1"].lastSeen = time.Now().Add(-1 * time.Hour)
-	r.wokersMu.Unlock()
+	r.workersMu.RLock()
+	wInit := r.workers["worker-1"]
+	r.workersMu.RUnlock()
+	wInit.UpdateHeartbeat(0, time.Now().Add(-1*time.Hour))
 
 	assert.True(t, r.Heartbeat("worker-1", 10))
 
-	r.wokersMu.RLock()
+	r.workersMu.RLock()
 	w := r.workers["worker-1"]
-	r.wokersMu.RUnlock()
+	r.workersMu.RUnlock()
 
-	assert.Equal(t, 10, w.activeTasks)
-	assert.WithinDuration(t, time.Now(), w.lastSeen, 2*time.Second)
+	assert.Equal(t, 10, w.GetActiveTasks())
+	assert.WithinDuration(t, time.Now(), w.GetLastSeen(), 2*time.Second)
 }
 
 func TestFindWorkerStreamForStep(t *testing.T) {
 	r := NewWorkerRegistry()
 
 	// No workers
-	w := r.FindWorkerStreamForStep("test.cap")
+	w := r.FindWorkerByCapability("test.cap")
 	assert.Nil(t, w)
 
 	// Register a worker but lastSeen is too old (> 15 seconds)
 	r.Register("worker-old", models.WorkerRegistration{})
-	r.wokersMu.Lock()
-	r.workers["worker-old"].lastSeen = time.Now().Add(-20 * time.Second)
-	r.wokersMu.Unlock()
+	r.UpdateCapabilities("worker-old", models.WorkerCapabilitiesUpdate{
+		Capabilities: []string{"test.cap"},
+	})
+	r.workersMu.RLock()
+	wOld := r.workers["worker-old"]
+	r.workersMu.RUnlock()
+	wOld.UpdateHeartbeat(0, time.Now().Add(-20*time.Second))
 
-	w = r.FindWorkerStreamForStep("test.cap")
+	w = r.FindWorkerByCapability("test.cap")
 	assert.Nil(t, w)
 
-	// Register a worker that is active (< 15 seconds)
-	r.Register("worker-active", models.WorkerRegistration{})
-	r.wokersMu.Lock()
-	r.workers["worker-active"].lastSeen = time.Now().Add(-5 * time.Second)
-	r.wokersMu.Unlock()
+	// Register a worker that is active (< 15 seconds) but doesn't have capability
+	r.Register("worker-active-no-cap", models.WorkerRegistration{})
+	r.workersMu.RLock()
+	wActiveNoCap := r.workers["worker-active-no-cap"]
+	r.workersMu.RUnlock()
+	wActiveNoCap.UpdateHeartbeat(0, time.Now().Add(-5*time.Second))
 
-	w = r.FindWorkerStreamForStep("test.cap")
+	w = r.FindWorkerByCapability("test.cap")
+	assert.Nil(t, w)
+
+	// Register a worker that is active (< 15 seconds) and has capability
+	r.Register("worker-active", models.WorkerRegistration{})
+	r.UpdateCapabilities("worker-active", models.WorkerCapabilitiesUpdate{
+		Capabilities: []string{"test.cap"},
+		Schemas: map[string]schema.StepSchemas{
+			"test.cap": {},
+		},
+	})
+	r.workersMu.RLock()
+	wActive := r.workers["worker-active"]
+	r.workersMu.RUnlock()
+	wActive.UpdateHeartbeat(0, time.Now().Add(-5*time.Second))
+
+	w = r.FindWorkerByCapability("test.cap")
 	assert.NotNil(t, w)
 	assert.Equal(t, "worker-active", w.GetID())
 }
@@ -180,9 +202,10 @@ func TestGetRegistryInfo(t *testing.T) {
 			},
 		},
 	})
-	r.wokersMu.Lock()
-	r.workers["worker-inactive"].lastSeen = time.Now().Add(-40 * time.Second)
-	r.wokersMu.Unlock()
+	r.workersMu.RLock()
+	wInactive := r.workers["worker-inactive"]
+	r.workersMu.RUnlock()
+	wInactive.UpdateHeartbeat(0, time.Now().Add(-40*time.Second))
 
 	info = r.GetRegistryInfo()
 	assert.Len(t, info.Steps, 1)

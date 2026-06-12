@@ -56,7 +56,19 @@ func (w *workerInfo) GetSchemaForCapability(capability string) (schema.StepSchem
 	return s, ok
 }
 
+func (w *workerInfo) SupportsCapability(capability string) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for _, c := range w.Capabilities {
+		if c == capability {
+			return true
+		}
+	}
+	return false
+}
+
 type WorkerStream struct {
+	mu          sync.RWMutex
 	workerInfo  workerInfo
 	stream      transport.ExchangeStream
 	lastSeen    time.Time
@@ -80,7 +92,9 @@ func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 	if stream == nil {
 		return false
 	}
+	w.mu.Lock()
 	w.stream = stream
+	w.mu.Unlock()
 
 	// Listen for task execution results and administrative acknowledgements from the worker in a separate goroutine.
 	go func() {
@@ -136,9 +150,42 @@ func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 }
 
 func (w *WorkerStream) StopStream() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.stream = nil
 }
 
 func (w *WorkerStream) LastSeen() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.lastSeen = time.Now()
+}
+
+func (w *WorkerStream) GetStream() transport.ExchangeStream {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.stream
+}
+
+func (w *WorkerStream) GetLastSeen() time.Time {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.lastSeen
+}
+
+func (w *WorkerStream) GetActiveTasks() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.activeTasks
+}
+
+func (w *WorkerStream) UpdateHeartbeat(load int, t time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.activeTasks = load
+	w.lastSeen = t
+}
+
+func (w *WorkerStream) SupportsCapability(capability string) bool {
+	return w.workerInfo.SupportsCapability(capability)
 }

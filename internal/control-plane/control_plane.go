@@ -125,7 +125,7 @@ func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Act
 				continue
 			}
 			capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
-			w := s.registry.FindWorkerStreamForStep(capability)
+			w := s.registry.FindWorkerByCapability(capability)
 			if w == nil {
 				return status.Errorf(codes.FailedPrecondition, "validation failed: no worker registered for capability %q", capability)
 			}

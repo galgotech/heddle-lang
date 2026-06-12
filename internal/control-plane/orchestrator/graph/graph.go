@@ -143,7 +143,7 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
 	// 1. Find worker
-	worker := o.registry.FindWorkerStreamForStep(capability)
+	worker := o.registry.FindWorkerByCapability(capability)
 	if worker == nil {
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}

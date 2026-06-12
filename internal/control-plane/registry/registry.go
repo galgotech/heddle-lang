@@ -11,8 +11,8 @@ import (
 )
 
 type WorkerRegistry struct {
-	wokersMu sync.RWMutex
-	workers  map[string]*WorkerStream
+	workersMu sync.RWMutex
+	workers   map[string]*WorkerStream
 
 	clientsMu sync.RWMutex
 	clients   map[string]*ClientStream
@@ -24,9 +24,18 @@ type WorkerRegistry struct {
 	workflows   map[string]string // workflowID -> clientID
 }
 
+func NewWorkerRegistry() *WorkerRegistry {
+	return &WorkerRegistry{
+		workers:   make(map[string]*WorkerStream),
+		clients:   make(map[string]*ClientStream),
+		results:   make(map[string]chan models.TaskResult),
+		workflows: make(map[string]string),
+	}
+}
+
 func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
-	r.wokersMu.Lock()
-	defer r.wokersMu.Unlock()
+	r.workersMu.Lock()
+	defer r.workersMu.Unlock()
 
 	r.workers[id] = &WorkerStream{
 		workerInfo: workerInfo{
@@ -41,14 +50,18 @@ func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 }
 
 func (r *WorkerRegistry) GetActiveWorkerStream(id string) (transport.ExchangeStream, bool) {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
+	r.workersMu.RLock()
+	defer r.workersMu.RUnlock()
 
 	stream, ok := r.workers[id]
-	if !ok || stream.stream == nil {
+	if !ok {
 		return nil, false
 	}
-	return stream.stream, true
+	s := stream.GetStream()
+	if s == nil {
+		return nil, false
+	}
+	return s, true
 }
 
 func (r *WorkerRegistry) GetActiveClientStream(id string) (transport.ExchangeStream, bool) {
@@ -63,8 +76,8 @@ func (r *WorkerRegistry) GetActiveClientStream(id string) (transport.ExchangeStr
 }
 
 func (r *WorkerRegistry) ProcessStream(id string, stream transport.ExchangeStream) bool {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
+	r.workersMu.RLock()
+	defer r.workersMu.RUnlock()
 
 	val, ok := r.workers[id]
 	if !ok {
@@ -76,8 +89,8 @@ func (r *WorkerRegistry) ProcessStream(id string, stream transport.ExchangeStrea
 }
 
 func (r *WorkerRegistry) StopStream(id string) bool {
-	r.wokersMu.Lock()
-	defer r.wokersMu.Unlock()
+	r.workersMu.Lock()
+	defer r.workersMu.Unlock()
 
 	val, ok := r.workers[id]
 	if !ok {
@@ -85,12 +98,13 @@ func (r *WorkerRegistry) StopStream(id string) bool {
 	}
 
 	val.StopStream()
+	delete(r.workers, id)
 	return true
 }
 
 func (r *WorkerRegistry) UpdateCapabilities(id string, update models.WorkerCapabilitiesUpdate) bool {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
+	r.workersMu.RLock()
+	defer r.workersMu.RUnlock()
 	val, ok := r.workers[id]
 	if !ok {
 		return false
@@ -102,26 +116,27 @@ func (r *WorkerRegistry) UpdateCapabilities(id string, update models.WorkerCapab
 }
 
 func (r *WorkerRegistry) Heartbeat(id string, load int) bool {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
-
+	r.workersMu.RLock()
 	val, ok := r.workers[id]
+	r.workersMu.RUnlock()
+
 	if !ok {
 		return false
 	}
-	val.lastSeen = time.Now()
-	val.activeTasks = load
+	val.UpdateHeartbeat(load, time.Now())
 	return true
 }
 
-func (r *WorkerRegistry) FindWorkerStreamForStep(capability string) *WorkerStream {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
+func (r *WorkerRegistry) FindWorkerByCapability(capability string) *WorkerStream {
+	r.workersMu.RLock()
+	defer r.workersMu.RUnlock()
 
 	threshold := time.Now().Add(-15 * time.Second)
 	for _, w := range r.workers {
-		if w.lastSeen.After(threshold) {
-			return w
+		if w.GetLastSeen().After(threshold) {
+			if w.SupportsCapability(capability) {
+				return w
+			}
 		}
 	}
 
@@ -129,8 +144,8 @@ func (r *WorkerRegistry) FindWorkerStreamForStep(capability string) *WorkerStrea
 }
 
 func (r *WorkerRegistry) GetRegistryInfo() models.RegistryInfo {
-	r.wokersMu.RLock()
-	defer r.wokersMu.RUnlock()
+	r.workersMu.RLock()
+	defer r.workersMu.RUnlock()
 
 	info := models.RegistryInfo{
 		Steps: make(map[string]schema.StepSchemas),
@@ -139,12 +154,11 @@ func (r *WorkerRegistry) GetRegistryInfo() models.RegistryInfo {
 	threshold := time.Now().Add(-30 * time.Second)
 
 	for _, w := range r.workers {
-		w.workerInfo.mu.RLock()
-		lastSeen := w.lastSeen
-		if lastSeen.After(threshold) {
+		if w.GetLastSeen().After(threshold) {
+			w.workerInfo.mu.RLock()
 			maps.Copy(info.Steps, w.workerInfo.Schemas)
+			w.workerInfo.mu.RUnlock()
 		}
-		w.workerInfo.mu.RUnlock()
 	}
 
 	return info
@@ -167,9 +181,6 @@ func (r *WorkerRegistry) StopClientStream(id string) bool {
 func (r *WorkerRegistry) RegisterResultChan(taskID string, ch chan models.TaskResult) {
 	r.resultsMu.Lock()
 	defer r.resultsMu.Unlock()
-	if r.results == nil {
-		r.results = make(map[string]chan models.TaskResult)
-	}
 	r.results[taskID] = ch
 }
 
@@ -181,8 +192,8 @@ func (r *WorkerRegistry) DeregisterResultChan(taskID string) {
 
 func (r *WorkerRegistry) RouteResult(result models.TaskResult) bool {
 	r.resultsMu.RLock()
-	defer r.resultsMu.RUnlock()
 	ch, ok := r.results[result.TaskID]
+	r.resultsMu.RUnlock()
 	if !ok {
 		return false
 	}
@@ -197,9 +208,6 @@ func (r *WorkerRegistry) RouteResult(result models.TaskResult) bool {
 func (r *WorkerRegistry) RegisterWorkflowClient(workflowID, clientID string) {
 	r.workflowsMu.Lock()
 	defer r.workflowsMu.Unlock()
-	if r.workflows == nil {
-		r.workflows = make(map[string]string)
-	}
 	r.workflows[workflowID] = clientID
 }
 
@@ -214,13 +222,4 @@ func (r *WorkerRegistry) GetClientIDForWorkflow(workflowID string) (string, bool
 	defer r.workflowsMu.RUnlock()
 	clientID, ok := r.workflows[workflowID]
 	return clientID, ok
-}
-
-func NewWorkerRegistry() *WorkerRegistry {
-	return &WorkerRegistry{
-		workers:   make(map[string]*WorkerStream),
-		clients:   make(map[string]*ClientStream),
-		results:   make(map[string]chan models.TaskResult),
-		workflows: make(map[string]string),
-	}
 }

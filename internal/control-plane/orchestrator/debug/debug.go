@@ -164,7 +164,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 	}
 
 	// 3. Find worker and dispatch
-	worker := o.registry.FindWorkerStreamForStep(capability)
+	worker := o.registry.FindWorkerByCapability(capability)
 	if worker == nil {
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}

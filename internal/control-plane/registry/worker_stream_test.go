@@ -76,16 +76,18 @@ func TestWorkerStream_BasicAccessors(t *testing.T) {
 	w.UpdateCapabilities(update)
 
 	// Test LastSeen
-	assert.Zero(t, w.lastSeen)
+	assert.Zero(t, w.GetLastSeen())
 	w.LastSeen()
-	assert.NotZero(t, w.lastSeen)
-	assert.WithinDuration(t, time.Now(), w.lastSeen, 2*time.Second)
+	assert.NotZero(t, w.GetLastSeen())
+	assert.WithinDuration(t, time.Now(), w.GetLastSeen(), 2*time.Second)
 
 	// Test StopStream
 	mockStream := &mockExchangeServer{}
+	w.mu.Lock()
 	w.stream = mockStream
+	w.mu.Unlock()
 	w.StopStream()
-	assert.Nil(t, w.stream)
+	assert.Nil(t, w.GetStream())
 }
 
 func TestWorkerStream_ProcessStream(t *testing.T) {
@@ -108,7 +110,7 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 	}
 
 	assert.True(t, w.ProcessStream(mockStream))
-	assert.Equal(t, mockStream, w.stream)
+	assert.Equal(t, mockStream, w.GetStream())
 
 	// Send nil response to test warnings (should be ignored, loop continues)
 	recvChan <- nil

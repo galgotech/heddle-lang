@@ -25,7 +25,7 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	reg := registry.NewWorkerRegistry()
 	orch := NewDebugOrchestrator(reg)
 
-	// Create random TCP listeners for server & client
+	// Create random TCP listener for server
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer lis.Close()
@@ -46,27 +46,25 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 1. Worker Stream setup
-	workerCtx := metadata.AppendToOutgoingContext(ctx, "worker-id", "worker-1")
-	workerStream, err := client.DoExchange(workerCtx)
-	require.NoError(t, err)
-
-	// Update worker capabilities
+	// 1. Register worker & update capabilities before connecting stream
 	reg.Register("worker-1", models.WorkerRegistration{Address: "localhost:1234"})
 	reg.UpdateCapabilities("worker-1", models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"std.print"},
 	})
-	reg.ProcessStream("worker-1", transport.NewExchangeServerStream(mockSrv.workerStreamObj))
 
-	// 2. Client Stream setup
+	// 2. Worker Stream setup
+	workerCtx := metadata.AppendToOutgoingContext(ctx, "worker-id", "worker-1")
+	workerStream, err := client.DoExchange(workerCtx)
+	require.NoError(t, err)
+
+	// 3. Client Stream setup
 	clientCtx := metadata.AppendToOutgoingContext(context.Background(), "client-id", "client-1")
 	clientStream, err := client.DoExchange(clientCtx)
 	require.NoError(t, err)
-	reg.ProcessClientStream("client-1", transport.NewExchangeServerStream(mockSrv.clientStreamObj))
 
 	time.Sleep(50 * time.Millisecond)
 
-	// 3. Define a task
+	// 4. Define a task
 	stepID := "step-1"
 	task := models.Task{
 		ID:       "task-1",
@@ -89,10 +87,10 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 		},
 	}
 
-	// 4. Run orchestrator
+	// 5. Run orchestrator
 	go orch.OrchestrateTask(ctx, task)
 
-	// 5. Client should receive starting workflow LOG message, then PAUSED message
+	// 6. Client should receive starting workflow LOG message, then PAUSED message
 	logMsg, err := clientStream.Recv()
 	require.NoError(t, err)
 	assert.Contains(t, string(logMsg.DataBody), "Starting debug execution")
@@ -101,11 +99,11 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(pausedMsg.DataBody), "DEBUG_PAUSED:step-1:5:3")
 
-	// 6. Client sends STEP command back
+	// 7. Client sends STEP command back
 	err = clientStream.Send(&flight.FlightData{DataBody: []byte("STEP")})
 	require.NoError(t, err)
 
-	// 7. Worker receives step execution request
+	// 8. Worker receives step execution request
 	workerData, err := workerStream.Recv()
 	require.NoError(t, err)
 
@@ -114,7 +112,7 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, stepID, execTask.TaskID)
 
-	// 8. Worker reports success
+	// 9. Worker reports success
 	res := models.TaskResult{
 		TaskID:        execTask.TaskID,
 		Status:        models.TaskStatusSuccess,
@@ -124,7 +122,7 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	err = workerStream.Send(&flight.FlightData{DataBody: resBody})
 	require.NoError(t, err)
 
-	// 9. Client receives STEP_COMPLETE message
+	// 10. Client receives STEP_COMPLETE message
 	completeMsg, err := clientStream.Recv()
 	require.NoError(t, err)
 	assert.Contains(t, string(completeMsg.DataBody), "DEBUG_STEP_COMPLETE:step-1:SUCCESS")
@@ -132,9 +130,7 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 
 type mockFlightServer struct {
 	flight.BaseFlightServer
-	registry        *registry.WorkerRegistry
-	workerStreamObj flight.FlightService_DoExchangeServer
-	clientStreamObj flight.FlightService_DoExchangeServer
+	registry *registry.WorkerRegistry
 }
 
 func (s *mockFlightServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
@@ -145,14 +141,12 @@ func (s *mockFlightServer) DoExchange(stream flight.FlightService_DoExchangeServ
 	clientIDs := meta.Get("client-id")
 
 	if len(workerIDs) > 0 {
-		s.workerStreamObj = stream
 		s.registry.ProcessStream(workerIDs[0], transport.NewExchangeServerStream(stream))
 		<-ctx.Done()
 		return nil
 	}
 
 	if len(clientIDs) > 0 {
-		s.clientStreamObj = stream
 		s.registry.ProcessClientStream(clientIDs[0], transport.NewExchangeServerStream(stream))
 		<-ctx.Done()
 		return nil
