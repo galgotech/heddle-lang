@@ -18,10 +18,10 @@ import (
 )
 
 type DebugOrchestrator struct {
-	registry *registry.WorkerRegistry
+	registry *registry.NodeRegistry
 }
 
-func NewDebugOrchestrator(registry *registry.WorkerRegistry) *DebugOrchestrator {
+func NewDebugOrchestrator(registry *registry.NodeRegistry) *DebugOrchestrator {
 	return &DebugOrchestrator{registry: registry}
 }
 
@@ -32,10 +32,15 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 	}
 
 	program := task.Program
-	clientStream, ok := o.registry.GetActiveClientStream(task.ClientID)
+	clientStream, ok := o.registry.GetNode(task.ClientID)
 	if !ok {
 		logger.L().Error("Client not found", logger.String("id", task.ClientID))
 		return
+	}
+
+	var stream transport.ExchangeStream
+	if clientStream != nil {
+		stream = clientStream.GetStream()
 	}
 
 	// Thread-safe map to collect output handles of executed steps
@@ -70,7 +75,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepDebug(ctx, task.ID, program, headID, "", task.Schemas, clientStream, allOutputs, &mu); err != nil {
+			if err := o.executeStepDebug(ctx, task.ID, program, headID, "", task.Schemas, stream, allOutputs, &mu); err != nil {
 				runErr = err
 				break
 			}

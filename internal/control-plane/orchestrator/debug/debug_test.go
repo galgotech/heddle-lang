@@ -22,7 +22,7 @@ import (
 )
 
 func TestDebugOrchestrator_BasicStepping(t *testing.T) {
-	reg := registry.NewWorkerRegistry()
+	reg := registry.NewNodeRegistry()
 	orch := NewDebugOrchestrator(reg)
 
 	// Create random TCP listener for server
@@ -47,7 +47,7 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	defer cancel()
 
 	// 1. Register worker & update capabilities before connecting stream
-	reg.Register("worker-1", models.WorkerRegistration{Address: "localhost:1234"})
+	reg.RegisterNode("worker-1", registry.NodeTypeWorker, models.WorkerRegistration{Address: "localhost:1234"})
 	reg.UpdateCapabilities("worker-1", models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"std.print"},
 	})
@@ -130,7 +130,7 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 
 type mockFlightServer struct {
 	flight.BaseFlightServer
-	registry *registry.WorkerRegistry
+	registry *registry.NodeRegistry
 }
 
 func (s *mockFlightServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
@@ -140,17 +140,20 @@ func (s *mockFlightServer) DoExchange(stream flight.FlightService_DoExchangeServ
 	workerIDs := meta.Get("worker-id")
 	clientIDs := meta.Get("client-id")
 
+	var nodeID string
 	if len(workerIDs) > 0 {
-		s.registry.ProcessStream(workerIDs[0], transport.NewExchangeServerStream(stream))
-		<-ctx.Done()
-		return nil
+		nodeID = workerIDs[0]
+	} else if len(clientIDs) > 0 {
+		nodeID = clientIDs[0]
+		s.registry.RegisterNode(nodeID, registry.NodeTypeClient, models.WorkerRegistration{})
+	} else {
+		return fmt.Errorf("unauthorized")
 	}
 
-	if len(clientIDs) > 0 {
-		s.registry.ProcessClientStream(clientIDs[0], transport.NewExchangeServerStream(stream))
-		<-ctx.Done()
-		return nil
+	node, ok := s.registry.GetNode(nodeID)
+	if ok {
+		_ = node.ProcessStream(transport.NewExchangeServerStream(stream))
 	}
-
-	return fmt.Errorf("unauthorized")
+	<-ctx.Done()
+	return nil
 }

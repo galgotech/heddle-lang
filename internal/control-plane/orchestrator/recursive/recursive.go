@@ -16,7 +16,7 @@ import (
 )
 
 type RecursiveOrchestrator struct {
-	registry *registry.WorkerRegistry
+	registry *registry.NodeRegistry
 }
 
 func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
@@ -29,10 +29,14 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 	defer o.registry.DeregisterWorkflowClient(task.ID)
 
 	program := task.Program
-	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
-
-	if clientStream == nil {
+	clientStream, ok := o.registry.GetNode(task.ClientID)
+	if !ok {
 		logger.L().Warn("Stream will not be sent to client", logger.String("client_id", task.ClientID))
+	}
+
+	var stream transport.ExchangeStream
+	if clientStream != nil {
+		stream = clientStream.GetStream()
 	}
 
 	for _, flowID := range program.Workflows {
@@ -59,7 +63,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 
 		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepRecursive(ctx, task.ID, program, headID, "", task.Schemas, clientStream); err != nil {
+			if err := o.executeStepRecursive(ctx, task.ID, program, headID, "", task.Schemas, stream); err != nil {
 				runErr = err
 				break
 			}
@@ -163,6 +167,6 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 	return nil
 }
 
-func NewRecursiveOrchestrator(registry *registry.WorkerRegistry) *RecursiveOrchestrator {
+func NewRecursiveOrchestrator(registry *registry.NodeRegistry) *RecursiveOrchestrator {
 	return &RecursiveOrchestrator{registry: registry}
 }

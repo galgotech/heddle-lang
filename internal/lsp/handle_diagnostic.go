@@ -9,8 +9,8 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
-	"github.com/galgotech/heddle-lang/pkg/schema"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 // getSyntaxDiagnostics converts parser errors into LSP diagnostic format.

@@ -30,7 +30,7 @@ func (m *mockOrchestrator) OrchestrateTask(ctx context.Context, task models.Task
 }
 
 func TestControlPlane_WorkerRegistration(t *testing.T) {
-	s := NewControlPlaneServer(registry.NewWorkerRegistry())
+	s := NewControlPlaneServer(registry.NewNodeRegistry())
 
 	// Start server on random port
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -83,7 +83,7 @@ func TestControlPlane_WorkerRegistration(t *testing.T) {
 }
 
 func TestControlPlane_TaskDispatch(t *testing.T) {
-	s := NewControlPlaneServer(registry.NewWorkerRegistry())
+	s := NewControlPlaneServer(registry.NewNodeRegistry())
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 }
 
 func TestControlPlane_UpdateCapabilities(t *testing.T) {
-	s := NewControlPlaneServer(registry.NewWorkerRegistry())
+	s := NewControlPlaneServer(registry.NewNodeRegistry())
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)

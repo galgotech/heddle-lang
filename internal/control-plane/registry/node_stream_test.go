@@ -56,7 +56,9 @@ func TestWorkerInfo_GetSchemaForCapability(t *testing.T) {
 }
 
 func TestWorkerStream_BasicAccessors(t *testing.T) {
-	w := &WorkerStream{
+	w := &NodeStream{
+		ID:   "worker-1",
+		Type: NodeTypeWorker,
 		workerInfo: workerInfo{
 			ID: "worker-1",
 		},
@@ -92,7 +94,9 @@ func TestWorkerStream_BasicAccessors(t *testing.T) {
 }
 
 func TestWorkerStream_ProcessStream(t *testing.T) {
-	w := &WorkerStream{
+	w := &NodeStream{
+		ID:   "worker-1",
+		Type: NodeTypeWorker,
 		workerInfo: workerInfo{
 			ID: "worker-1",
 		},
@@ -100,7 +104,10 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 	}
 
 	// 1. Process nil stream
-	assert.False(t, w.ProcessStream(nil))
+	nilErrChan := w.ProcessStream(nil)
+	assert.NotNil(t, nilErrChan)
+	err := <-nilErrChan
+	assert.Error(t, err)
 
 	// 2. Process active stream, send data, metadata, invalid json
 	recvChan := make(chan *transport.FlightData, 10)
@@ -111,7 +118,8 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 		errChan:  errChan,
 	}
 
-	assert.True(t, w.ProcessStream(mockStream))
+	workerErrChan := w.ProcessStream(mockStream)
+	assert.NotNil(t, workerErrChan)
 	assert.Equal(t, mockStream, w.GetStream())
 
 	// Send nil response to test warnings (should be ignored, loop continues)

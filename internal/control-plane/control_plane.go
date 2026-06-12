@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -27,33 +28,42 @@ import (
 // ControlPlaneServer orchestrates high-performance task execution DAGs, manages worker
 // lifecycle and capability routing, and implements the transport.Server interface.
 type ControlPlaneServer struct {
-	registry      *registry.WorkerRegistry
+	registry      *registry.NodeRegistry
 	orchestrators map[orchestrator.Strategy]orchestrator.Orchestrator
+}
+
+// NewControlPlaneServer instantiates the control plane server and registers supported scheduling orchestrator strategies.
+func NewControlPlaneServer(registry *registry.NodeRegistry) *ControlPlaneServer {
+	s := &ControlPlaneServer{
+		registry: registry,
+		orchestrators: map[orchestrator.Strategy]orchestrator.Orchestrator{
+			orchestrator.StrategyRecursive:   recursive.NewRecursiveOrchestrator(registry),
+			orchestrator.StrategyGraph:       graph.NewGraphOrchestrator(registry),
+			orchestrator.StrategyInteractive: interactive.NewInteractiveOrchestrator(registry),
+			orchestrator.StrategyDebug:       debug.NewDebugOrchestrator(registry),
+		},
+	}
+	return s
 }
 
 // DoAction processes control plane administrative actions sent via unary action requests.
 func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Action, stream transport.ServerStream) error {
-	metaData, _ := metadata.FromIncomingContext(ctx)
+	metaData, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing metadata")
+	}
 
-	workerID := ""
-	clientID := ""
+	var nodeID string
+	var nodeType registry.NodeType
 
-	// Validate presence of worker-id for all actions except initial workflow submissions.
-	if action.Type == models.ActionSubmitWorkflow {
-		if ids := metaData.Get("client-id"); len(ids) > 0 {
-			clientID = ids[0]
-		}
-		if clientID == "" {
-			return status.Error(codes.Unauthenticated, "missing client-id")
-		}
-
+	if ids := metaData.Get("worker-id"); len(ids) > 0 {
+		nodeID = ids[0]
+		nodeType = registry.NodeTypeWorker
+	} else if ids := metaData.Get("client-id"); len(ids) > 0 {
+		nodeID = ids[0]
+		nodeType = registry.NodeTypeClient
 	} else {
-		if ids := metaData.Get("worker-id"); len(ids) > 0 {
-			workerID = ids[0]
-		}
-		if workerID == "" {
-			return status.Error(codes.Unauthenticated, "missing worker-id")
-		}
+		return status.Error(codes.Unauthenticated, "missing worker-id or client-id")
 	}
 
 	switch action.Type {
@@ -64,18 +74,33 @@ func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Act
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal registration: %v", err)
 		}
 
-		s.registry.Register(workerID, reg)
-		logger.L().Info("Worker registered", logger.String("id", workerID), logger.String("address", reg.Address))
+		s.registry.RegisterNode(nodeID, registry.NodeTypeWorker, reg)
+		logger.L().Info("Worker registered", logger.String("id", nodeID), logger.String("address", reg.Address))
+		return stream.Send(&transport.Result{Body: []byte("OK")})
+
+	case models.ActionDeregisterWorker:
+		s.registry.DeregisterNode(nodeID)
+		logger.L().Info("Worker deregistered", logger.String("id", nodeID))
+		return stream.Send(&transport.Result{Body: []byte("OK")})
+
+	case models.ActionRegisterClient:
+		s.registry.RegisterNode(nodeID, registry.NodeTypeClient, models.WorkerRegistration{})
+		logger.L().Info("Client registered", logger.String("id", nodeID))
+		return stream.Send(&transport.Result{Body: []byte("OK")})
+
+	case models.ActionDeregisterClient:
+		s.registry.DeregisterNode(nodeID)
+		logger.L().Info("Client deregistered", logger.String("id", nodeID))
 		return stream.Send(&transport.Result{Body: []byte("OK")})
 
 	case models.ActionHeartbeat:
-		// Refresh the worker's active status and update current execution load telemetry.
+		// Refresh the node's active status and update current execution load telemetry.
 		var hb models.WorkerHeartbeat
 		if err := json.Unmarshal(action.Body, &hb); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal heartbeat: %v", err)
 		}
-		if ok := s.registry.Heartbeat(workerID, hb.Load); !ok {
-			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
+		if ok := s.registry.Heartbeat(nodeID, hb.Load); !ok {
+			return status.Errorf(codes.NotFound, "%s %s not registered", nodeType, nodeID)
 		}
 		return stream.Send(&transport.Result{Body: []byte("OK")})
 
@@ -85,10 +110,10 @@ func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Act
 		if err := json.Unmarshal(action.Body, &update); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal capabilities update: %v", err)
 		}
-		if ok := s.registry.UpdateCapabilities(workerID, update); !ok {
-			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
+		if ok := s.registry.UpdateCapabilities(nodeID, update); !ok {
+			return status.Errorf(codes.NotFound, "worker %s not registered", nodeID)
 		}
-		logger.L().Info("Worker capabilities updated", logger.String("id", workerID), logger.Strings("capabilities", update.Capabilities))
+		logger.L().Info("Worker capabilities updated", logger.String("id", nodeID), logger.Strings("capabilities", update.Capabilities))
 		return stream.Send(&transport.Result{Body: []byte("OK")})
 
 	case models.ActionSubmitWorkflow:
@@ -137,7 +162,7 @@ func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Act
 		// 2. Queue the task with its compiled program structure and step validation schemas.
 		task := models.Task{
 			ID:             uuid.New().String(),
-			ClientID:       clientID,
+			ClientID:       nodeID,
 			Program:        program,
 			TargetWorkflow: sub.WorkflowName,
 			Strategy:       sub.Strategy,
@@ -151,7 +176,7 @@ func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Act
 		}
 		go orch.OrchestrateTask(context.WithoutCancel(ctx), task)
 
-		logger.L().Info("Workflow compiled and queued", logger.String("client_id", clientID), logger.String("task_id", task.ID))
+		logger.L().Info("Workflow compiled and queued", logger.String("client_id", nodeID), logger.String("task_id", task.ID))
 		return stream.Send(&transport.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
 
 	case models.ActionGetWorkerInfo:
@@ -175,44 +200,39 @@ func (s *ControlPlaneServer) DoExchange(ctx context.Context, stream transport.Ex
 		return status.Error(codes.Unauthenticated, "missing metadata")
 	}
 
-	workerIDs := metaData.Get("worker-id")
-	clientIDs := metaData.Get("client-id")
+	var nodeID string
+	var nodeType registry.NodeType
 
-	if len(workerIDs) > 0 {
-		workerID := workerIDs[0]
-		s.registry.ProcessStream(workerID, stream)
-		defer s.registry.StopStream(workerID)
+	if workerIDs := metaData.Get("worker-id"); len(workerIDs) > 0 {
+		nodeID = workerIDs[0]
+		nodeType = registry.NodeTypeWorker
+	} else if clientIDs := metaData.Get("client-id"); len(clientIDs) > 0 {
+		nodeID = clientIDs[0]
+		nodeType = registry.NodeTypeClient
+	} else {
+		return status.Error(codes.Unauthenticated, "missing worker-id or client-id")
+	}
 
-		logger.L().Info("Worker connected", logger.String("id", workerID))
+	node, ok := s.registry.GetNode(nodeID)
+	if !ok {
+		return status.Errorf(codes.NotFound, "%s %s not registered", nodeType, nodeID)
+	}
 
-		<-ctx.Done()
+	logger.L().Info(fmt.Sprintf("Node %s connected", nodeType), logger.String("id", nodeID))
+
+	errChan := node.ProcessStream(stream)
+	defer func() {
+		s.registry.DeregisterNode(nodeID)
+		logger.L().Info(fmt.Sprintf("Node %s disconnected and deregistered", nodeType), logger.String("id", nodeID))
+	}()
+
+	select {
+	case err := <-errChan:
+		if err == io.EOF {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
 		return ctx.Err()
 	}
-
-	if len(clientIDs) > 0 {
-		clientID := clientIDs[0]
-		s.registry.ProcessClientStream(clientID, stream)
-		defer s.registry.StopClientStream(clientID)
-
-		logger.L().Info("Client connected", logger.String("id", clientID))
-
-		<-ctx.Done()
-		return ctx.Err()
-	}
-
-	return status.Error(codes.Unauthenticated, "missing worker-id or client-id")
-}
-
-// NewControlPlaneServer instantiates the control plane server and registers supported scheduling orchestrator strategies.
-func NewControlPlaneServer(registry *registry.WorkerRegistry) *ControlPlaneServer {
-	s := &ControlPlaneServer{
-		registry: registry,
-	}
-	s.orchestrators = map[orchestrator.Strategy]orchestrator.Orchestrator{
-		orchestrator.StrategyRecursive:   recursive.NewRecursiveOrchestrator(registry),
-		orchestrator.StrategyGraph:       graph.NewGraphOrchestrator(registry),
-		orchestrator.StrategyInteractive: interactive.NewInteractiveOrchestrator(registry),
-		orchestrator.StrategyDebug:       debug.NewDebugOrchestrator(registry),
-	}
-	return s
 }

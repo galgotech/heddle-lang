@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/google/go-dap"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
-	"github.com/galgotech/heddle-lang/pkg/logger"
 )
 
 func TestDAPServer_Start(t *testing.T) {

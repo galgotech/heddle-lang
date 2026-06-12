@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -33,7 +34,8 @@ var controlPlaneRunCmd = &cobra.Command{
 			logger.Int("port", port),
 			logger.String("standard", "Apache Arrow Flight"))
 
-		workerRegistry := registry.NewWorkerRegistry()
+		workerRegistry := registry.NewNodeRegistry()
+		workerRegistry.StartSweeper(cmd.Context(), 5*time.Second, 15*time.Second)
 		cp := controlplane.NewControlPlaneServer(workerRegistry)
 
 		flightTransport := transport.NewFlightServerTransport(fmt.Sprintf(":%d", port))

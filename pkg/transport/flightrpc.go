@@ -192,9 +192,9 @@ func NewActionServerStream(stream flight.FlightService_DoActionServer) ServerStr
 
 // FlightServerTransport is a gRPC/Arrow Flight implementation of ServerTransport.
 type FlightServerTransport struct {
-	addr    string
-	srv     Server
-	Ready   chan struct{}
+	addr  string
+	srv   Server
+	Ready chan struct{}
 }
 
 func NewFlightServerTransport(addr string) *FlightServerTransport {
@@ -214,5 +214,3 @@ func (t *FlightServerTransport) Start() error {
 	}
 	return StartFlightServer(t.addr, t.srv, onReady)
 }
-
-

@@ -46,7 +46,7 @@ workflow hello {
 	tmpFile.Close()
 
 	// Set up a mock/real Control Plane server on a local random port
-	reg := registry.NewWorkerRegistry()
+	reg := registry.NewNodeRegistry()
 	s := control_plane.NewControlPlaneServer(reg)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -95,7 +95,7 @@ func TestSubmitWorkflow_Interactive(t *testing.T) {
 
 	// 1. User approves the step
 	t.Run("Interactive Approve", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		c, err := client.NewControlPlaneClient(ctx, lis.Addr().String())
 		require.NoError(t, err)
 
@@ -116,7 +116,7 @@ func TestSubmitWorkflow_Interactive(t *testing.T) {
 
 	// 2. User rejects the step
 	t.Run("Interactive Reject", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		c, err := client.NewControlPlaneClient(ctx, lis.Addr().String())
 		require.NoError(t, err)
 

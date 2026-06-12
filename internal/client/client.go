@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/uuid"
@@ -27,6 +28,22 @@ type ControlPlaneClient struct {
 	In io.Reader // For reading interactive approvals, defaults to os.Stdin
 }
 
+func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClient, error) {
+	if (strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, "./") || strings.HasSuffix(addr, ".sock")) && !strings.Contains(addr, "://") {
+		addr = "unix://" + addr
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, "client-id", "client-"+uuid.New().String()[:8])
+	client := &ControlPlaneClient{
+		ctx:  ctx,
+		addr: addr,
+		In:   os.Stdin,
+	}
+	if err := client.connect(); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
 func (c *ControlPlaneClient) connect() error {
 	conn, err := grpc.NewClient(c.addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -34,10 +51,35 @@ func (c *ControlPlaneClient) connect() error {
 	}
 
 	c.client = flight.NewClientFromConn(conn, nil)
+
+	// Register the client
+	_, err = c.sendAction(c.ctx, models.ActionRegisterClient, nil)
+	if err != nil {
+		return fmt.Errorf("failed to register client: %w", err)
+	}
+
 	c.stream, err = c.client.DoExchange(c.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create stream: %w", err)
 	}
+
+	// Start heartbeat routine
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case <-ticker.C:
+				hb := models.WorkerHeartbeat{
+					Timestamp: time.Now(),
+					Load:      0,
+				}
+				_, _ = c.sendAction(c.ctx, models.ActionHeartbeat, hb)
+			}
+		}
+	}()
 
 	return nil
 }
@@ -124,10 +166,14 @@ func (c *ControlPlaneClient) SubmitWorkflow(source string, workflowName string, 
 	}
 }
 
-func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, sub models.WorkflowSubmission) (string, error) {
-	body, err := json.Marshal(sub)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal submission: %w", err)
+func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, payload interface{}) (string, error) {
+	var body []byte
+	var err error
+	if payload != nil {
+		body, err = json.Marshal(payload)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal payload: %w", err)
+		}
 	}
 
 	res, err := c.client.DoAction(ctx, &flight.Action{
@@ -149,23 +195,4 @@ func (c *ControlPlaneClient) sendAction(ctx context.Context, actionType string, 
 
 func (c *ControlPlaneClient) GetStream() flight.FlightService_DoExchangeClient {
 	return c.stream
-}
-
-func NewControlPlaneClient(ctx context.Context, addr string) (*ControlPlaneClient, error) {
-	if (strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, "./") || strings.HasSuffix(addr, ".sock")) && !strings.Contains(addr, "://") {
-		addr = "unix://" + addr
-	}
-	metaData, ok := metadata.FromOutgoingContext(ctx)
-	if !ok || (len(metaData.Get("client-id")) == 0 && len(metaData.Get("worker-id")) == 0) {
-		ctx = metadata.AppendToOutgoingContext(ctx, "client-id", "client-"+uuid.New().String()[:8])
-	}
-	client := &ControlPlaneClient{
-		ctx:  ctx,
-		addr: addr,
-		In:   os.Stdin,
-	}
-	if err := client.connect(); err != nil {
-		return nil, err
-	}
-	return client, nil
 }

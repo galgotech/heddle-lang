@@ -13,8 +13,8 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
-	"github.com/galgotech/heddle-lang/pkg/schema"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 // handleCompletion processes a "textDocument/completion" LSP request to retrieve completion candidates.

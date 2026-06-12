@@ -35,22 +35,22 @@ func (m *mockExchangeServer) Recv() (*transport.FlightData, error) {
 }
 
 func TestNewWorkerRegistry(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 	assert.NotNil(t, r)
-	assert.NotNil(t, r.workers)
-	assert.Len(t, r.workers, 0)
+	assert.NotNil(t, r.nodes)
+	assert.Len(t, r.nodes, 0)
 }
 
 func TestRegister(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 	reg := models.WorkerRegistration{
 		Address: "127.0.0.1:50051",
 	}
-	r.Register("worker-1", reg)
+	r.RegisterNode("worker-1", NodeTypeWorker, reg)
 
-	r.workersMu.RLock()
-	w, ok := r.workers["worker-1"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	w, ok := r.nodes["worker-1"]
+	r.nodesMu.RUnlock()
 
 	assert.True(t, ok)
 	assert.Equal(t, "worker-1", w.GetID())
@@ -61,14 +61,14 @@ func TestRegister(t *testing.T) {
 }
 
 func TestUpdateCapabilities(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 
 	// Nonexistent worker
 	assert.False(t, r.UpdateCapabilities("worker-none", models.WorkerCapabilitiesUpdate{}))
 
 	// Existing worker
 	reg := models.WorkerRegistration{Address: "127.0.0.1:50051"}
-	r.Register("worker-1", reg)
+	r.RegisterNode("worker-1", NodeTypeWorker, reg)
 
 	update := models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"test.cap1", "test.cap2"},
@@ -84,9 +84,9 @@ func TestUpdateCapabilities(t *testing.T) {
 
 	assert.True(t, r.UpdateCapabilities("worker-1", update))
 
-	r.workersMu.RLock()
-	w := r.workers["worker-1"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	w := r.nodes["worker-1"]
+	r.nodesMu.RUnlock()
 
 	w.workerInfo.mu.RLock()
 	caps := w.workerInfo.Capabilities
@@ -99,72 +99,72 @@ func TestUpdateCapabilities(t *testing.T) {
 }
 
 func TestHeartbeat(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 
 	// Nonexistent worker
 	assert.False(t, r.Heartbeat("worker-none", 5))
 
 	// Existing worker
 	reg := models.WorkerRegistration{Address: "127.0.0.1:50051"}
-	r.Register("worker-1", reg)
+	r.RegisterNode("worker-1", NodeTypeWorker, reg)
 
 	// Set lastSeen to sometime in the past to verify it gets updated
-	r.workersMu.RLock()
-	wInit := r.workers["worker-1"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	wInit := r.nodes["worker-1"]
+	r.nodesMu.RUnlock()
 	wInit.UpdateHeartbeat(0, time.Now().Add(-1*time.Hour))
 
 	assert.True(t, r.Heartbeat("worker-1", 10))
 
-	r.workersMu.RLock()
-	w := r.workers["worker-1"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	w := r.nodes["worker-1"]
+	r.nodesMu.RUnlock()
 
 	assert.Equal(t, 10, w.GetActiveTasks())
 	assert.WithinDuration(t, time.Now(), w.GetLastSeen(), 2*time.Second)
 }
 
 func TestFindWorkerStreamForStep(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 
 	// No workers
 	w := r.FindWorkerByCapability("test.cap")
 	assert.Nil(t, w)
 
 	// Register a worker but lastSeen is too old (> 15 seconds)
-	r.Register("worker-old", models.WorkerRegistration{})
+	r.RegisterNode("worker-old", NodeTypeWorker, models.WorkerRegistration{})
 	r.UpdateCapabilities("worker-old", models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"test.cap"},
 	})
-	r.workersMu.RLock()
-	wOld := r.workers["worker-old"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	wOld := r.nodes["worker-old"]
+	r.nodesMu.RUnlock()
 	wOld.UpdateHeartbeat(0, time.Now().Add(-20*time.Second))
 
 	w = r.FindWorkerByCapability("test.cap")
 	assert.Nil(t, w)
 
 	// Register a worker that is active (< 15 seconds) but doesn't have capability
-	r.Register("worker-active-no-cap", models.WorkerRegistration{})
-	r.workersMu.RLock()
-	wActiveNoCap := r.workers["worker-active-no-cap"]
-	r.workersMu.RUnlock()
+	r.RegisterNode("worker-active-no-cap", NodeTypeWorker, models.WorkerRegistration{})
+	r.nodesMu.RLock()
+	wActiveNoCap := r.nodes["worker-active-no-cap"]
+	r.nodesMu.RUnlock()
 	wActiveNoCap.UpdateHeartbeat(0, time.Now().Add(-5*time.Second))
 
 	w = r.FindWorkerByCapability("test.cap")
 	assert.Nil(t, w)
 
 	// Register a worker that is active (< 15 seconds) and has capability
-	r.Register("worker-active", models.WorkerRegistration{})
+	r.RegisterNode("worker-active", NodeTypeWorker, models.WorkerRegistration{})
 	r.UpdateCapabilities("worker-active", models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"test.cap"},
 		Schemas: map[string]schema.StepSchemas{
 			"test.cap": {},
 		},
 	})
-	r.workersMu.RLock()
-	wActive := r.workers["worker-active"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	wActive := r.nodes["worker-active"]
+	r.nodesMu.RUnlock()
 	wActive.UpdateHeartbeat(0, time.Now().Add(-5*time.Second))
 
 	w = r.FindWorkerByCapability("test.cap")
@@ -173,14 +173,14 @@ func TestFindWorkerStreamForStep(t *testing.T) {
 }
 
 func TestGetRegistryInfo(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 
 	// Empty registry
 	info := r.GetRegistryInfo()
 	assert.Len(t, info.Steps, 0)
 
 	// Worker 1 is active (lastSeen < 30 seconds)
-	r.Register("worker-active", models.WorkerRegistration{})
+	r.RegisterNode("worker-active", NodeTypeWorker, models.WorkerRegistration{})
 	r.UpdateCapabilities("worker-active", models.WorkerCapabilitiesUpdate{
 		Schemas: map[string]schema.StepSchemas{
 			"step.active": {
@@ -192,7 +192,7 @@ func TestGetRegistryInfo(t *testing.T) {
 	})
 
 	// Worker 2 is inactive (lastSeen > 30 seconds)
-	r.Register("worker-inactive", models.WorkerRegistration{})
+	r.RegisterNode("worker-inactive", NodeTypeWorker, models.WorkerRegistration{})
 	r.UpdateCapabilities("worker-inactive", models.WorkerCapabilitiesUpdate{
 		Schemas: map[string]schema.StepSchemas{
 			"step.inactive": {
@@ -202,9 +202,9 @@ func TestGetRegistryInfo(t *testing.T) {
 			},
 		},
 	})
-	r.workersMu.RLock()
-	wInactive := r.workers["worker-inactive"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	wInactive := r.nodes["worker-inactive"]
+	r.nodesMu.RUnlock()
 	wInactive.UpdateHeartbeat(0, time.Now().Add(-40*time.Second))
 
 	info = r.GetRegistryInfo()
@@ -215,7 +215,7 @@ func TestGetRegistryInfo(t *testing.T) {
 }
 
 func TestWorkflowClientMapping(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 
 	// Initially should not be found
 	_, ok := r.GetClientIDForWorkflow("wf-1")
@@ -234,11 +234,11 @@ func TestWorkflowClientMapping(t *testing.T) {
 }
 
 func TestReverseIndexCapabilities(t *testing.T) {
-	r := NewWorkerRegistry()
+	r := NewNodeRegistry()
 
 	// 1. Register two workers and update both with "shared.cap"
-	r.Register("worker-a", models.WorkerRegistration{})
-	r.Register("worker-b", models.WorkerRegistration{})
+	r.RegisterNode("worker-a", NodeTypeWorker, models.WorkerRegistration{})
+	r.RegisterNode("worker-b", NodeTypeWorker, models.WorkerRegistration{})
 
 	r.UpdateCapabilities("worker-a", models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"shared.cap", "unique.a"},
@@ -248,10 +248,10 @@ func TestReverseIndexCapabilities(t *testing.T) {
 	})
 
 	// Make sure both are active (lastSeen is within threshold)
-	r.workersMu.RLock()
-	wa := r.workers["worker-a"]
-	wb := r.workers["worker-b"]
-	r.workersMu.RUnlock()
+	r.nodesMu.RLock()
+	wa := r.nodes["worker-a"]
+	wb := r.nodes["worker-b"]
+	r.nodesMu.RUnlock()
 	wa.UpdateHeartbeat(0, time.Now())
 	wb.UpdateHeartbeat(0, time.Now())
 
@@ -260,8 +260,8 @@ func TestReverseIndexCapabilities(t *testing.T) {
 	assert.NotNil(t, found)
 	assert.Contains(t, []string{"worker-a", "worker-b"}, found.GetID())
 
-	// 3. Stop worker-a, only worker-b should remain for shared.cap, unique.a should be gone
-	r.StopStream("worker-a")
+	// 3. Deregister worker-a, only worker-b should remain for shared.cap, unique.a should be gone
+	r.DeregisterNode("worker-a")
 	found = r.FindWorkerByCapability("shared.cap")
 	assert.NotNil(t, found)
 	assert.Equal(t, "worker-b", found.GetID())
@@ -271,8 +271,26 @@ func TestReverseIndexCapabilities(t *testing.T) {
 
 	// 4. Re-registration of worker-b clears old capability index for it
 	// Worker-b had "shared.cap" and "unique.b"
-	r.Register("worker-b", models.WorkerRegistration{})
+	r.RegisterNode("worker-b", NodeTypeWorker, models.WorkerRegistration{})
 	// After re-registration, it hasn't updated capabilities yet, so it shouldn't support anything
 	found = r.FindWorkerByCapability("shared.cap")
 	assert.Nil(t, found)
+}
+
+func TestGetWorker(t *testing.T) {
+	r := NewNodeRegistry()
+
+	// Retrieve nonexistent worker
+	w, ok := r.GetNode("nonexistent")
+	assert.False(t, ok)
+	assert.Nil(t, w)
+
+	// Register a worker and retrieve it
+	reg := models.WorkerRegistration{Address: "127.0.0.1:50051"}
+	r.RegisterNode("worker-1", NodeTypeWorker, reg)
+
+	w, ok = r.GetNode("worker-1")
+	assert.True(t, ok)
+	assert.NotNil(t, w)
+	assert.Equal(t, "worker-1", w.GetID())
 }

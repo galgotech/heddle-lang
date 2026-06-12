@@ -11,6 +11,9 @@ import (
 // Action types for Control Plane Arrow Flight
 const (
 	ActionRegisterWorker     = "register-worker"
+	ActionDeregisterWorker   = "deregister-worker"
+	ActionRegisterClient     = "register-client"
+	ActionDeregisterClient   = "deregister-client"
 	ActionHeartbeat          = "heartbeat"
 	ActionSubmitWorkflow     = "submit-workflow"
 	ActionUpdateCapabilities = "update-capabilities"

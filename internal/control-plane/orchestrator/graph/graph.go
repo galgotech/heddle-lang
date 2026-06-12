@@ -16,7 +16,7 @@ import (
 )
 
 type GraphOrchestrator struct {
-	registry *registry.WorkerRegistry
+	registry *registry.NodeRegistry
 }
 
 func (o *GraphOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
@@ -187,6 +187,6 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 	return nil
 }
 
-func NewGraphOrchestrator(registry *registry.WorkerRegistry) *GraphOrchestrator {
+func NewGraphOrchestrator(registry *registry.NodeRegistry) *GraphOrchestrator {
 	return &GraphOrchestrator{registry: registry}
 }

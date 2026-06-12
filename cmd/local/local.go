@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -46,7 +47,8 @@ func startLocalServices(ctx context.Context) error {
 	workerSocket := runtime.WorkerUDSPath
 
 	// 1. Start Control Plane
-	workerRegistry := registry.NewWorkerRegistry()
+	workerRegistry := registry.NewNodeRegistry()
+	workerRegistry.StartSweeper(ctx, 5*time.Second, 15*time.Second)
 	cp := controlplane.NewControlPlaneServer(workerRegistry)
 
 	inMemory := transport.NewInMemory(cp)

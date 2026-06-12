@@ -16,7 +16,7 @@ import (
 )
 
 type InteractiveOrchestrator struct {
-	registry *registry.WorkerRegistry
+	registry *registry.NodeRegistry
 }
 
 func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task models.Task) {
@@ -26,7 +26,12 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 	}
 
 	program := task.Program
-	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
+	clientStream, _ := o.registry.GetNode(task.ClientID)
+
+	var stream transport.ExchangeStream
+	if clientStream != nil {
+		stream = clientStream.GetStream()
+	}
 
 	for _, flowID := range program.Workflows {
 		inst := program.Instructions[flowID]
@@ -53,7 +58,7 @@ func (o *InteractiveOrchestrator) OrchestrateTask(ctx context.Context, task mode
 
 		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepInteractive(ctx, task.ID, program, headID, "", task.Schemas, clientStream); err != nil {
+			if err := o.executeStepInteractive(ctx, task.ID, program, headID, "", task.Schemas, stream); err != nil {
 				runErr = err
 				break
 			}
@@ -183,6 +188,6 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	return nil
 }
 
-func NewInteractiveOrchestrator(registry *registry.WorkerRegistry) *InteractiveOrchestrator {
+func NewInteractiveOrchestrator(registry *registry.NodeRegistry) *InteractiveOrchestrator {
 	return &InteractiveOrchestrator{registry: registry}
 }

@@ -99,6 +99,19 @@ func (w *Worker) Start(ctx context.Context) error {
 		}
 	}()
 
+	// 5. watch for shutdown
+	go func() {
+		<-ctx.Done()
+		logger.L().Info("Worker shutting down, sending deregistration", logger.String("id", w.GetID()))
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		shutdownCtx = metadata.AppendToOutgoingContext(shutdownCtx, "worker-id", w.GetID())
+		_, _ = w.transport.DoAction(shutdownCtx, &transport.Action{
+			Type: models.ActionDeregisterWorker,
+			Body: []byte("{}"),
+		})
+	}()
+
 	return nil
 }
 

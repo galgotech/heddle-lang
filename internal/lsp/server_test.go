@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/galgotech/heddle-lang/internal/lsp"
 )

@@ -66,48 +66,65 @@ func (w *workerInfo) SupportsCapability(capability string) bool {
 	return false
 }
 
-type WorkerStream struct {
+type NodeType string
+
+const (
+	NodeTypeWorker NodeType = "worker"
+	NodeTypeClient NodeType = "client"
+)
+
+type NodeStream struct {
 	mu          sync.RWMutex
+	ID          string
+	Type        NodeType
 	workerInfo  workerInfo
 	stream      transport.ExchangeStream
 	lastSeen    time.Time
 	activeTasks int
-	registry    *WorkerRegistry
+	registry    *NodeRegistry
 	results     *shardedResultMap
 }
 
-func (w *WorkerStream) GetID() string {
-	return w.workerInfo.ID
+func (w *NodeStream) GetID() string {
+	return w.ID
 }
 
-func (w *WorkerStream) UpdateCapabilities(update models.WorkerCapabilitiesUpdate) {
+func (w *NodeStream) UpdateCapabilities(update models.WorkerCapabilitiesUpdate) {
 	w.workerInfo.UpdateCapabilities(update)
 }
 
-func (w *WorkerStream) GetSchemaForCapability(capability string) (schema.StepSchemas, bool) {
+func (w *NodeStream) GetSchemaForCapability(capability string) (schema.StepSchemas, bool) {
 	return w.workerInfo.GetSchemaForCapability(capability)
 }
 
-func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
-	if stream == nil {
-		return false
-	}
+func (w *NodeStream) ProcessStream(stream transport.ExchangeStream) <-chan error {
 	w.mu.Lock()
 	w.stream = stream
 	w.mu.Unlock()
 
+	errChan := make(chan error, 1)
+
+	if w.Type == NodeTypeClient {
+		// Clients stream logs and prompts TO the client.
+		// For interactive/debug, the orchestrator reads directly from the stream.
+		// We just wait for the connection to close. The control_plane DoExchange loop
+		// listens to ctx.Done() and will handle the disconnect.
+		return errChan
+	}
+
 	// Listen for task execution results and administrative acknowledgements from the worker in a separate goroutine.
 	go func() {
+		defer close(errChan)
 		defer func() {
 			if r := recover(); r != nil {
-				// TODO: check if needed recover here
-				// Prevent crashes from uninitialized mock streams in unit tests
+				errChan <- fmt.Errorf("panic in stream reader: %v", r)
 			}
 		}()
 
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
+				errChan <- err
 				return
 			}
 			if resp == nil {
@@ -122,7 +139,7 @@ func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 					if ctrl.Type == "step-log" && ctrl.LogData != nil {
 						if w.registry != nil {
 							if clientID, ok := w.registry.GetClientIDForWorkflow(ctrl.LogData.WorkflowID); ok {
-								if clientStream, ok := w.registry.GetActiveClientStream(clientID); ok {
+								if clientStream, ok := w.registry.GetNode(clientID); ok {
 									_ = clientStream.Send(&transport.FlightData{
 										DataBody: []byte("LOG:" + ctrl.LogData.Text),
 									})
@@ -136,20 +153,22 @@ func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 				continue
 			}
 
-			var result models.TaskResult
-			if err := json.Unmarshal(resp.DataBody, &result); err != nil {
-				logger.L().Warn("Failed to unmarshal result", logger.Error(err))
-			} else {
-				w.RouteResult(result)
+			if w.Type == NodeTypeWorker {
+				var result models.TaskResult
+				if err := json.Unmarshal(resp.DataBody, &result); err != nil {
+					logger.L().Warn("Failed to unmarshal result", logger.Error(err))
+				} else {
+					w.RouteResult(result)
+				}
 			}
 
 		}
 	}()
 
-	return true
+	return errChan
 }
 
-func (w *WorkerStream) StopStream() {
+func (w *NodeStream) StopStream() {
 	w.mu.Lock()
 	w.stream = nil
 	w.mu.Unlock()
@@ -162,54 +181,54 @@ func (w *WorkerStream) StopStream() {
 	}
 }
 
-func (w *WorkerStream) LastSeen() {
+func (w *NodeStream) LastSeen() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.lastSeen = time.Now()
 }
 
-func (w *WorkerStream) GetStream() transport.ExchangeStream {
+func (w *NodeStream) GetStream() transport.ExchangeStream {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.stream
 }
 
-func (w *WorkerStream) GetLastSeen() time.Time {
+func (w *NodeStream) GetLastSeen() time.Time {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.lastSeen
 }
 
-func (w *WorkerStream) GetActiveTasks() int {
+func (w *NodeStream) GetActiveTasks() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.activeTasks
 }
 
-func (w *WorkerStream) UpdateHeartbeat(load int, t time.Time) {
+func (w *NodeStream) UpdateHeartbeat(load int, t time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.activeTasks = load
 	w.lastSeen = t
 }
 
-func (w *WorkerStream) SupportsCapability(capability string) bool {
+func (w *NodeStream) SupportsCapability(capability string) bool {
 	return w.workerInfo.SupportsCapability(capability)
 }
 
-func (w *WorkerStream) RegisterResultFuture(taskID string, future *models.TaskFuture) {
+func (w *NodeStream) RegisterResultFuture(taskID string, future *models.TaskFuture) {
 	if w.results != nil {
 		w.results.set(taskID, future)
 	}
 }
 
-func (w *WorkerStream) DeregisterResultFuture(taskID string) {
+func (w *NodeStream) DeregisterResultFuture(taskID string) {
 	if w.results != nil {
 		w.results.delete(taskID)
 	}
 }
 
-func (w *WorkerStream) RouteResult(result models.TaskResult) bool {
+func (w *NodeStream) RouteResult(result models.TaskResult) bool {
 	if w.results == nil {
 		return false
 	}
@@ -220,7 +239,7 @@ func (w *WorkerStream) RouteResult(result models.TaskResult) bool {
 	return future.Resolve(result)
 }
 
-func (w *WorkerStream) Send(data *transport.FlightData) error {
+func (w *NodeStream) Send(data *transport.FlightData) error {
 	w.mu.RLock()
 	stream := w.stream
 	w.mu.RUnlock()

@@ -53,4 +53,3 @@ type Server interface {
 type ServerTransport interface {
 	SetServer(srv Server)
 }
-
