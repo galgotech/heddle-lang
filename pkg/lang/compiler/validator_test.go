@@ -9,6 +9,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
 	"github.com/galgotech/heddle-lang/pkg/lang/lexer"
 	"github.com/galgotech/heddle-lang/pkg/lang/parser"
+	"github.com/galgotech/heddle-lang/pkg/schema"
 )
 
 func TestValidator_ResourceInjection(t *testing.T) {
@@ -384,3 +385,211 @@ import "std/io" my_name
 	}
 	assert.True(t, found, "expected workflow conflict with import error")
 }
+
+func TestValidator_CastAndPrintSuccess(t *testing.T) {
+	input := `
+import "std/col"
+import "std/io"
+
+step my_data = some_source { }
+
+workflow main {
+  my_data
+    | col.cast { to: "string" }
+    | io.print
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	schemas := map[string]schema.StepSchemas{
+		"some_source": {
+			Output: []schema.ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+				{Name: "name", ArrowType: "utf8"},
+			},
+		},
+	}
+
+	v := NewValidator(prog, ctx, schemas)
+	err := v.Validate()
+	assert.NoError(t, err)
+}
+
+func TestValidator_CastFailure(t *testing.T) {
+	input := `
+import "std/col"
+
+step my_data = some_source { }
+
+workflow main {
+  my_data
+    | col.cast { to: "invalid_type" }
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	schemas := map[string]schema.StepSchemas{
+		"some_source": {
+			Output: []schema.ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+			},
+		},
+	}
+
+	v := NewValidator(prog, ctx, schemas)
+	err := v.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cast: invalid target type")
+}
+
+func TestValidator_CastColumnsSuccess(t *testing.T) {
+	input := `
+import "std/col"
+
+step my_data = some_source { }
+
+workflow main {
+  my_data
+    | col.cast { columns: { id: "string" } }
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	schemas := map[string]schema.StepSchemas{
+		"some_source": {
+			Output: []schema.ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+				{Name: "name", ArrowType: "utf8"},
+			},
+		},
+	}
+
+	v := NewValidator(prog, ctx, schemas)
+	err := v.Validate()
+	assert.NoError(t, err)
+}
+
+func TestValidator_CastMissingConfig(t *testing.T) {
+	input := `
+import "std/col"
+
+step my_data = some_source { }
+
+workflow main {
+  my_data
+    | col.cast { }
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	schemas := map[string]schema.StepSchemas{
+		"some_source": {
+			Output: []schema.ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+			},
+		},
+	}
+
+	v := NewValidator(prog, ctx, schemas)
+	err := v.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cast: config must specify either 'columns' map or global 'to' type")
+}
+
+func TestValidator_PrintUnprintableType(t *testing.T) {
+	input := `
+import "std/io"
+
+step my_data = some_source { }
+
+workflow main {
+  my_data
+    | io.print
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	schemas := map[string]schema.StepSchemas{
+		"some_source": {
+			Output: []schema.ColumnSchema{
+				{Name: "data", ArrowType: "struct"},
+			},
+		},
+	}
+
+	v := NewValidator(prog, ctx, schemas)
+	err := v.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "print: column 'data' has unprintable type 'struct'")
+}
+
+func TestValidator_PrintAfterPrintFailure(t *testing.T) {
+	input := `
+import "std/io"
+
+step my_data = some_source { }
+step other_step = some_receiver { }
+
+workflow main {
+  my_data
+    | io.print
+    | other_step
+}
+`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	schemas := map[string]schema.StepSchemas{
+		"some_source": {
+			Output: []schema.ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+			},
+		},
+		"some_receiver": {
+			Input: []schema.ColumnSchema{
+				{Name: "id", ArrowType: "int64"},
+			},
+		},
+	}
+
+	v := NewValidator(prog, ctx, schemas)
+	err := v.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema mismatch: output has 0 fields, input has 1 fields")
+}
+

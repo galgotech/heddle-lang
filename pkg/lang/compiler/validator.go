@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/ast"
@@ -338,10 +339,14 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 				v.validateCallReferencesAll(callRef, call)
 
 				// Type Checking
-				if v.schemas != nil {
-					currentSchemas := v.resolveCallSchemas(call)
-					if err := schema.Compatible(lastOutputSchema, currentSchemas.Input); err != nil {
-						v.addErrorAtRange(fmt.Sprintf("Type mismatch: %v", err), v.ctx.CallRanges[callRef])
+				currentSchemas, err := v.resolveCallSchemas(call, lastOutputSchema)
+				if err != nil {
+					v.addErrorAtRange(err.Error(), v.ctx.CallRanges[callRef])
+				} else if currentSchemas != nil {
+					if len(currentSchemas.Input) > 0 {
+						if err := schema.Compatible(lastOutputSchema, currentSchemas.Input); err != nil {
+							v.addErrorAtRange(fmt.Sprintf("Type mismatch: %v", err), v.ctx.CallRanges[callRef])
+						}
 					}
 					lastOutputSchema = currentSchemas.Output
 				}
@@ -350,19 +355,34 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 	}
 }
 
-func (v *Validator) resolveCallSchemas(call ast.CallNode) *schema.StepSchemas {
+func (v *Validator) resolveModulePath(alias string) string {
+	if ref, ok := v.mapImport[alias]; ok {
+		node := v.ctx.ImportNodes[ref]
+		path := v.ctx.GetString(node.PathRef)
+		if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
+			path = path[1 : len(path)-1]
+		}
+		return path
+	}
+	return alias
+}
+
+func (v *Validator) resolveCallSchemas(call ast.CallNode, incomingSchema []schema.ColumnSchema) (*schema.StepSchemas, error) {
 	if call.IsPrql {
 		// TODO: Infer PRQL schemas if possible, or assume it passes through for now
-		return nil
+		return nil, nil
 	}
 
 	var stepName string
+	var fnRef ast.NodeRef
 	if call.FunctionRef != 0 {
-		fn := v.ctx.FunctionRefNodes[call.FunctionRef]
+		fnRef = call.FunctionRef
+		fn := v.ctx.FunctionRefNodes[fnRef]
 		if fn.ModuleRef.Start != fn.ModuleRef.End {
 			moduleName := v.ctx.GetString(fn.ModuleRef)
 			v.usedImports[moduleName] = true
-			stepName = fmt.Sprintf("%s.%s", moduleName, v.ctx.GetString(fn.NameRef))
+			fullModule := v.resolveModulePath(moduleName)
+			stepName = fmt.Sprintf("%s.%s", fullModule, v.ctx.GetString(fn.NameRef))
 		} else {
 			stepName = v.ctx.GetString(fn.NameRef)
 		}
@@ -371,24 +391,226 @@ func (v *Validator) resolveCallSchemas(call ast.CallNode) *schema.StepSchemas {
 	}
 
 	if stepName == "" {
-		return nil
+		return nil, nil
 	}
 
 	// If it's a bound step, we need to resolve what it's bound to
 	if boundRef, ok := v.mapStep[stepName]; ok {
 		boundNode := v.ctx.StepBindingNodes[boundRef]
-		fn := v.ctx.FunctionRefNodes[boundNode.FunctionRef]
+		fnRef = boundNode.FunctionRef
+		fn := v.ctx.FunctionRefNodes[fnRef]
 		if fn.ModuleRef.Start != fn.ModuleRef.End {
-			stepName = fmt.Sprintf("%s.%s", v.ctx.GetString(fn.ModuleRef), v.ctx.GetString(fn.NameRef))
+			moduleName := v.ctx.GetString(fn.ModuleRef)
+			fullModule := v.resolveModulePath(moduleName)
+			stepName = fmt.Sprintf("%s.%s", fullModule, v.ctx.GetString(fn.NameRef))
 		} else {
 			stepName = v.ctx.GetString(fn.NameRef)
 		}
 	}
 
-	if s, ok := v.schemas[stepName]; ok {
-		return &s
+	if resolver, ok := intrinsicResolvers[stepName]; ok {
+		return resolver(call, incomingSchema, v, fnRef)
 	}
-	return nil
+
+	if v.schemas != nil {
+		if s, ok := v.schemas[stepName]; ok {
+			return &s, nil
+		}
+	}
+	return nil, nil
+}
+
+var intrinsicResolvers = map[string]func(call ast.CallNode, in []schema.ColumnSchema, v *Validator, fnRef ast.NodeRef) (*schema.StepSchemas, error){
+	"std/col.cast": resolveCastSchema,
+	"std/io.print": resolvePrintSchema,
+}
+
+func resolvePrintSchema(call ast.CallNode, in []schema.ColumnSchema, v *Validator, fnRef ast.NodeRef) (*schema.StepSchemas, error) {
+	for _, col := range in {
+		if !isPrintableType(col.ArrowType) {
+			return nil, fmt.Errorf("print: column '%s' has unprintable type '%s'", col.Name, col.ArrowType)
+		}
+	}
+	return &schema.StepSchemas{
+		Input:  in,
+		Output: nil,
+	}, nil
+}
+
+func isPrintableType(t string) bool {
+	switch strings.ToLower(t) {
+	case "int8", "int16", "int32", "int64",
+		"uint8", "uint16", "uint32", "uint64",
+		"float32", "float64",
+		"string", "utf8", "text",
+		"bool", "boolean":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeArrowType(t string) (string, error) {
+	switch strings.ToLower(t) {
+	case "int8":
+		return "int8", nil
+	case "int16":
+		return "int16", nil
+	case "int32":
+		return "int32", nil
+	case "int64":
+		return "int64", nil
+	case "uint8":
+		return "uint8", nil
+	case "uint16":
+		return "uint16", nil
+	case "uint32":
+		return "uint32", nil
+	case "uint64":
+		return "uint64", nil
+	case "float32":
+		return "float32", nil
+	case "float64":
+		return "float64", nil
+	case "string", "utf8", "text":
+		return "utf8", nil
+	case "bool", "boolean":
+		return "bool", nil
+	default:
+		return "", fmt.Errorf("unsupported type: %s", t)
+	}
+}
+
+func isCastAllowed(from, to string) bool {
+	_, err1 := normalizeArrowType(from)
+	_, err2 := normalizeArrowType(to)
+	return err1 == nil && err2 == nil
+}
+
+func resolveCastSchema(call ast.CallNode, in []schema.ColumnSchema, v *Validator, fnRef ast.NodeRef) (*schema.StepSchemas, error) {
+	var configRef ast.NodeRef
+	if fnRef != 0 {
+		fn := v.ctx.FunctionRefNodes[fnRef]
+		configRef = fn.ConfigRef
+	}
+	cfg, err := v.parseDict(configRef)
+	if err != nil {
+		return nil, fmt.Errorf("cast: failed to parse config: %w", err)
+	}
+
+	var globalTo string
+	if toVal, ok := cfg["to"]; ok {
+		if s, ok := toVal.(string); ok {
+			globalTo = s
+		}
+	}
+
+	columnsMap := make(map[string]string)
+	if colsVal, ok := cfg["columns"]; ok {
+		if m, ok := colsVal.(map[string]any); ok {
+			for k, val := range m {
+				if s, ok := val.(string); ok {
+					columnsMap[k] = s
+				}
+			}
+		}
+	}
+
+	if len(columnsMap) == 0 && globalTo == "" {
+		return nil, fmt.Errorf("cast: config must specify either 'columns' map or global 'to' type")
+	}
+
+	out := make([]schema.ColumnSchema, len(in))
+	for i, col := range in {
+		out[i] = col
+		var targetTypeStr string
+		if globalTo != "" {
+			targetTypeStr = globalTo
+		} else if t, ok := columnsMap[col.Name]; ok {
+			targetTypeStr = t
+		}
+
+		if targetTypeStr != "" {
+			norm, err := normalizeArrowType(targetTypeStr)
+			if err != nil {
+				return nil, fmt.Errorf("cast: invalid target type '%s' for column '%s': %w", targetTypeStr, col.Name, err)
+			}
+			if !isCastAllowed(col.ArrowType, norm) {
+				return nil, fmt.Errorf("cast: conversion from '%s' to '%s' is not supported for column '%s'", col.ArrowType, norm, col.Name)
+			}
+			out[i].ArrowType = norm
+		}
+	}
+
+	return &schema.StepSchemas{
+		Input:  in,
+		Output: out,
+	}, nil
+}
+
+func (v *Validator) parseLiteral(ref ast.NodeRef) (any, error) {
+	if ref == ast.NilNode {
+		return nil, nil
+	}
+
+	node := v.ctx.LiteralNodes[ref]
+	switch node.Type {
+	case ast.LiteralString:
+		return v.ctx.GetString(node.ValueRef), nil
+	case ast.LiteralInt:
+		val, err := strconv.ParseInt(v.ctx.GetString(node.ValueRef), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		return val, nil
+	case ast.LiteralFloat:
+		val, err := strconv.ParseFloat(v.ctx.GetString(node.ValueRef), 64)
+		if err != nil {
+			return nil, err
+		}
+		return val, nil
+	case ast.LiteralBool:
+		return v.ctx.GetString(node.ValueRef) == "true", nil
+	case ast.LiteralNull:
+		return nil, nil
+	case ast.LiteralDict:
+		return v.parseDict(node.Ref)
+	case ast.LiteralList:
+		listNode := v.ctx.ListNodes[node.Ref]
+		result := make([]any, 0)
+		for i := listNode.LiteralRefsStart; i < listNode.LiteralRefsEnd; i++ {
+			val, err := v.parseLiteral(v.ctx.LiteralRefs[i])
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, val)
+		}
+		return result, nil
+	default:
+		return nil, nil
+	}
+}
+
+func (v *Validator) parseDict(ref ast.NodeRef) (map[string]any, error) {
+	if ref == ast.NilNode {
+		return make(map[string]any), nil
+	}
+
+	dictNode := v.ctx.DictNodes[ref]
+	result := make(map[string]any)
+
+	for i := dictNode.PairRefsStart; i < dictNode.PairRefsEnd; i++ {
+		pairRef := v.ctx.PairRefs[i]
+		pair := v.ctx.PairNodes[pairRef]
+		key := v.ctx.GetString(pair.KeyRef)
+		val, err := v.parseLiteral(pair.ValueRef)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = val
+	}
+
+	return result, nil
 }
 
 func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode) {

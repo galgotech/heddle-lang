@@ -83,7 +83,34 @@ func (p *pluginLocal) LastHeartbeat(hb plugin.Heartbeat) {
 func NewNativePlugins() []pluginSdk {
 	return []pluginSdk{
 		newPluginStdio(),
+		newPluginStdCol(),
 		newPluginLocal(),
+	}
+}
+
+func newPluginStdCol() *pluginLocal {
+	return &pluginLocal{
+		registrySteps: map[string]stepFunc{
+			"std/col.cast": std.ExecuteCast,
+		},
+		pluginRegistration: plugin.PluginRegistration{
+			Namespace: "std/col",
+			Language:  "go",
+			Version:   "0.0.1",
+			Resources: map[string]schema.FieldSchema{},
+			Schemas: map[string]schema.StepSchemas{
+				"std/col.cast": {
+					Config: schema.FieldSchema{
+						Fields: []schema.Field{
+							{Name: "columns", Type: "object"},
+							{Name: "to", Type: "string"},
+						},
+					},
+					Input:  []schema.ColumnSchema{},
+					Output: []schema.ColumnSchema{},
+				},
+			},
+		},
 	}
 }
 

@@ -80,3 +80,157 @@ func TestValidateEdge_Incompatible(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "DAG Type Error: pkg.from -> pkg.to")
 }
+
+func TestValidateEdge_DynamicCastAndPrint(t *testing.T) {
+	schemas := map[string]schema.StepSchemas{
+		"pkg.from": {
+			Output: []schema.ColumnSchema{
+				{Name: "col1", ArrowType: "int64"},
+			},
+		},
+	}
+
+	prog := ir.Program{
+		Instructions: map[string]any{
+			"step-1": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
+				Call:            []string{"pkg", "from"},
+			},
+			"step-2": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
+				Call:            []string{"std/col", "cast"},
+				Config:          map[string]any{"to": "string"},
+				Parents:         []string{"step-1"},
+			},
+			"step-3": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-3"},
+				Call:            []string{"std/io", "print"},
+				Parents:         []string{"step-2"},
+			},
+		},
+	}
+
+	// Validate step-1 -> step-2 (pkg.from -> std/col.cast)
+	err := orchestrator.ValidateEdge(prog, "step-1", "step-2", schemas)
+	assert.NoError(t, err)
+
+	// Validate step-2 -> step-3 (std/col.cast -> std/io.print)
+	err = orchestrator.ValidateEdge(prog, "step-2", "step-3", schemas)
+	assert.NoError(t, err)
+}
+
+func TestValidateEdge_DynamicCastColumns(t *testing.T) {
+	schemas := map[string]schema.StepSchemas{
+		"pkg.from": {
+			Output: []schema.ColumnSchema{
+				{Name: "col1", ArrowType: "int64"},
+				{Name: "col2", ArrowType: "utf8"},
+			},
+		},
+	}
+
+	prog := ir.Program{
+		Instructions: map[string]any{
+			"step-1": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
+				Call:            []string{"pkg", "from"},
+			},
+			"step-2": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
+				Call:            []string{"std/col", "cast"},
+				Config:          map[string]any{"columns": map[string]any{"col1": "string"}},
+				Parents:         []string{"step-1"},
+			},
+		},
+	}
+
+	err := orchestrator.ValidateEdge(prog, "step-1", "step-2", schemas)
+	assert.NoError(t, err)
+}
+
+func TestValidateEdge_DynamicCastFailure(t *testing.T) {
+	schemas := map[string]schema.StepSchemas{
+		"pkg.from": {
+			Output: []schema.ColumnSchema{
+				{Name: "col1", ArrowType: "int64"},
+			},
+		},
+	}
+
+	prog := ir.Program{
+		Instructions: map[string]any{
+			"step-1": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
+				Call:            []string{"pkg", "from"},
+			},
+			"step-2": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
+				Call:            []string{"std/col", "cast"},
+				Config:          map[string]any{"to": "invalid_type"},
+				Parents:         []string{"step-1"},
+			},
+		},
+	}
+
+	err := orchestrator.ValidateEdge(prog, "step-1", "step-2", schemas)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cast: invalid target type")
+}
+
+func TestValidateEdge_DynamicPrintFailure(t *testing.T) {
+	schemas := map[string]schema.StepSchemas{
+		"pkg.from": {
+			Output: []schema.ColumnSchema{
+				{Name: "col1", ArrowType: "struct"},
+			},
+		},
+	}
+
+	prog := ir.Program{
+		Instructions: map[string]any{
+			"step-1": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
+				Call:            []string{"pkg", "from"},
+			},
+			"step-2": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
+				Call:            []string{"std/io", "print"},
+				Parents:         []string{"step-1"},
+			},
+		},
+	}
+
+	err := orchestrator.ValidateEdge(prog, "step-1", "step-2", schemas)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "print: column 'col1' has unprintable type 'struct'")
+}
+
+func TestValidateEdge_DynamicCastMissingConfig(t *testing.T) {
+	schemas := map[string]schema.StepSchemas{
+		"pkg.from": {
+			Output: []schema.ColumnSchema{
+				{Name: "col1", ArrowType: "int64"},
+			},
+		},
+	}
+
+	prog := ir.Program{
+		Instructions: map[string]any{
+			"step-1": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-1"},
+				Call:            []string{"pkg", "from"},
+			},
+			"step-2": ir.StepInstruction{
+				BaseInstruction: ir.BaseInstruction{ID: "step-2"},
+				Call:            []string{"std/col", "cast"},
+				Config:          map[string]any{},
+				Parents:         []string{"step-1"},
+			},
+		},
+	}
+
+	err := orchestrator.ValidateEdge(prog, "step-1", "step-2", schemas)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cast: config must specify either 'columns' map or global 'to' type")
+}
+

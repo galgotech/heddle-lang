@@ -220,8 +220,9 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	var update models.WorkerCapabilitiesUpdate
 	foundInternal := false
 	foundStd := false
+	foundCol := false
 	timeout := time.After(2 * time.Second)
-	for !foundInternal || !foundStd {
+	for !foundInternal || !foundStd || !foundCol {
 		select {
 		case update = <-mock.Capabilities:
 			if slices.Contains(update.Capabilities, "__internal.identity") {
@@ -229,6 +230,9 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 			}
 			if slices.Contains(update.Capabilities, "std/io.print") {
 				foundStd = true
+			}
+			if slices.Contains(update.Capabilities, "std/col.cast") {
+				foundCol = true
 			}
 		case <-timeout:
 			t.Fatal("Timeout waiting for initial internal capabilities update")
