@@ -120,21 +120,15 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 	}
 
 	// 1. Find worker
-	worker := o.registry.FindWorkerByCapability(capability)
-	if worker == nil {
+	workerStream := o.registry.FindWorkerByCapability(capability)
+	if workerStream == nil {
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}
 
-	// 2. Get worker stream
-	workerStream, ok := o.registry.GetActiveWorkerStream(worker.GetID())
-	if !ok {
-		return fmt.Errorf("worker %s stream not found", worker.GetID())
-	}
-
-	// 3. Create result channel and register it
-	resultCh := make(chan models.TaskResult, 1)
-	o.registry.RegisterResultChan(stepID, resultCh)
-	defer o.registry.DeregisterResultChan(stepID)
+	// 3. Create result future and register it
+	future := models.NewTaskFuture()
+	workerStream.RegisterResultFuture(stepID, future)
+	defer workerStream.DeregisterResultFuture(stepID)
 
 	// 4. Dispatch step
 	execTask := models.StepExecutionTask{
@@ -149,20 +143,23 @@ func (o *InteractiveOrchestrator) executeStepInteractive(ctx context.Context, wo
 		return fmt.Errorf("failed to marshal step: %w", err)
 	}
 	if err := workerStream.Send(&transport.FlightData{DataBody: body}); err != nil {
-		return fmt.Errorf("failed to send step to worker %s: %w", worker.GetID(), err)
+		return fmt.Errorf("failed to send step to worker %s: %w", workerStream.GetID(), err)
 	}
 
 	// 5. Wait for result
 	var stepErr error
-	select {
-	case <-ctx.Done():
-		stepErr = ctx.Err()
-	case res := <-resultCh:
-		if res.Status != models.TaskStatusSuccess {
-			stepErr = fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	res, err := future.Await(timeoutCtx)
+	if err != nil {
+		if err == context.DeadlineExceeded {
+			stepErr = fmt.Errorf("step %s timed out", stepID)
+		} else {
+			stepErr = err
 		}
-	case <-time.After(30 * time.Second):
-		stepErr = fmt.Errorf("step %s timed out", stepID)
+	} else if res.Status != models.TaskStatusSuccess {
+		stepErr = fmt.Errorf("step %s failed: %s", stepID, res.ErrorMessage)
 	}
 
 	if stepErr != nil {

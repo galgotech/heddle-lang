@@ -60,6 +60,7 @@ func TestWorkerStream_BasicAccessors(t *testing.T) {
 		workerInfo: workerInfo{
 			ID: "worker-1",
 		},
+		results: newShardedResultMap(),
 	}
 
 	assert.Equal(t, "worker-1", w.GetID())
@@ -95,6 +96,7 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 		workerInfo: workerInfo{
 			ID: "worker-1",
 		},
+		results: newShardedResultMap(),
 	}
 
 	// 1. Process nil stream

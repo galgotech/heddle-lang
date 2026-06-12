@@ -2,11 +2,10 @@ package registry
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"sync"
 	"time"
-
-
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
@@ -74,6 +73,7 @@ type WorkerStream struct {
 	lastSeen    time.Time
 	activeTasks int
 	registry    *WorkerRegistry
+	results     *shardedResultMap
 }
 
 func (w *WorkerStream) GetID() string {
@@ -139,8 +139,8 @@ func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 			var result models.TaskResult
 			if err := json.Unmarshal(resp.DataBody, &result); err != nil {
 				logger.L().Warn("Failed to unmarshal result", logger.Error(err))
-			} else if w.registry != nil {
-				w.registry.RouteResult(result)
+			} else {
+				w.RouteResult(result)
 			}
 
 		}
@@ -151,8 +151,15 @@ func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 
 func (w *WorkerStream) StopStream() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.stream = nil
+	w.mu.Unlock()
+
+	if w.results != nil {
+		w.results.clearAndCloseAll(models.TaskResult{
+			Status:       models.TaskStatusFailed,
+			ErrorMessage: "worker disconnected",
+		})
+	}
 }
 
 func (w *WorkerStream) LastSeen() {
@@ -188,4 +195,37 @@ func (w *WorkerStream) UpdateHeartbeat(load int, t time.Time) {
 
 func (w *WorkerStream) SupportsCapability(capability string) bool {
 	return w.workerInfo.SupportsCapability(capability)
+}
+
+func (w *WorkerStream) RegisterResultFuture(taskID string, future *models.TaskFuture) {
+	if w.results != nil {
+		w.results.set(taskID, future)
+	}
+}
+
+func (w *WorkerStream) DeregisterResultFuture(taskID string) {
+	if w.results != nil {
+		w.results.delete(taskID)
+	}
+}
+
+func (w *WorkerStream) RouteResult(result models.TaskResult) bool {
+	if w.results == nil {
+		return false
+	}
+	future, ok := w.results.get(result.TaskID)
+	if !ok {
+		return false
+	}
+	return future.Resolve(result)
+}
+
+func (w *WorkerStream) Send(data *transport.FlightData) error {
+	w.mu.RLock()
+	stream := w.stream
+	w.mu.RUnlock()
+	if stream == nil {
+		return fmt.Errorf("stream is closed")
+	}
+	return stream.Send(data)
 }

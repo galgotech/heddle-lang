@@ -32,7 +32,11 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 	}
 
 	program := task.Program
-	clientStream, _ := o.registry.GetActiveClientStream(task.ClientID)
+	clientStream, ok := o.registry.GetActiveClientStream(task.ClientID)
+	if !ok {
+		logger.L().Error("Client not found", logger.String("id", task.ClientID))
+		return
+	}
 
 	// Thread-safe map to collect output handles of executed steps
 	var mu sync.RWMutex
@@ -57,7 +61,11 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 		logger.L().Info("[DEBUG] Starting debug workflow execution", logger.String("workflow", flow.Name))
 		if clientStream != nil {
-			_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting debug execution of workflow %s...", flow.Name)})
+			err := clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting debug execution of workflow %s...", flow.Name)})
+			if err != nil {
+				logger.L().Error("[DEBUG] Failed to send debug start to client", logger.Error(err))
+				break
+			}
 		}
 
 		var runErr error
@@ -71,7 +79,11 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		if runErr != nil {
 			logger.L().Error("[DEBUG] Workflow execution failed", logger.Error(runErr))
 			if clientStream != nil {
-				_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
+				err := clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
+				if err != nil {
+					logger.L().Error("[DEBUG] Failed to send debug pause to client", logger.Error(err))
+					break
+				}
 			}
 			return
 		}
@@ -79,7 +91,10 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 	logger.L().Info("[DEBUG] Workflow execution completed successfully", logger.String("id", task.ID))
 	if clientStream != nil {
-		_ = clientStream.Send(&transport.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
+		err := clientStream.Send(&transport.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
+		if err != nil {
+			logger.L().Error("[DEBUG] Failed to send debug pause to client", logger.Error(err))
+		}
 	}
 }
 
@@ -164,19 +179,14 @@ func (o *DebugOrchestrator) executeStepDebug(
 	}
 
 	// 3. Find worker and dispatch
-	worker := o.registry.FindWorkerByCapability(capability)
-	if worker == nil {
+	workerStream := o.registry.FindWorkerByCapability(capability)
+	if workerStream == nil {
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}
 
-	workerStream, ok := o.registry.GetActiveWorkerStream(worker.GetID())
-	if !ok {
-		return fmt.Errorf("worker %s stream not found", worker.GetID())
-	}
-
-	resultCh := make(chan models.TaskResult, 1)
-	o.registry.RegisterResultChan(stepID, resultCh)
-	defer o.registry.DeregisterResultChan(stepID)
+	future := models.NewTaskFuture()
+	workerStream.RegisterResultFuture(stepID, future)
+	defer workerStream.DeregisterResultFuture(stepID)
 
 	execTask := models.StepExecutionTask{
 		WorkflowID:     workflowID,
@@ -190,21 +200,24 @@ func (o *DebugOrchestrator) executeStepDebug(
 		return fmt.Errorf("failed to marshal step: %w", err)
 	}
 	if err := workerStream.Send(&transport.FlightData{DataBody: body}); err != nil {
-		return fmt.Errorf("failed to send step to worker %s: %w", worker.GetID(), err)
+		return fmt.Errorf("failed to send step to worker %s: %w", workerStream.GetID(), err)
 	}
 
 	// 4. Wait for result
 	var stepErr error
 	var taskRes models.TaskResult
-	select {
-	case <-ctx.Done():
-		stepErr = ctx.Err()
-	case taskRes = <-resultCh:
-		if taskRes.Status != models.TaskStatusSuccess {
-			stepErr = fmt.Errorf("step %s failed: %s", stepID, taskRes.ErrorMessage)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	taskRes, err = future.Await(timeoutCtx)
+	if err != nil {
+		if err == context.DeadlineExceeded {
+			stepErr = fmt.Errorf("step %s timed out", stepID)
+		} else {
+			stepErr = err
 		}
-	case <-time.After(30 * time.Second):
-		stepErr = fmt.Errorf("step %s timed out", stepID)
+	} else if taskRes.Status != models.TaskStatusSuccess {
+		stepErr = fmt.Errorf("step %s failed: %s", stepID, taskRes.ErrorMessage)
 	}
 
 	if stepErr != nil {

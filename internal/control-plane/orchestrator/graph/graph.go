@@ -143,20 +143,15 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
 	// 1. Find worker
-	worker := o.registry.FindWorkerByCapability(capability)
-	if worker == nil {
+	workerStream := o.registry.FindWorkerByCapability(capability)
+	if workerStream == nil {
 		return fmt.Errorf("no worker found for capability: %s", capability)
 	}
 
-	workerStream, ok := o.registry.GetActiveWorkerStream(worker.GetID())
-	if !ok {
-		return fmt.Errorf("worker %s stream not found", worker.GetID())
-	}
-
-	// 3. Create result channel and register it
-	resultCh := make(chan models.TaskResult, 1)
-	o.registry.RegisterResultChan(step.ID, resultCh)
-	defer o.registry.DeregisterResultChan(step.ID)
+	// 3. Create result future and register it
+	future := models.NewTaskFuture()
+	workerStream.RegisterResultFuture(step.ID, future)
+	defer workerStream.DeregisterResultFuture(step.ID)
 
 	// 4. Dispatch step
 	execTask := models.StepExecutionTask{
@@ -171,19 +166,22 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 		return fmt.Errorf("failed to marshal step: %w", err)
 	}
 	if err := workerStream.Send(&transport.FlightData{DataBody: body}); err != nil {
-		return fmt.Errorf("failed to send step to worker %s: %w", worker.GetID(), err)
+		return fmt.Errorf("failed to send step to worker %s: %w", workerStream.GetID(), err)
 	}
 
 	// 5. Wait for result
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case res := <-resultCh:
-		if res.Status != models.TaskStatusSuccess {
-			return fmt.Errorf("step %s failed: %s", step.ID, res.ErrorMessage)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	res, err := future.Await(timeoutCtx)
+	if err != nil {
+		if err == context.DeadlineExceeded {
+			return fmt.Errorf("step %s timed out", step.ID)
 		}
-	case <-time.After(30 * time.Second):
-		return fmt.Errorf("step %s timed out", step.ID)
+		return err
+	}
+	if res.Status != models.TaskStatusSuccess {
+		return fmt.Errorf("step %s failed: %s", step.ID, res.ErrorMessage)
 	}
 
 	return nil
