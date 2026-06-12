@@ -45,6 +45,19 @@ type PluginServer struct {
 	Ready         chan struct{}
 }
 
+func NewPluginServer(registry *locality.DataLocalityRegistry, nativePlugins []pluginSdk, socketPath string) *PluginServer {
+	pluginServer := &PluginServer{
+		registry:           registry,
+		socketPath:         socketPath,
+		nativePlugins:      nativePlugins,
+		pluginSyncRegister: make(chan plugin.PluginRegistration, 8),
+		plugins:            make(map[string]pluginSdk, 0),
+		Ready:              make(chan struct{}),
+	}
+
+	return pluginServer
+}
+
 func (s *PluginServer) Start(ctx context.Context) error {
 	path := s.socketPath
 	if after, ok := strings.CutPrefix(path, "unix://"); ok {
@@ -65,11 +78,11 @@ func (s *PluginServer) Start(ctx context.Context) error {
 	srv := grpc.NewServer()
 	flight.RegisterFlightServiceServer(srv, s)
 
-	logger.L().Info("Plugin server listening", logger.String("socket", s.socketPath))
+	logger.L().Info("plugin server listening: plugin server socket established and active", logger.Component("plugin-server"), logger.String("socket", s.socketPath))
 
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			logger.L().Error("Plugin server failed", logger.Error(err))
+			logger.L().Error("plugin server failed: grpc server exited with error", logger.Component("plugin-server"), logger.Error(err))
 		}
 	}()
 
@@ -95,7 +108,7 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 
 		for cap := range pluginRegistration.Schemas {
 			if strings.HasPrefix(cap, "__internal.") || strings.HasPrefix(cap, "std/") {
-				logger.L().Error("Plugin attempted to register protected capability", logger.String("capability", cap), logger.String("namespace", pluginRegistration.Namespace))
+				logger.L().Error("plugin registration rejected: plugin attempted to register protected capability", logger.Component("plugin-server"), logger.Capability(cap), logger.Namespace(pluginRegistration.Namespace))
 				return status.Errorf(codes.PermissionDenied, "plugin %s attempted to register protected capability %s", pluginRegistration.Namespace, cap)
 			}
 		}
@@ -112,7 +125,7 @@ func (s *PluginServer) DoAction(action *flight.Action, stream flight.FlightServi
 		if err := json.Unmarshal(action.Body, &heartbeat); err != nil {
 			return status.Errorf(codes.InvalidArgument, "failed to unmarshal heartbeat: %v", err)
 		}
-		logger.L().Debug("Heartbeat from plugin", logger.String("namespace", heartbeat.Namespace))
+		logger.L().Debug("plugin heartbeat received: processing active plugin heartbeat", logger.Component("plugin-server"), logger.Namespace(heartbeat.Namespace))
 
 		s.pluginsMU.RLock()
 		defer s.pluginsMU.RUnlock()
@@ -134,7 +147,7 @@ func (s *PluginServer) registerPlugin(body pluginSdk) {
 	namespace := body.PluginRegistration().Namespace
 	s.plugins[namespace] = body
 
-	logger.L().Info("Plugin registered", logger.String("namespace", namespace))
+	logger.L().Info("plugin registered: successfully added new plugin capabilities to server registry", logger.Component("plugin-server"), logger.Namespace(namespace))
 	s.pluginSyncRegister <- body.PluginRegistration()
 }
 
@@ -156,26 +169,26 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 	}
 	pluginRegistered.Stream(stream)
 
-	logger.L().Info("Plugin connected to exchange stream", logger.String("namespace", namespace))
+	logger.L().Info("plugin stream connected: active plugin established exchange channel", logger.Component("plugin-server"), logger.Namespace(namespace))
 
 	for {
 		data, err := stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				logger.L().Info("Plugin disconnected", logger.String("namespace", namespace))
+				logger.L().Info("plugin stream disconnected: connection closed gracefully", logger.Component("plugin-server"), logger.Namespace(namespace))
 				return nil
 			}
 			if status.Code(err) == codes.Canceled || errors.Is(err, context.Canceled) {
-				logger.L().Info("Plugin stream canceled", logger.String("namespace", namespace))
+				logger.L().Info("plugin stream canceled: stream operation canceled by context", logger.Component("plugin-server"), logger.Namespace(namespace))
 				return err
 			}
-			logger.L().Error("Plugin stream closed unexpectedly", logger.Error(err), logger.String("namespace", namespace))
+			logger.L().Error("plugin stream error: connection closed unexpectedly", logger.Component("plugin-server"), logger.Namespace(namespace), logger.Error(err))
 			return err
 		}
 
 		var resp plugin.ExecuteStepResponse
 		if err := json.Unmarshal(data.DataBody, &resp); err != nil {
-			logger.L().Error("Failed to unmarshal plugin response", logger.Error(err))
+			logger.L().Error("plugin response invalid: failed to unmarshal json payload", logger.Component("plugin-server"), logger.Error(err))
 			continue
 		}
 
@@ -183,7 +196,7 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 		for _, outPath := range resp.OutputRef {
 			if outPath != "" {
 				if err := validateSHMPath(outPath); err != nil {
-					logger.L().Error("Plugin provided invalid SHM output path", logger.Error(err), logger.String("path", outPath))
+					logger.L().Error("plugin security validation failed: shm path verification failed", logger.Component("plugin-server"), logger.String("path", outPath), logger.Error(err))
 					resp.Status = models.TaskStatusFailed
 					resp.ErrorMessage = "security error: invalid output handle path"
 				}
@@ -203,10 +216,22 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	defer s.pluginsMU.RUnlock()
 	pluginRegistered, ok := s.plugins[namespace]
 	if !ok {
+		logger.L().Warn("task dispatch failed: plugin not found in server registry",
+			logger.Component("plugin-server"),
+			logger.TraceID(task.WorkflowID),
+			logger.TaskID(task.TaskID),
+			logger.Namespace(namespace),
+		)
 		return models.TaskResult{}, fmt.Errorf("plugin %s not found", namespace)
 	}
 
 	if !pluginRegistered.HaveStream() {
+		logger.L().Warn("task dispatch failed: plugin found but not connected to stream",
+			logger.Component("plugin-server"),
+			logger.TraceID(task.WorkflowID),
+			logger.TaskID(task.TaskID),
+			logger.Namespace(namespace),
+		)
 		return models.TaskResult{}, fmt.Errorf("plugin %s not connected", namespace)
 	}
 
@@ -220,11 +245,22 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 			// Layer 2: Validate SHM path before dispatching
 			for _, p := range meta.Paths {
 				if err := validateSHMPath(p); err != nil {
+					logger.L().Error("task dispatch failed: registry contains invalid SHM path",
+						logger.Component("plugin-server"),
+						logger.TraceID(task.WorkflowID),
+						logger.TaskID(task.TaskID),
+						logger.Error(err),
+					)
 					return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
 				}
 			}
 			inputHandles = meta.Paths
 		} else {
+			logger.L().Error("task dispatch failed: input data for task not found in registry",
+				logger.Component("plugin-server"),
+				logger.TraceID(task.WorkflowID),
+				logger.TaskID(task.TaskID),
+			)
 			return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
 		}
 	}
@@ -246,12 +282,31 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		Resources:   task.Resources,
 	}
 
+	logger.L().Debug("task dispatch initiated: transmitting request payload to registered plugin",
+		logger.Component("plugin-server"),
+		logger.TraceID(task.WorkflowID),
+		logger.TaskID(task.TaskID),
+		logger.Namespace(namespace),
+	)
+
 	if err := pluginRegistered.Send(ctx, request); err != nil {
+		logger.L().Error("task dispatch failed: sending request to plugin failed",
+			logger.Component("plugin-server"),
+			logger.TraceID(task.WorkflowID),
+			logger.TaskID(task.TaskID),
+			logger.Error(err),
+		)
 		return models.TaskResult{}, fmt.Errorf("failed to send task to plugin: %w", err)
 	}
 
 	resp, err := pluginRegistered.Recv()
 	if err != nil {
+		logger.L().Error("task dispatch failed: receiving result from plugin failed",
+			logger.Component("plugin-server"),
+			logger.TraceID(task.WorkflowID),
+			logger.TaskID(task.TaskID),
+			logger.Error(err),
+		)
 		return models.TaskResult{}, fmt.Errorf("failed to receive result from plugin: %w", err)
 	}
 
@@ -260,6 +315,12 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		// Layer 2: validateSHMPath was already done in DoExchange, but we do it again for defense in depth
 		for _, outPath := range resp.OutputRef {
 			if err := validateSHMPath(outPath); err != nil {
+				logger.L().Error("task dispatch failed: plugin returned invalid SHM path",
+					logger.Component("plugin-server"),
+					logger.TraceID(task.WorkflowID),
+					logger.TaskID(task.TaskID),
+					logger.Error(err),
+				)
 				return models.TaskResult{}, fmt.Errorf("security error: plugin returned invalid SHM path: %w", err)
 			}
 		}
@@ -267,9 +328,15 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		handle := task.TaskID
 		// Layer 4: Registry.Put now validates permissions/ownership
 		if err := s.registry.Put(locality.NewMetadata(task.WorkflowID, handle, locality.Output, resp.OutputRef)); err != nil {
+			logger.L().Error("task dispatch failed: failed to register SHM output metadata",
+				logger.Component("plugin-server"),
+				logger.TraceID(task.WorkflowID),
+				logger.TaskID(task.TaskID),
+				logger.Error(err),
+			)
 			return models.TaskResult{}, fmt.Errorf("failed to register SHM output: %w", err)
 		}
-		logger.L().Info("Registered SHM output in registry", logger.String("handle", handle))
+		logger.L().Info("registry update completed: registered shm output metadata", logger.Component("plugin-server"), logger.TraceID(task.WorkflowID), logger.TaskID(handle))
 	}
 
 	return models.TaskResult{
@@ -278,19 +345,6 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 		ErrorMessage:  resp.ErrorMessage,
 		OutputHandles: resp.OutputRef,
 	}, nil
-}
-
-func NewPluginServer(registry *locality.DataLocalityRegistry, nativePlugins []pluginSdk, socketPath string) *PluginServer {
-	pluginServer := &PluginServer{
-		registry:           registry,
-		socketPath:         socketPath,
-		nativePlugins:      nativePlugins,
-		pluginSyncRegister: make(chan plugin.PluginRegistration, 8),
-		plugins:            make(map[string]pluginSdk, 0),
-		Ready:              make(chan struct{}),
-	}
-
-	return pluginServer
 }
 
 // validateSHMPath ensures the path is inside /dev/shm and doesn't contain traversal.

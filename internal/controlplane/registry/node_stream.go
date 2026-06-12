@@ -117,7 +117,12 @@ func (w *NodeStream) ProcessStream(stream transport.ExchangeStream) <-chan error
 		defer close(errChan)
 		defer func() {
 			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in stream reader: %v", r)
+				err := fmt.Errorf("panic in stream reader: %v", r)
+				logger.L().Error("stream error: panic in stream reader",
+					logger.Component("control-plane"),
+					logger.Error(err),
+				)
+				errChan <- err
 			}
 		}()
 
@@ -128,7 +133,10 @@ func (w *NodeStream) ProcessStream(stream transport.ExchangeStream) <-chan error
 				return
 			}
 			if resp == nil {
-				logger.L().Warn("Received nil response from worker", logger.String("worker_id", w.workerInfo.ID))
+				logger.L().Warn("worker stream anomaly: received nil response from worker",
+					logger.Component("control-plane"),
+					logger.WorkerID(w.workerInfo.ID),
+				)
 				continue
 			}
 
@@ -140,23 +148,36 @@ func (w *NodeStream) ProcessStream(stream transport.ExchangeStream) <-chan error
 						if w.registry != nil {
 							if clientID, ok := w.registry.GetClientIDForWorkflow(ctrl.LogData.WorkflowID); ok {
 								if clientStream, ok := w.registry.GetNode(clientID); ok {
-									_ = clientStream.Send(&transport.FlightData{
+									if err := clientStream.Send(&transport.FlightData{
 										DataBody: []byte("LOG:" + ctrl.LogData.Text),
-									})
+									}); err != nil {
+										logger.L().Warn("log routing failed: unable to send log data to client",
+											logger.Component("control-plane"),
+											logger.ClientID(clientID),
+											logger.Error(err),
+										)
+									}
 								}
 							}
 						}
 						continue
 					}
 				}
-				logger.L().Info("Received control signaling message", logger.Any("metadata", resp.AppMetadata))
+				logger.L().Info("control signal received: processed administrative message from node",
+					logger.Component("control-plane"),
+					logger.Any("metadata", resp.AppMetadata),
+				)
 				continue
 			}
 
 			if w.Type == NodeTypeWorker {
 				var result models.TaskResult
 				if err := json.Unmarshal(resp.DataBody, &result); err != nil {
-					logger.L().Warn("Failed to unmarshal result", logger.Error(err))
+					logger.L().Warn("result processing failed: unable to unmarshal task result",
+						logger.Component("control-plane"),
+						logger.Error(err),
+						logger.WorkerID(w.workerInfo.ID),
+					)
 				} else {
 					w.RouteResult(result)
 				}

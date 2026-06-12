@@ -282,3 +282,42 @@ To modify or debug the language compiler, trace through the following sequence:
 2.  **Syntactic Parsing:** Look at [`/pkg/lang/parser/parser.go`](./pkg/lang/parser/parser.go) to see how tokens assemble into AST nodes.
 3.  **Semantic Validation:** Edit [`/pkg/lang/compiler/validator.go`](./pkg/lang/compiler/validator.go) to modify static type verification rules.
 4.  **AST Lowering:** Review [`/pkg/lang/compiler/lowerer.go`](./pkg/lang/compiler/lowerer.go) to analyze the conversion of AST nodes into DAG instructions.
+
+---
+
+## 6. Logging and Visual Tracing Guidelines
+
+Heddle orchestrates tasks across multiple asynchronous workflows, worker nodes, and external plugins. To make logs easy to follow and trace in developer terminals or parse in log managers, all codebase contributions must adhere to the following logging standard:
+
+### 6.1 Log Message Formatting
+- **Start with lowercase:** All log messages must start with a lowercase letter (e.g. `worker registered`, `task received: initiating step execution`).
+- **Format style:** Log messages must clearly indicate the action taking place using the format `action: description of action`.
+
+### 6.2 Trace ID Correlation & Propagation
+Because execution is highly asynchronous, a single workflow execution involves multiple goroutines, worker queues, and plugin calls:
+- **Trace ID (`trace_id`):** Every log statement associated with a workflow's lifecycle (compiling, queuing, execution, SHM registration) must include a unique `trace_id` (derived from the submitted workflow's `task.ID` UUID).
+- **Task ID (`task_id`):** When logging individual step execution tasks within a workflow, the log must also include the step's specific `task_id` (e.g., `step_data_1`).
+
+### 6.3 Standardized Context Keys
+To ensure uniformity across components, developers must avoid generic context keys like `id` and use the helper builders defined in [`/pkg/logger/logger.go`](./pkg/logger/logger.go):
+
+| Helper | Log Key | Description |
+| :--- | :--- | :--- |
+| `logger.Component("name")` | `component` | The subsystem originating the log (e.g., `control-plane`, `worker`, `plugin-server`). |
+| `logger.TraceID("uuid")` | `trace_id` | Correlation ID for the overall workflow execution. |
+| `logger.TaskID("id")` | `task_id` | Execution ID for the specific workflow step. |
+| `logger.WorkerID("id")` | `worker_id` | Unique ID of the worker node. |
+| `logger.ClientID("id")` | `client_id` | Unique ID of the submitting client node. |
+| `logger.Namespace("name")` | `namespace` | The plugin namespace (e.g. `std/io`, `fhub/llm`). |
+| `logger.Capability("name")` | `capability` | A specific capability of a plugin (e.g. `std/io.print`). |
+
+### 6.4 Log Level Selection
+- `error`: Unrecoverable errors or system-halting failures.
+- `warn`: Recoverable anomalies or expected anomalies (e.g. temporary network dropouts or plugin stream cancellations).
+- `info`: Key lifecycle milestones (startups, successful compilations, workflow results).
+- `debug`: Operational context, capability exchange messages, and detailed connection events.
+
+### 6.5 Log Scope and Functional Boundaries
+- **No caller references:** A function does not know which caller invoked it, so log messages within a function must not refer to external functions or parent callers.
+- **Reference downstream calls only:** A function knows which downstream functions it calls; logs may reference these internal calls to provide context.
+- **No internal behavior assumptions:** Logs must not make assumptions or inferences about the inner workings of downstream functions. They should only use the name of the called function to specify what is being initiated.

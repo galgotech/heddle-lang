@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
+	"github.com/galgotech/heddle-lang/internal/controlplane/orchestrator"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )

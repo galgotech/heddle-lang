@@ -51,6 +51,11 @@ type DataLocalityRegistry struct {
 	metadata sync.Map
 }
 
+// NewDataLocalityRegistry initializes a new registry.
+func NewDataLocalityRegistry() *DataLocalityRegistry {
+	return &DataLocalityRegistry{}
+}
+
 // Put registers a data identifier with its corresponding SHM metadata.
 // It validates that the file at Path exists and has secure permissions.
 func (r *DataLocalityRegistry) Put(metadata Metadata) error {
@@ -113,11 +118,6 @@ func (r *DataLocalityRegistry) DeleteByWorkflow(workflowID string) {
 		}
 		return true
 	})
-}
-
-// NewDataLocalityRegistry initializes a new registry.
-func NewDataLocalityRegistry() *DataLocalityRegistry {
-	return &DataLocalityRegistry{}
 }
 
 // WriteArrowArrayOnlyToShm writes an Arrow Array to a temporary file in /dev/shm using a default field name.

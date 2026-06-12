@@ -16,39 +16,60 @@ import (
 )
 
 func ExecuteDataLiteral(ctx context.Context, request plugin.ExecuteStepRequest) (plugin.ExecuteStepResponse, error) {
-	logger.L().Info("Executing data_literal step", logger.String("task_id", request.TaskID))
+	compField := logger.Component("worker")
+	traceField := logger.TraceID(request.WorkflowID)
+	taskField := logger.TaskID(request.TaskID)
+
+	logger.L().Info("step execution initiated: executing data_literal step", compField, traceField, taskField)
 
 	if request.ConfigJSON == "" {
-		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: missing step config JSON")
+		err := fmt.Errorf("data_literal: missing step config JSON")
+		logger.L().Error("step execution failed: missing step configuration json", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, err
 	}
 
 	var cfg map[string]any
 	if err := json.Unmarshal([]byte(request.ConfigJSON), &cfg); err != nil {
-		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to parse config JSON: %w", err)
+		wrappedErr := fmt.Errorf("data_literal: failed to parse config JSON: %w", err)
+		logger.L().Error("step execution failed: failed to parse configuration json payload", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, wrappedErr
 	}
 
 	raw, ok := cfg["literalData"]
 	if !ok || raw == nil {
-		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: missing 'literalData' in step config")
+		err := fmt.Errorf("data_literal: missing 'literalData' in step config")
+		logger.L().Error("step execution failed: missing literalData field in step config", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, err
 	}
 
 	slice, ok := raw.([]any)
 	if !ok {
-		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: 'literalData' must be a valid slice of maps, got %T", raw)
+		err := fmt.Errorf("data_literal: 'literalData' must be a valid slice of maps, got %T", raw)
+		logger.L().Error("step execution failed: invalid literalData type in step config", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, err
 	}
 
 	listData := make([]map[string]any, len(slice))
 	for i, item := range slice {
 		m, ok := item.(map[string]any)
 		if !ok {
-			return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: element %d in 'literalData' is not a valid map, got %T", i, item)
+			err := fmt.Errorf("data_literal: element %d in 'literalData' is not a valid map, got %T", i, item)
+			logger.L().Error("step execution failed: invalid map element in literalData", compField, traceField, taskField, logger.Int("index", i), logger.Error(err))
+			return plugin.ExecuteStepResponse{}, err
 		}
 		listData[i] = m
 	}
 
+	if len(listData) == 0 {
+		logger.L().Warn("step execution check: executing data_literal step with empty literalData array", compField, traceField, taskField)
+	}
+
+	logger.L().Debug("data conversion initiated: converting list data to arrow record", compField, traceField, taskField, logger.Int("rows", len(listData)))
 	record, err := convertToArrowRecord(listData)
 	if err != nil {
-		return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
+		wrappedErr := fmt.Errorf("data_literal: failed to convert to arrow: %w", err)
+		logger.L().Error("data conversion failed: error converting map elements to arrow record structure", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, wrappedErr
 	}
 	defer record.Release()
 
@@ -63,12 +84,15 @@ func ExecuteDataLiteral(ctx context.Context, request plugin.ExecuteStepRequest) 
 		arr := record.Column(i)
 		path, err := locality.WriteArrowArrayToShm(field, arr)
 		if err != nil {
-			return plugin.ExecuteStepResponse{}, fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
+			wrappedErr := fmt.Errorf("data_literal: failed to write column %s to SHM: %w", field.Name, err)
+			logger.L().Error("shm allocation failed: failed to write column array to shared memory segment", compField, traceField, taskField, logger.String("field", field.Name), logger.Error(err))
+			return plugin.ExecuteStepResponse{}, wrappedErr
 		}
 		paths[field.Name] = path
-		logger.L().Info("Allocated data_literal column to SHM", logger.String("handle", handle), logger.String("field", field.Name), logger.String("path", path))
+		logger.L().Info("shm allocation completed: allocated data_literal column to shared memory", compField, traceField, taskField, logger.String("handle", handle), logger.String("field", field.Name), logger.String("path", path))
 	}
 
+	logger.L().Info("step execution completed: successfully executed data_literal step", compField, traceField, taskField)
 	return plugin.ExecuteStepResponse{
 		TaskID:    request.TaskID,
 		Status:    plugin.StepResponseSuccess,

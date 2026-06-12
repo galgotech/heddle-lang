@@ -15,8 +15,8 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/internal/client"
-	control_plane "github.com/galgotech/heddle-lang/internal/control-plane"
-	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
+	"github.com/galgotech/heddle-lang/internal/controlplane"
+	"github.com/galgotech/heddle-lang/internal/controlplane/registry"
 	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
@@ -47,7 +47,7 @@ workflow hello {
 
 	// Set up a mock/real Control Plane server on a local random port
 	reg := registry.NewNodeRegistry()
-	s := control_plane.NewControlPlaneServer(reg)
+	s := controlplane.NewControlPlaneServer(reg)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/worker/internal"
 	"github.com/galgotech/heddle-lang/internal/worker/std"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
@@ -25,6 +26,7 @@ func (p *pluginLocal) PluginRegistration() plugin.PluginRegistration {
 }
 
 func (p *pluginLocal) Stream(stream flight.FlightService_DoExchangeServer) {
+	logger.L().Debug("native stream skipped: plugin is native and runs in-process", logger.Component("plugin-local"), logger.Namespace(p.pluginRegistration.Namespace))
 }
 
 func (p *pluginLocal) HaveStream() bool {
@@ -33,23 +35,49 @@ func (p *pluginLocal) HaveStream() bool {
 
 func (p *pluginLocal) Send(ctx context.Context, request plugin.ExecuteStepRequest) error {
 	capability := fmt.Sprintf("%s.%s", p.pluginRegistration.Namespace, request.StepName)
+	logger.L().Debug("native execution initiated: dispatching local request",
+		logger.Component("plugin-local"),
+		logger.TraceID(request.WorkflowID),
+		logger.TaskID(request.TaskID),
+		logger.Capability(capability),
+	)
 	if fn, ok := p.registrySteps[capability]; ok {
 		response, err := fn(ctx, request)
 		if err != nil {
+			logger.L().Error("native execution failed: error executing function",
+				logger.Component("plugin-local"),
+				logger.TraceID(request.WorkflowID),
+				logger.TaskID(request.TaskID),
+				logger.Capability(capability),
+				logger.Error(err),
+			)
 			return fmt.Errorf("failed to execute capability %s: %w", capability, err)
 		}
 		p.response = response
+		logger.L().Info("native execution finished: success executing local function",
+			logger.Component("plugin-local"),
+			logger.TraceID(request.WorkflowID),
+			logger.TaskID(request.TaskID),
+			logger.Capability(capability),
+		)
 		return nil
 	}
+	logger.L().Warn("native execution skipped: capability not registered locally",
+		logger.Component("plugin-local"),
+		logger.TraceID(request.WorkflowID),
+		logger.TaskID(request.TaskID),
+		logger.Capability(capability),
+	)
 	return fmt.Errorf("capability %s not found", capability)
 }
 
 func (p *pluginLocal) Recv() (plugin.ExecuteStepResponse, error) {
+	logger.L().Debug("native response retrieved: returning local result", logger.Component("plugin-local"), logger.TaskID(p.response.TaskID))
 	return p.response, nil
 }
 
 func (p *pluginLocal) LastHeartbeat(hb plugin.Heartbeat) {
-
+	logger.L().Debug("native heartbeat received: ignoring heartbeat for in-process plugin", logger.Component("plugin-local"), logger.Namespace(hb.Namespace))
 }
 
 func NewNativePlugins() []pluginSdk {

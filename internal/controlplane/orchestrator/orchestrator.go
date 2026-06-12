@@ -5,6 +5,7 @@ import (
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 )
 
@@ -28,6 +29,11 @@ type Worker interface {
 // ResolveResources extracts the definitions and configurations for all resources referenced by a step.
 func ResolveResources(prog ir.Program, step ir.StepInstruction) map[string]plugin.ResourceDefinition {
 	resources := make(map[string]plugin.ResourceDefinition)
+	logger.L().Debug("resource resolution initiated: processing resources for step",
+		logger.Component("orchestrator"),
+		logger.Any("resources", step.Resources),
+	)
+
 	for _, resourceID := range step.Resources {
 		if inst, ok := prog.Instructions[resourceID]; ok {
 			var provider []string
@@ -35,6 +41,10 @@ func ResolveResources(prog ir.Program, step ir.StepInstruction) map[string]plugi
 
 			r, ok := inst.(ir.ResourceInstruction)
 			if !ok {
+				logger.L().Warn("resource resolution anomaly: instruction is not a resource instruction",
+					logger.Component("orchestrator"),
+					logger.String("resource_id", resourceID),
+				)
 				continue
 			}
 
@@ -52,6 +62,16 @@ func ResolveResources(prog ir.Program, step ir.StepInstruction) map[string]plugi
 				Type:   resourceType,
 				Config: config,
 			}
+			logger.L().Info("resource resolution completed: resource successfully resolved",
+				logger.Component("orchestrator"),
+				logger.String("resource_id", resourceID),
+				logger.String("type", resourceType),
+			)
+		} else {
+			logger.L().Error("resource resolution failed: resource instruction not found in program",
+				logger.Component("orchestrator"),
+				logger.String("resource_id", resourceID),
+			)
 		}
 	}
 	return resources

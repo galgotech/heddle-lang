@@ -103,10 +103,17 @@ func Init(cfg Config) error {
 
 	// Apply beautiful console formatting if console is selected (or development mode)
 	if zapCfg.Encoding == "console" || cfg.Development {
-		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		zapCfg.Encoding = "aligned-console"
+		zapCfg.EncoderConfig.EncodeLevel = alignedColorLevelEncoder
 		zapCfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 		zapCfg.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
-		zapCfg.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+		zapCfg.EncoderConfig.EncodeCaller = alignedCallerEncoder
+	} else if zapCfg.Encoding == "console-plain" {
+		zapCfg.Encoding = "aligned-console"
+		zapCfg.EncoderConfig.EncodeLevel = alignedCapitalLevelEncoder
+		zapCfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		zapCfg.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
+		zapCfg.EncoderConfig.EncodeCaller = alignedCallerEncoder
 	}
 
 	if cfg.Level != "" {
@@ -173,3 +180,50 @@ func Error(err error) Field {
 func Any(key string, val any) Field {
 	return Field{zapField: zap.Any(key, val)}
 }
+
+// Standard keys for fields to ensure project-wide consistency
+const (
+	FieldComponent  = "component"
+	FieldTraceID    = "trace_id"
+	FieldTaskID     = "task_id"
+	FieldWorkerID   = "worker_id"
+	FieldClientID   = "client_id"
+	FieldNamespace  = "namespace"
+	FieldCapability = "capability"
+)
+
+// Component creates a component tag field.
+func Component(val string) Field {
+	return String(FieldComponent, val)
+}
+
+// TraceID creates a trace_id field to correlate asynchronous flows and workflow tasks.
+func TraceID(val string) Field {
+	return String(FieldTraceID, val)
+}
+
+// TaskID creates a task_id field for individual execution step tasks.
+func TaskID(val string) Field {
+	return String(FieldTaskID, val)
+}
+
+// WorkerID creates a worker_id field identifying the target worker node.
+func WorkerID(val string) Field {
+	return String(FieldWorkerID, val)
+}
+
+// ClientID creates a client_id field identifying the origin client node.
+func ClientID(val string) Field {
+	return String(FieldClientID, val)
+}
+
+// Namespace creates a namespace field for plugin namespaces.
+func Namespace(val string) Field {
+	return String(FieldNamespace, val)
+}
+
+// Capability creates a capability field indicating a specific supported plugin function.
+func Capability(val string) Field {
+	return String(FieldCapability, val)
+}
+

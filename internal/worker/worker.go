@@ -65,12 +65,14 @@ func (w *Worker) Start(ctx context.Context) error {
 		Body: body,
 	})
 	if err != nil {
+		logger.L().Error("worker registration failed: error transmitting registration action", logger.Component("worker"), logger.WorkerID(w.GetID()), logger.Error(err))
 		return fmt.Errorf("failed to register: %w", err)
 	}
 	if _, err := res.Recv(); err != nil {
+		logger.L().Error("worker registration failed: error receiving registration result from control plane", logger.Component("worker"), logger.WorkerID(w.GetID()), logger.Error(err))
 		return fmt.Errorf("failed to receive registration result: %w", err)
 	}
-	logger.L().Info("Worker registered with control plane", logger.String("id", w.GetID()))
+	logger.L().Info("worker registration completed: registered successfully with control plane", logger.Component("worker"), logger.WorkerID(w.GetID()))
 
 	// 2. Start Heartbeats
 	go w.startHeartbeat(ctx)
@@ -81,7 +83,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	// 4. Start Plugin Server (UDS)
 	go func() {
 		if err := w.pluginServer.Start(ctx); err != nil {
-			logger.L().Error("Plugin server error", logger.Error(err))
+			logger.L().Error("plugin server failed: local UDS server registration/operation failed", logger.Component("worker"), logger.Error(err))
 		}
 	}()
 	<-w.pluginServer.Ready
@@ -92,17 +94,17 @@ func (w *Worker) Start(ctx context.Context) error {
 		err := w.run(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
-				logger.L().Info("Worker task loop stopped", logger.Error(err))
+				logger.L().Info("worker loop terminated: task loop terminated gracefully", logger.Component("worker"), logger.Error(err))
 				return
 			}
-			logger.L().Fatal("Worker run loop exited with error", logger.Error(err))
+			logger.L().Fatal("worker loop failed: task loop exited with fatal error", logger.Component("worker"), logger.Error(err))
 		}
 	}()
 
 	// 5. watch for shutdown
 	go func() {
 		<-ctx.Done()
-		logger.L().Info("Worker shutting down, sending deregistration", logger.String("id", w.GetID()))
+		logger.L().Info("worker shutdown initiated: sending deregistration message to control plane", logger.Component("worker"), logger.WorkerID(w.GetID()))
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		shutdownCtx = metadata.AppendToOutgoingContext(shutdownCtx, "worker-id", w.GetID())
@@ -132,7 +134,7 @@ func (w *Worker) startHeartbeat(ctx context.Context) {
 				Body: body,
 			})
 			if err != nil {
-				logger.L().Error("Heartbeat failed", logger.Error(err))
+				logger.L().Warn("heartbeat execution failed: failed to dispatch heartbeat message to control plane", logger.Component("worker"), logger.Error(err))
 			}
 		case <-ctx.Done():
 			return
@@ -162,27 +164,27 @@ func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 		}
 		body, err := json.Marshal(update)
 		if err != nil {
-			logger.L().Error("failed to marshal capabilities update: %w", logger.Error(err))
+			logger.L().Error("capabilities update failed: error marshaling capability data update", logger.Component("worker"), logger.Error(err))
 			continue
 		}
 
-		logger.L().Info("Sending update to control plane", logger.Strings("capabilities", cabalities))
+		logger.L().Debug("capabilities update initiated: sending update to control plane", logger.Component("worker"), logger.Strings("capabilities", cabalities))
 		res, err := w.transport.DoAction(ctx, &transport.Action{
 			Type: models.ActionUpdateCapabilities,
 			Body: body,
 		})
 
-		logger.L().Info("Sent update to control plane")
+		logger.L().Debug("capabilities update transmitted: successfully sent payload to transport layer", logger.Component("worker"))
 		if err != nil {
-			logger.L().Error("failed to update capabilities: %w", logger.Error(err))
+			logger.L().Error("capabilities update failed: error transmitting capability data update", logger.Component("worker"), logger.Error(err))
 			continue
 		}
 		if _, err := res.Recv(); err != nil {
-			logger.L().Error("failed to receive update result: %w", logger.Error(err))
+			logger.L().Error("capabilities update failed: error receiving capability update response", logger.Component("worker"), logger.Error(err))
 			continue
 		}
 
-		logger.L().Info("Worker capabilities updated", logger.Strings("capabilities", cabalities))
+		logger.L().Info("capabilities update completed: successfully synchronized capability catalog", logger.Component("worker"), logger.Strings("capabilities", cabalities))
 	}
 }
 
@@ -197,7 +199,7 @@ func (w *Worker) run(ctx context.Context) error {
 		close(w.Ready)
 	})
 
-	logger.L().Info("Worker task loop started", logger.String("id", w.GetID()))
+	logger.L().Info("worker loop started: task processing loop is now active", logger.Component("worker"), logger.WorkerID(w.GetID()))
 	for {
 		data, err := stream.Recv()
 		if err != nil {
@@ -209,7 +211,7 @@ func (w *Worker) run(ctx context.Context) error {
 			var ctrl models.ControlMessage
 			if err := json.Unmarshal(data.AppMetadata, &ctrl); err == nil {
 				if ctrl.Type == models.ActionPurgeWorkflow && ctrl.PurgeData != nil {
-					logger.L().Info("SHM purged for workflow", logger.String("id", ctrl.PurgeData.WorkflowID))
+					logger.L().Info("memory purge completed: successfully released shm segment for workflow", logger.Component("worker"), logger.TraceID(ctrl.PurgeData.WorkflowID))
 
 					// Send Acknowledgment
 					ack := models.ControlMessage{
@@ -221,7 +223,7 @@ func (w *Worker) run(ctx context.Context) error {
 					}
 					ackBody, _ := json.Marshal(ack)
 					if err := stream.Send(&transport.FlightData{AppMetadata: ackBody}); err != nil {
-						logger.L().Error("Failed to send purge ack", logger.Error(err))
+						logger.L().Error("memory purge failed: error sending purge ack to control plane", logger.Component("worker"), logger.Error(err))
 					}
 				}
 			}
@@ -230,11 +232,11 @@ func (w *Worker) run(ctx context.Context) error {
 
 		var task models.StepExecutionTask
 		if err := json.Unmarshal(data.DataBody, &task); err != nil {
-			logger.L().Error("Failed to unmarshal task", logger.Error(err))
+			logger.L().Error("task ingestion failed: failed to unmarshal step execution task", logger.Component("worker"), logger.Error(err))
 			continue
 		}
 
-		logger.L().Info("Received task", logger.String("id", task.TaskID), logger.String("step", task.Step.Call[1]))
+		logger.L().Info("task execution initiated: processing received workflow step", logger.Component("worker"), logger.TraceID(task.WorkflowID), logger.TaskID(task.TaskID), logger.String("step", task.Step.Call[1]))
 
 		go func(t models.StepExecutionTask) {
 			var result models.TaskResult
@@ -250,7 +252,7 @@ func (w *Worker) run(ctx context.Context) error {
 			result, err = w.pluginServer.DispatchTask(taskCtx, t)
 
 			if err != nil {
-				logger.L().Error("Failed to execute task", logger.Error(err))
+				logger.L().Error("task execution failed: error dispatching or running step task", logger.Component("worker"), logger.TraceID(t.WorkflowID), logger.TaskID(t.TaskID), logger.Error(err))
 				// Send failure result back
 				result = models.TaskResult{
 					TaskID:       t.TaskID,
@@ -260,7 +262,7 @@ func (w *Worker) run(ctx context.Context) error {
 			}
 			respBody, _ := json.Marshal(result)
 			if err := stream.Send(&transport.FlightData{DataBody: respBody}); err != nil {
-				logger.L().Error("Failed to send task result", logger.Error(err))
+				logger.L().Error("task execution failed: error transmitting task execution result", logger.Component("worker"), logger.TraceID(t.WorkflowID), logger.TaskID(t.TaskID), logger.Error(err))
 			}
 		}(task)
 	}

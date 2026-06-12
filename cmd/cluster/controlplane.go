@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/galgotech/heddle-lang/internal/config"
-	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
-	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
+	"github.com/galgotech/heddle-lang/internal/controlplane"
+	"github.com/galgotech/heddle-lang/internal/controlplane/registry"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/transport"
 )
