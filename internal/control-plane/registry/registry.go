@@ -11,8 +11,9 @@ import (
 )
 
 type WorkerRegistry struct {
-	workersMu sync.RWMutex
-	workers   map[string]*WorkerStream
+	workersMu    sync.RWMutex
+	workers      map[string]*WorkerStream
+	capabilities map[string]map[string]*WorkerStream // capability -> workerID -> WorkerStream
 
 	clientsMu sync.RWMutex
 	clients   map[string]*ClientStream
@@ -26,16 +27,31 @@ type WorkerRegistry struct {
 
 func NewWorkerRegistry() *WorkerRegistry {
 	return &WorkerRegistry{
-		workers:   make(map[string]*WorkerStream),
-		clients:   make(map[string]*ClientStream),
-		results:   make(map[string]chan models.TaskResult),
-		workflows: make(map[string]string),
+		workers:      make(map[string]*WorkerStream),
+		capabilities: make(map[string]map[string]*WorkerStream),
+		clients:      make(map[string]*ClientStream),
+		results:      make(map[string]chan models.TaskResult),
+		workflows:    make(map[string]string),
 	}
 }
 
 func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 	r.workersMu.Lock()
 	defer r.workersMu.Unlock()
+
+	if oldWorker, ok := r.workers[id]; ok {
+		oldWorker.workerInfo.mu.RLock()
+		oldCaps := oldWorker.workerInfo.Capabilities
+		oldWorker.workerInfo.mu.RUnlock()
+		for _, c := range oldCaps {
+			if r.capabilities[c] != nil {
+				delete(r.capabilities[c], id)
+				if len(r.capabilities[c]) == 0 {
+					delete(r.capabilities, c)
+				}
+			}
+		}
+	}
 
 	r.workers[id] = &WorkerStream{
 		workerInfo: workerInfo{
@@ -99,19 +115,49 @@ func (r *WorkerRegistry) StopStream(id string) bool {
 
 	val.StopStream()
 	delete(r.workers, id)
+
+	val.workerInfo.mu.RLock()
+	caps := val.workerInfo.Capabilities
+	val.workerInfo.mu.RUnlock()
+	for _, c := range caps {
+		if r.capabilities[c] != nil {
+			delete(r.capabilities[c], id)
+			if len(r.capabilities[c]) == 0 {
+				delete(r.capabilities, c)
+			}
+		}
+	}
+
 	return true
 }
 
 func (r *WorkerRegistry) UpdateCapabilities(id string, update models.WorkerCapabilitiesUpdate) bool {
-	r.workersMu.RLock()
-	defer r.workersMu.RUnlock()
+	r.workersMu.Lock()
+	defer r.workersMu.Unlock()
 	val, ok := r.workers[id]
 	if !ok {
 		return false
 	}
 
+	val.workerInfo.mu.RLock()
+	oldCaps := make(map[string]bool)
+	for _, c := range val.workerInfo.Capabilities {
+		oldCaps[c] = true
+	}
+	val.workerInfo.mu.RUnlock()
+
 	val.UpdateCapabilities(update)
 	val.LastSeen()
+
+	for _, c := range update.Capabilities {
+		if !oldCaps[c] {
+			if r.capabilities[c] == nil {
+				r.capabilities[c] = make(map[string]*WorkerStream)
+			}
+			r.capabilities[c][id] = val
+		}
+	}
+
 	return true
 }
 
@@ -131,12 +177,15 @@ func (r *WorkerRegistry) FindWorkerByCapability(capability string) *WorkerStream
 	r.workersMu.RLock()
 	defer r.workersMu.RUnlock()
 
+	workers, ok := r.capabilities[capability]
+	if !ok || len(workers) == 0 {
+		return nil
+	}
+
 	threshold := time.Now().Add(-15 * time.Second)
-	for _, w := range r.workers {
+	for _, w := range workers {
 		if w.GetLastSeen().After(threshold) {
-			if w.SupportsCapability(capability) {
-				return w
-			}
+			return w
 		}
 	}
 

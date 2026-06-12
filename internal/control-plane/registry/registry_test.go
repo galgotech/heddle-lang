@@ -232,3 +232,47 @@ func TestWorkflowClientMapping(t *testing.T) {
 	_, ok = r.GetClientIDForWorkflow("wf-1")
 	assert.False(t, ok)
 }
+
+func TestReverseIndexCapabilities(t *testing.T) {
+	r := NewWorkerRegistry()
+
+	// 1. Register two workers and update both with "shared.cap"
+	r.Register("worker-a", models.WorkerRegistration{})
+	r.Register("worker-b", models.WorkerRegistration{})
+
+	r.UpdateCapabilities("worker-a", models.WorkerCapabilitiesUpdate{
+		Capabilities: []string{"shared.cap", "unique.a"},
+	})
+	r.UpdateCapabilities("worker-b", models.WorkerCapabilitiesUpdate{
+		Capabilities: []string{"shared.cap", "unique.b"},
+	})
+
+	// Make sure both are active (lastSeen is within threshold)
+	r.workersMu.RLock()
+	wa := r.workers["worker-a"]
+	wb := r.workers["worker-b"]
+	r.workersMu.RUnlock()
+	wa.UpdateHeartbeat(0, time.Now())
+	wb.UpdateHeartbeat(0, time.Now())
+
+	// 2. FindWorkerByCapability should find one of them
+	found := r.FindWorkerByCapability("shared.cap")
+	assert.NotNil(t, found)
+	assert.Contains(t, []string{"worker-a", "worker-b"}, found.GetID())
+
+	// 3. Stop worker-a, only worker-b should remain for shared.cap, unique.a should be gone
+	r.StopStream("worker-a")
+	found = r.FindWorkerByCapability("shared.cap")
+	assert.NotNil(t, found)
+	assert.Equal(t, "worker-b", found.GetID())
+
+	foundUniqueA := r.FindWorkerByCapability("unique.a")
+	assert.Nil(t, foundUniqueA)
+
+	// 4. Re-registration of worker-b clears old capability index for it
+	// Worker-b had "shared.cap" and "unique.b"
+	r.Register("worker-b", models.WorkerRegistration{})
+	// After re-registration, it hasn't updated capabilities yet, so it shouldn't support anything
+	found = r.FindWorkerByCapability("shared.cap")
+	assert.Nil(t, found)
+}
