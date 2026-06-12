@@ -13,6 +13,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 var workerGroupCmd = &cobra.Command{
@@ -35,7 +36,11 @@ var workerRunCmd = &cobra.Command{
 		registry := locality.NewDataLocalityRegistry()
 		nativePlugins := worker.NewNativePlugins()
 		pluginServer := worker.NewPluginServer(registry, nativePlugins, socket)
-		worker, err := worker.NewWorker(pluginServer, cpAddr)
+		client, err := transport.Connect(cpAddr)
+		if err != nil {
+			logger.L().Fatal("Failed to connect to control plane", logger.Error(err))
+		}
+		worker, err := worker.NewWorker(client, pluginServer)
 		if err != nil {
 			logger.L().Fatal("Failed to initialize worker", logger.Error(err))
 		}

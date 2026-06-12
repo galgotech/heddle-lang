@@ -4,15 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
-	"net"
-	"os"
-	"strings"
-
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -28,22 +21,18 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 // ControlPlaneServer orchestrates high-performance task execution DAGs, manages worker
-// lifecycle and capability routing, and exposes the Arrow Flight RPC service endpoints.
+// lifecycle and capability routing, and implements the transport.Server interface.
 type ControlPlaneServer struct {
-	flight.BaseFlightServer
-	registry *registry.WorkerRegistry
-
-	mu            sync.Mutex
-	Ready         chan struct{}
+	registry      *registry.WorkerRegistry
 	orchestrators map[orchestrator.Strategy]orchestrator.Orchestrator
 }
 
-// DoAction processes control plane administrative actions sent via unary Flight action requests.
-func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.FlightService_DoActionServer) error {
-	ctx := stream.Context()
+// DoAction processes control plane administrative actions sent via unary action requests.
+func (s *ControlPlaneServer) DoAction(ctx context.Context, action *transport.Action, stream transport.ServerStream) error {
 	metaData, _ := metadata.FromIncomingContext(ctx)
 
 	workerID := ""
@@ -77,7 +66,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 
 		s.registry.Register(workerID, reg)
 		logger.L().Info("Worker registered", logger.String("id", workerID), logger.String("address", reg.Address))
-		return stream.Send(&flight.Result{Body: []byte("OK")})
+		return stream.Send(&transport.Result{Body: []byte("OK")})
 
 	case models.ActionHeartbeat:
 		// Refresh the worker's active status and update current execution load telemetry.
@@ -88,7 +77,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if ok := s.registry.Heartbeat(workerID, hb.Load); !ok {
 			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
 		}
-		return stream.Send(&flight.Result{Body: []byte("OK")})
+		return stream.Send(&transport.Result{Body: []byte("OK")})
 
 	case models.ActionUpdateCapabilities:
 		// Update capabilities and register structural schemas for steps executed by this worker.
@@ -100,7 +89,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 			return status.Errorf(codes.NotFound, "worker %s not registered", workerID)
 		}
 		logger.L().Info("Worker capabilities updated", logger.String("id", workerID), logger.Strings("capabilities", update.Capabilities))
-		return stream.Send(&flight.Result{Body: []byte("OK")})
+		return stream.Send(&transport.Result{Body: []byte("OK")})
 
 	case models.ActionSubmitWorkflow:
 		// Submit a new workflow run by compiling Heddle DSL source and queuing the parsed DAG task.
@@ -163,7 +152,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		go orch.OrchestrateTask(context.WithoutCancel(ctx), task)
 
 		logger.L().Info("Workflow compiled and queued", logger.String("client_id", clientID), logger.String("task_id", task.ID))
-		return stream.Send(&flight.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
+		return stream.Send(&transport.Result{Body: fmt.Appendf(nil, "QUEUED: %s", task.ID)})
 
 	case models.ActionGetWorkerInfo:
 		// Retrieve schema specifications for all registered step capabilities.
@@ -172,7 +161,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to marshal registry info: %v", err)
 		}
-		return stream.Send(&flight.Result{Body: body})
+		return stream.Send(&transport.Result{Body: body})
 
 	default:
 		return status.Errorf(codes.Unimplemented, "action %s not implemented", action.Type)
@@ -180,8 +169,7 @@ func (s *ControlPlaneServer) DoAction(action *flight.Action, stream flight.Fligh
 }
 
 // DoExchange establishes persistent, bi-directional streams with workers and clients for task coordination and results.
-func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeServer) error {
-	ctx := stream.Context()
+func (s *ControlPlaneServer) DoExchange(ctx context.Context, stream transport.ExchangeStream) error {
 	metaData, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return status.Error(codes.Unauthenticated, "missing metadata")
@@ -215,50 +203,10 @@ func (s *ControlPlaneServer) DoExchange(stream flight.FlightService_DoExchangeSe
 	return status.Error(codes.Unauthenticated, "missing worker-id or client-id")
 }
 
-// Listen starts the gRPC and Flight service listeners on the target address (handling TCP or Unix domain sockets).
-func (s *ControlPlaneServer) Listen(addr string) error {
-	var lis net.Listener
-	var err error
-
-	// Intercept unix socket schemes to cleanup pre-existing sockets on the filesystem before binding.
-	if after, ok := strings.CutPrefix(addr, "unix://"); ok {
-		path := after
-		if _, err := os.Stat(path); err == nil {
-			os.Remove(path)
-		}
-		lis, err = net.Listen("unix", path)
-	} else {
-		lis, err = net.Listen("tcp", addr)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
-	}
-
-	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
-
-	logger.L().Info("Control Plane listening", logger.String("address", addr))
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(lis)
-	}()
-
-	// Signal server initialization completion to dynamic orchestrators or tests.
-	if s.Ready != nil {
-		close(s.Ready)
-		s.Ready = nil
-	}
-
-	return <-errCh
-}
-
 // NewControlPlaneServer instantiates the control plane server and registers supported scheduling orchestrator strategies.
 func NewControlPlaneServer(registry *registry.WorkerRegistry) *ControlPlaneServer {
 	s := &ControlPlaneServer{
 		registry: registry,
-		Ready:    make(chan struct{}),
 	}
 	s.orchestrators = map[orchestrator.Strategy]orchestrator.Orchestrator{
 		orchestrator.StrategyRecursive:   recursive.NewRecursiveOrchestrator(registry),

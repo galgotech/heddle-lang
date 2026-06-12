@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
-
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
@@ -16,6 +14,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type DebugOrchestrator struct {
@@ -58,7 +57,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 		logger.L().Info("[DEBUG] Starting debug workflow execution", logger.String("workflow", flow.Name))
 		if clientStream != nil {
-			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting debug execution of workflow %s...", flow.Name)})
+			_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Starting debug execution of workflow %s...", flow.Name)})
 		}
 
 		var runErr error
@@ -72,7 +71,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 		if runErr != nil {
 			logger.L().Error("[DEBUG] Workflow execution failed", logger.Error(runErr))
 			if clientStream != nil {
-				_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
+				_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Workflow failed: %v", runErr)})
 			}
 			return
 		}
@@ -80,7 +79,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 	logger.L().Info("[DEBUG] Workflow execution completed successfully", logger.String("id", task.ID))
 	if clientStream != nil {
-		_ = clientStream.Send(&flight.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
+		_ = clientStream.Send(&transport.FlightData{DataBody: []byte("LOG:Workflow completed successfully.")})
 	}
 }
 
@@ -91,13 +90,13 @@ func (o *DebugOrchestrator) executeStepDebug(
 	stepID string,
 	prevTaskID string,
 	schemas map[string]schema.StepSchemas,
-	clientStream flight.FlightService_DoExchangeServer,
+	clientStream transport.ExchangeStream,
 	allOutputs map[string]map[string]string,
 	mu *sync.RWMutex,
 ) error {
 	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
 		if clientStream != nil {
-			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
+			_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
 		}
 		return err
 	}
@@ -139,7 +138,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 	if clientStream != nil {
 		// Send DEBUG_PAUSED message
 		pausedHeader := fmt.Sprintf("DEBUG_PAUSED:%s:%d:%d:%s", stepID, line, col, string(inputsJSON))
-		if err := clientStream.Send(&flight.FlightData{DataBody: []byte(pausedHeader)}); err != nil {
+		if err := clientStream.Send(&transport.FlightData{DataBody: []byte(pausedHeader)}); err != nil {
 			return fmt.Errorf("failed to send debug pause to client: %w", err)
 		}
 
@@ -190,7 +189,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 	if err != nil {
 		return fmt.Errorf("failed to marshal step: %w", err)
 	}
-	if err := workerStream.Send(&flight.FlightData{DataBody: body}); err != nil {
+	if err := workerStream.Send(&transport.FlightData{DataBody: body}); err != nil {
 		return fmt.Errorf("failed to send step to worker %s: %w", worker.GetID(), err)
 	}
 
@@ -210,7 +209,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 
 	if stepErr != nil {
 		if clientStream != nil {
-			_ = clientStream.Send(&flight.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s failed: %v", stepID, stepErr)})
+			_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Step %s failed: %v", stepID, stepErr)})
 		}
 		return stepErr
 	}
@@ -241,7 +240,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 	// 7. Report step completion with outputs
 	if clientStream != nil {
 		completeHeader := fmt.Sprintf("DEBUG_STEP_COMPLETE:%s:%s:%s", stepID, taskRes.Status, string(outputsJSON))
-		if err := clientStream.Send(&flight.FlightData{DataBody: []byte(completeHeader)}); err != nil {
+		if err := clientStream.Send(&transport.FlightData{DataBody: []byte(completeHeader)}); err != nil {
 			return fmt.Errorf("failed to send debug completion to client: %w", err)
 		}
 	}

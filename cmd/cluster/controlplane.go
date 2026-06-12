@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -11,6 +10,7 @@ import (
 	controlplane "github.com/galgotech/heddle-lang/internal/control-plane"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/pkg/logger"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 var controlPlaneGroupCmd = &cobra.Command{
@@ -35,34 +35,14 @@ var controlPlaneRunCmd = &cobra.Command{
 
 		workerRegistry := registry.NewWorkerRegistry()
 		cp := controlplane.NewControlPlaneServer(workerRegistry)
-		err := cp.Listen(fmt.Sprintf(":%d", port))
+
+		flightTransport := transport.NewFlightServerTransport(fmt.Sprintf(":%d", port))
+		flightTransport.SetServer(cp)
+
+		err := flightTransport.Start()
 		if err != nil {
 			logger.L().Fatal("failed to start control plane", logger.Error(err))
 		}
-	},
-}
-
-var controlPlaneLogsCmd = &cobra.Command{
-	Use:   "logs",
-	Short: "Streams Control Plane logs",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Streaming Control Plane logs (Mock)...")
-		for i := 0; i < 5; i++ {
-			fmt.Printf("2024-05-11 17:42:%02d [INFO] Handled action: SubmitWorkflow from client-alpha\n", i*5)
-			time.Sleep(500 * time.Millisecond)
-		}
-		fmt.Println("... use Ctrl+C to stop streaming")
-	},
-}
-
-var controlPlaneHealthCmd = &cobra.Command{
-	Use:   "health",
-	Short: "Checks the health and uptime of the Control Plane",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Mock: Control Plane Health Check")
-		fmt.Println("Status: HEALTHY")
-		fmt.Println("Uptime: 42h 12m")
-		fmt.Println("Version: v0.4.2-beta")
 	},
 }
 
@@ -72,6 +52,4 @@ func init() {
 	viper.BindPFlag("port", controlPlaneRunCmd.Flags().Lookup("port"))
 
 	controlPlaneGroupCmd.AddCommand(controlPlaneRunCmd)
-	controlPlaneGroupCmd.AddCommand(controlPlaneLogsCmd)
-	controlPlaneGroupCmd.AddCommand(controlPlaneHealthCmd)
 }

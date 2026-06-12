@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
-
 	"github.com/galgotech/heddle-lang/internal/control-plane/orchestrator"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type GraphOrchestrator struct {
@@ -171,7 +170,7 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 	if err != nil {
 		return fmt.Errorf("failed to marshal step: %w", err)
 	}
-	if err := workerStream.Send(&flight.FlightData{DataBody: body}); err != nil {
+	if err := workerStream.Send(&transport.FlightData{DataBody: body}); err != nil {
 		return fmt.Errorf("failed to send step to worker %s: %w", worker.GetID(), err)
 	}
 

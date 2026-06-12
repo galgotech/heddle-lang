@@ -5,21 +5,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
-// mockExchangeServer implements flight.FlightService_DoExchangeServer
+// mockExchangeServer implements transport.ExchangeStream
 type mockExchangeServer struct {
-	flight.FlightService_DoExchangeServer
-	recvChan chan *flight.FlightData
+	recvChan chan *transport.FlightData
 	errChan  chan error
 }
 
-func (m *mockExchangeServer) Recv() (*flight.FlightData, error) {
+func (m *mockExchangeServer) Send(data *transport.FlightData) error {
+	return nil
+}
+
+func (m *mockExchangeServer) Recv() (*transport.FlightData, error) {
 	select {
 	case data := <-m.recvChan:
 		return data, nil

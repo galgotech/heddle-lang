@@ -1,14 +1,14 @@
 package registry
 
 import (
-	"github.com/apache/arrow/go/v18/arrow/flight"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type ClientStream struct {
-	stream flight.FlightService_DoExchangeServer
+	stream transport.ExchangeStream
 }
 
-func NewClientStream(stream flight.FlightService_DoExchangeServer) *ClientStream {
+func NewClientStream(stream transport.ExchangeStream) *ClientStream {
 	return &ClientStream{
 		stream: stream,
 	}

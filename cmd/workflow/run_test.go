@@ -17,6 +17,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/client"
 	control_plane "github.com/galgotech/heddle-lang/internal/control-plane"
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 func TestRunCmd_FlagsRegistration(t *testing.T) {
@@ -53,7 +54,8 @@ workflow hello {
 	defer lis.Close()
 
 	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
+	flightServer := transport.NewFlightServer(s)
+	flight.RegisterFlightServiceServer(srv, flightServer)
 	go srv.Serve(lis)
 	defer srv.Stop()
 

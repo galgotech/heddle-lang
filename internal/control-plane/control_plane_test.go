@@ -18,6 +18,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type mockOrchestrator struct {
@@ -37,7 +38,8 @@ func TestControlPlane_WorkerRegistration(t *testing.T) {
 	defer lis.Close()
 
 	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
+	flightServer := transport.NewFlightServer(s)
+	flight.RegisterFlightServiceServer(srv, flightServer)
 	go srv.Serve(lis)
 	defer srv.Stop()
 
@@ -88,7 +90,8 @@ func TestControlPlane_TaskDispatch(t *testing.T) {
 	defer lis.Close()
 
 	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
+	flightServer := transport.NewFlightServer(s)
+	flight.RegisterFlightServiceServer(srv, flightServer)
 	go srv.Serve(lis)
 	defer srv.Stop()
 
@@ -190,7 +193,8 @@ func TestControlPlane_UpdateCapabilities(t *testing.T) {
 	defer lis.Close()
 
 	srv := grpc.NewServer()
-	flight.RegisterFlightServiceServer(srv, s)
+	flightServer := transport.NewFlightServer(s)
+	flight.RegisterFlightServiceServer(srv, flightServer)
 	go srv.Serve(lis)
 	defer srv.Stop()
 

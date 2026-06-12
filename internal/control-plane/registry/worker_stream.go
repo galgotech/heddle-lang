@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
+
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type workerInfo struct {
@@ -57,7 +58,7 @@ func (w *workerInfo) GetSchemaForCapability(capability string) (schema.StepSchem
 
 type WorkerStream struct {
 	workerInfo  workerInfo
-	stream      flight.FlightService_DoExchangeServer
+	stream      transport.ExchangeStream
 	lastSeen    time.Time
 	activeTasks int
 	registry    *WorkerRegistry
@@ -75,7 +76,7 @@ func (w *WorkerStream) GetSchemaForCapability(capability string) (schema.StepSch
 	return w.workerInfo.GetSchemaForCapability(capability)
 }
 
-func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServer) bool {
+func (w *WorkerStream) ProcessStream(stream transport.ExchangeStream) bool {
 	if stream == nil {
 		return false
 	}
@@ -108,7 +109,7 @@ func (w *WorkerStream) ProcessStream(stream flight.FlightService_DoExchangeServe
 						if w.registry != nil {
 							if clientID, ok := w.registry.GetClientIDForWorkflow(ctrl.LogData.WorkflowID); ok {
 								if clientStream, ok := w.registry.GetActiveClientStream(clientID); ok {
-									_ = clientStream.Send(&flight.FlightData{
+									_ = clientStream.Send(&transport.FlightData{
 										DataBody: []byte("LOG:" + ctrl.LogData.Text),
 									})
 								}

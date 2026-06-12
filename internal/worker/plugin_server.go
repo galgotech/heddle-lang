@@ -3,7 +3,9 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -159,7 +161,15 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 	for {
 		data, err := stream.Recv()
 		if err != nil {
-			logger.L().Error("Plugin stream closed", logger.Error(err), logger.String("namespace", namespace))
+			if errors.Is(err, io.EOF) {
+				logger.L().Info("Plugin disconnected", logger.String("namespace", namespace))
+				return nil
+			}
+			if status.Code(err) == codes.Canceled || errors.Is(err, context.Canceled) {
+				logger.L().Info("Plugin stream canceled", logger.String("namespace", namespace))
+				return err
+			}
+			logger.L().Error("Plugin stream closed unexpectedly", logger.Error(err), logger.String("namespace", namespace))
 			return err
 		}
 

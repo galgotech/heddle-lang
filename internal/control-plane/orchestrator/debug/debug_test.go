@@ -18,6 +18,7 @@ import (
 	"github.com/galgotech/heddle-lang/internal/control-plane/registry"
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 func TestDebugOrchestrator_BasicStepping(t *testing.T) {
@@ -55,13 +56,13 @@ func TestDebugOrchestrator_BasicStepping(t *testing.T) {
 	reg.UpdateCapabilities("worker-1", models.WorkerCapabilitiesUpdate{
 		Capabilities: []string{"std.print"},
 	})
-	reg.ProcessStream("worker-1", mockSrv.workerStreamObj)
+	reg.ProcessStream("worker-1", transport.NewExchangeServerStream(mockSrv.workerStreamObj))
 
 	// 2. Client Stream setup
 	clientCtx := metadata.AppendToOutgoingContext(context.Background(), "client-id", "client-1")
 	clientStream, err := client.DoExchange(clientCtx)
 	require.NoError(t, err)
-	reg.ProcessClientStream("client-1", mockSrv.clientStreamObj)
+	reg.ProcessClientStream("client-1", transport.NewExchangeServerStream(mockSrv.clientStreamObj))
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -145,14 +146,14 @@ func (s *mockFlightServer) DoExchange(stream flight.FlightService_DoExchangeServ
 
 	if len(workerIDs) > 0 {
 		s.workerStreamObj = stream
-		s.registry.ProcessStream(workerIDs[0], stream)
+		s.registry.ProcessStream(workerIDs[0], transport.NewExchangeServerStream(stream))
 		<-ctx.Done()
 		return nil
 	}
 
 	if len(clientIDs) > 0 {
 		s.clientStreamObj = stream
-		s.registry.ProcessClientStream(clientIDs[0], stream)
+		s.registry.ProcessClientStream(clientIDs[0], transport.NewExchangeServerStream(stream))
 		<-ctx.Done()
 		return nil
 	}

@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 func TestWorkerInfo_UpdateCapabilities(t *testing.T) {
@@ -99,7 +99,7 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 	assert.False(t, w.ProcessStream(nil))
 
 	// 2. Process active stream, send data, metadata, invalid json
-	recvChan := make(chan *flight.FlightData, 10)
+	recvChan := make(chan *transport.FlightData, 10)
 	errChan := make(chan error, 1)
 
 	mockStream := &mockExchangeServer{
@@ -114,7 +114,7 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 	recvChan <- nil
 
 	// Send control message (with AppMetadata)
-	recvChan <- &flight.FlightData{
+	recvChan <- &transport.FlightData{
 		AppMetadata: []byte("control-signal"),
 	}
 
@@ -124,12 +124,12 @@ func TestWorkerStream_ProcessStream(t *testing.T) {
 		Status: models.TaskStatusSuccess,
 	}
 	resBody, _ := json.Marshal(res)
-	recvChan <- &flight.FlightData{
+	recvChan <- &transport.FlightData{
 		DataBody: resBody,
 	}
 
 	// Send invalid TaskResult json to test logger Warn
-	recvChan <- &flight.FlightData{
+	recvChan <- &transport.FlightData{
 		DataBody: []byte("invalid-json{"),
 	}
 

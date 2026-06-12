@@ -15,6 +15,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/runtime"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 // LocalCmd is the command to start the engine locally.
@@ -42,53 +43,31 @@ var LocalCmd = &cobra.Command{
 }
 
 func startLocalServices(ctx context.Context) error {
-	controlplaneSocket := runtime.ControlPlaneUDSPath
 	workerSocket := runtime.WorkerUDSPath
-
-	errCh := make(chan error, 2)
 
 	// 1. Start Control Plane
 	workerRegistry := registry.NewWorkerRegistry()
 	cp := controlplane.NewControlPlaneServer(workerRegistry)
-	go func() {
-		defer logger.Sync()
-		if err := cp.Listen(controlplaneSocket); err != nil {
-			errCh <- fmt.Errorf("control plane failed: %w", err)
-		}
-	}()
 
-	select {
-	case <-cp.Ready:
-		// CP is ready
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	inMemory := transport.NewInMemory(cp)
 
 	// 2. Start Worker
 	registry := locality.NewDataLocalityRegistry()
 	nativePlugins := worker.NewNativePlugins()
 	pluginServer := worker.NewPluginServer(registry, nativePlugins, workerSocket)
-	worker, err := worker.NewWorker(pluginServer, controlplaneSocket)
+	worker, err := worker.NewWorker(inMemory, pluginServer)
 	if err != nil {
 		return fmt.Errorf("failed to create worker: %w", err)
 	}
-	go func() {
-		if err := worker.Start(ctx); err != nil {
-			errCh <- fmt.Errorf("worker failed: %w", err)
-		}
-	}()
 
-	select {
-	case <-worker.Ready:
-		// Worker is ready
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
+	if err := worker.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start worker: %w", err)
 	}
 
-	logger.L().Info("Heddle is running in local mode.")
+	logger.L().Info("Heddle is running ...")
+	if err := inMemory.Start(ctx); err != nil {
+		logger.L().Fatal("Failed to start local services", logger.Error(err))
+	}
+
 	return nil
 }

@@ -2,35 +2,47 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/logger"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type Worker struct {
-	id                string
-	controlPlanepAddr string
+	id           string
+	transport    transport.Client
+	capabilities map[string][]string
+	schemas      map[string]map[string]schema.StepSchemas
+	pluginServer *PluginServer
+	Ready        chan struct{}
+	readyOnce    sync.Once
+}
 
-	controlPlaneFlight flight.Client
-	capabilities       map[string][]string
-	schemas            map[string]map[string]schema.StepSchemas
-	pluginServer       *PluginServer
-	Ready              chan struct{}
-	readyOnce          sync.Once
+func NewWorker(transport transport.Client, pluginServer *PluginServer) (*Worker, error) {
+	worker := &Worker{
+		pluginServer: pluginServer,
+		transport:    transport,
+
+		id:           "worker-" + uuid.New().String()[:8],
+		capabilities: make(map[string][]string),
+		schemas:      make(map[string]map[string]schema.StepSchemas),
+		Ready:        make(chan struct{}),
+	}
+
+	return worker, nil
 }
 
 func (w *Worker) GetID() string {
@@ -40,13 +52,6 @@ func (w *Worker) GetID() string {
 func (w *Worker) Start(ctx context.Context) error {
 	ctx = metadata.AppendToOutgoingContext(ctx, "worker-id", w.GetID())
 
-	// connect to control plane
-	conn, err := grpc.NewClient(w.controlPlanepAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("failed to connect to control plane: %w", err)
-	}
-	w.controlPlaneFlight = flight.NewClientFromConn(conn, nil)
-
 	// 1. Register with Control Plane
 	reg := models.WorkerRegistration{
 		Address: "localhost", // Should be actual address
@@ -55,7 +60,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal registration: %w", err)
 	}
-	res, err := w.controlPlaneFlight.DoAction(ctx, &flight.Action{
+	res, err := w.transport.DoAction(ctx, &transport.Action{
 		Type: models.ActionRegisterWorker,
 		Body: body,
 	})
@@ -82,7 +87,19 @@ func (w *Worker) Start(ctx context.Context) error {
 	<-w.pluginServer.Ready
 
 	// 4. run task loop
-	return w.run(ctx)
+
+	go func() {
+		err := w.run(ctx)
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				logger.L().Info("Worker task loop stopped", logger.Error(err))
+				return
+			}
+			logger.L().Fatal("Worker run loop exited with error", logger.Error(err))
+		}
+	}()
+
+	return nil
 }
 
 func (w *Worker) startHeartbeat(ctx context.Context) {
@@ -97,7 +114,7 @@ func (w *Worker) startHeartbeat(ctx context.Context) {
 				Load:      0, // TODO: Track actual load
 			}
 			body, _ := json.Marshal(hb)
-			_, err := w.controlPlaneFlight.DoAction(ctx, &flight.Action{
+			_, err := w.transport.DoAction(ctx, &transport.Action{
 				Type: models.ActionHeartbeat,
 				Body: body,
 			})
@@ -137,7 +154,7 @@ func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 		}
 
 		logger.L().Info("Sending update to control plane", logger.Strings("capabilities", cabalities))
-		res, err := w.controlPlaneFlight.DoAction(ctx, &flight.Action{
+		res, err := w.transport.DoAction(ctx, &transport.Action{
 			Type: models.ActionUpdateCapabilities,
 			Body: body,
 		})
@@ -157,7 +174,7 @@ func (w *Worker) watchPluginRegistrations(ctx context.Context) {
 }
 
 func (w *Worker) run(ctx context.Context) error {
-	stream, err := w.controlPlaneFlight.DoExchange(ctx)
+	stream, err := w.transport.DoExchange(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start exchange stream: %w", err)
 	}
@@ -190,7 +207,7 @@ func (w *Worker) run(ctx context.Context) error {
 						},
 					}
 					ackBody, _ := json.Marshal(ack)
-					if err := stream.Send(&flight.FlightData{AppMetadata: ackBody}); err != nil {
+					if err := stream.Send(&transport.FlightData{AppMetadata: ackBody}); err != nil {
 						logger.L().Error("Failed to send purge ack", logger.Error(err))
 					}
 				}
@@ -229,31 +246,17 @@ func (w *Worker) run(ctx context.Context) error {
 				}
 			}
 			respBody, _ := json.Marshal(result)
-			if err := stream.Send(&flight.FlightData{DataBody: respBody}); err != nil {
+			if err := stream.Send(&transport.FlightData{DataBody: respBody}); err != nil {
 				logger.L().Error("Failed to send task result", logger.Error(err))
 			}
 		}(task)
 	}
 }
 
-func NewWorker(pluginServer *PluginServer, controlPlanepAddr string) (*Worker, error) {
-	worker := &Worker{
-		controlPlanepAddr: controlPlanepAddr,
-		pluginServer:      pluginServer,
-
-		id:           "worker-" + uuid.New().String()[:8],
-		capabilities: make(map[string][]string),
-		schemas:      make(map[string]map[string]schema.StepSchemas),
-		Ready:        make(chan struct{}),
-	}
-
-	return worker, nil
-}
-
 type workerLogWriter struct {
 	workflowID string
 	taskID     string
-	send       func(msg *flight.FlightData) error
+	send       func(msg *transport.FlightData) error
 }
 
 func (w *workerLogWriter) Write(p []byte) (n int, err error) {
@@ -269,7 +272,7 @@ func (w *workerLogWriter) Write(p []byte) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	err = w.send(&flight.FlightData{AppMetadata: body})
+	err = w.send(&transport.FlightData{AppMetadata: body})
 	if err != nil {
 		return 0, err
 	}

@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow/flight"
 	"github.com/galgotech/heddle-lang/internal/models"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type WorkerRegistry struct {
@@ -40,7 +40,7 @@ func (r *WorkerRegistry) Register(id string, reg models.WorkerRegistration) {
 	}
 }
 
-func (r *WorkerRegistry) GetActiveWorkerStream(id string) (flight.FlightService_DoExchangeServer, bool) {
+func (r *WorkerRegistry) GetActiveWorkerStream(id string) (transport.ExchangeStream, bool) {
 	r.wokersMu.RLock()
 	defer r.wokersMu.RUnlock()
 
@@ -51,7 +51,7 @@ func (r *WorkerRegistry) GetActiveWorkerStream(id string) (flight.FlightService_
 	return stream.stream, true
 }
 
-func (r *WorkerRegistry) GetActiveClientStream(id string) (flight.FlightService_DoExchangeServer, bool) {
+func (r *WorkerRegistry) GetActiveClientStream(id string) (transport.ExchangeStream, bool) {
 	r.clientsMu.RLock()
 	defer r.clientsMu.RUnlock()
 
@@ -62,7 +62,7 @@ func (r *WorkerRegistry) GetActiveClientStream(id string) (flight.FlightService_
 	return stream.stream, true
 }
 
-func (r *WorkerRegistry) ProcessStream(id string, stream flight.FlightService_DoExchangeServer) bool {
+func (r *WorkerRegistry) ProcessStream(id string, stream transport.ExchangeStream) bool {
 	r.wokersMu.RLock()
 	defer r.wokersMu.RUnlock()
 
@@ -150,7 +150,7 @@ func (r *WorkerRegistry) GetRegistryInfo() models.RegistryInfo {
 	return info
 }
 
-func (r *WorkerRegistry) ProcessClientStream(id string, stream flight.FlightService_DoExchangeServer) bool {
+func (r *WorkerRegistry) ProcessClientStream(id string, stream transport.ExchangeStream) bool {
 	r.clientsMu.Lock()
 	defer r.clientsMu.Unlock()
 	r.clients[id] = NewClientStream(stream)

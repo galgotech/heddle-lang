@@ -20,6 +20,7 @@ import (
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/runtime/locality"
 	"github.com/galgotech/heddle-lang/pkg/schema"
+	"github.com/galgotech/heddle-lang/pkg/transport"
 )
 
 type mockControlPlane struct {
@@ -96,7 +97,9 @@ func TestWorker_RegistrationAndHeartbeat(t *testing.T) {
 	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
 
-	w, err := NewWorker(ps, lis.Addr().String())
+	cpClient, err := transport.Connect(lis.Addr().String())
+	require.NoError(t, err)
+	w, err := NewWorker(cpClient, ps)
 	require.NoError(t, err)
 
 	go func() {
@@ -185,7 +188,9 @@ func TestWorker_CapabilityUpdate(t *testing.T) {
 	registry := locality.NewDataLocalityRegistry()
 	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
-	w, err := NewWorker(ps, lis.Addr().String())
+	cpClient, err := transport.Connect(lis.Addr().String())
+	require.NoError(t, err)
+	w, err := NewWorker(cpClient, ps)
 	require.NoError(t, err)
 
 	go w.Start(ctx)
@@ -281,8 +286,7 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	go srv.Serve(lis)
 	defer srv.Stop()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	socketPath := "/tmp/heddle-worker-protect-test.sock"
 	os.Remove(socketPath)
@@ -290,7 +294,9 @@ func TestWorker_ProtectInternalNamespace(t *testing.T) {
 	registry := locality.NewDataLocalityRegistry()
 	nativePlugins := NewNativePlugins()
 	ps := NewPluginServer(registry, nativePlugins, socketPath)
-	w, err := NewWorker(ps, lis.Addr().String())
+	cpClient, err := transport.Connect(lis.Addr().String())
+	require.NoError(t, err)
+	w, err := NewWorker(cpClient, ps)
 	require.NoError(t, err)
 
 	go w.Start(ctx)
