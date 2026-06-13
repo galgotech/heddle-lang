@@ -4,8 +4,9 @@
 BINARY_DIR=bin
 GO=go
 NPM=npm
+CARGO=cargo
 
-.PHONY: all build clean test heddle run-server submit docs-serve docs-build vscode\:prepublish vsce\:package vsce\:publish
+.PHONY: all build clean test heddle rust-ffi run-server submit docs-serve docs-build vscode\:prepublish vsce\:package vsce\:publish
 
 # Default target
 all: build
@@ -14,17 +15,21 @@ all: build
 $(BINARY_DIR):
 	mkdir -p $(BINARY_DIR)
 
+rust-ffi:
+	@echo "Building Rust FFI library..."
+	cd internal/datafusion-ffi && $(CARGO) build --release
+
 # Build all services and examples
-build: $(BINARY_DIR) heddle
+build: $(BINARY_DIR) rust-ffi heddle
 	@echo "All build targets complete."
 
 # Consolidated Heddle CLI (Local)
-heddle: $(BINARY_DIR)
+heddle: $(BINARY_DIR) rust-ffi
 	@echo "Building Heddle CLI..."
 	$(GO) build -o $(BINARY_DIR)/heddle ./cmd
 
 # Run all tests
-test:
+test: rust-ffi
 	@echo "Testing Heddle Core..."
 	$(GO) test ./...
 
@@ -42,6 +47,7 @@ clean:
 	@echo "Cleaning up..."
 	rm -rf $(BINARY_DIR)
 	rm -rf site
+	cd internal/datafusion-ffi && $(CARGO) clean
 	@echo "Done."
 
 # Help target

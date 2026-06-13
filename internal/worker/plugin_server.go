@@ -238,30 +238,51 @@ func (s *PluginServer) DispatchTask(ctx context.Context, task models.StepExecuti
 	// Zero-Copy Input: resolve SHM path from registry metadata
 	var inputHandles map[string]string
 
-	if s.registry != nil && task.PreviousTaskID != "" {
-		handle := task.PreviousTaskID
-		meta, ok := s.registry.GetMetadata(task.WorkflowID, handle, locality.Output)
-		if ok {
-			// Layer 2: Validate SHM path before dispatching
-			for _, p := range meta.Paths {
-				if err := validateSHMPath(p); err != nil {
-					logger.L().Error("task dispatch failed: registry contains invalid SHM path",
-						logger.Component("plugin-server"),
-						logger.TraceID(task.WorkflowID),
-						logger.TaskID(task.TaskID),
-						logger.Error(err),
-					)
-					return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
-				}
+	if s.registry != nil {
+		inputHandles = make(map[string]string)
+		
+		prevIDs := task.PreviousTaskIDs
+		if len(prevIDs) == 0 && task.PreviousTaskID != "" {
+			prevIDs = []string{task.PreviousTaskID}
+		}
+
+		for _, handle := range prevIDs {
+			if handle == "" {
+				continue
 			}
-			inputHandles = meta.Paths
-		} else {
-			logger.L().Error("task dispatch failed: input data for task not found in registry",
-				logger.Component("plugin-server"),
-				logger.TraceID(task.WorkflowID),
-				logger.TaskID(task.TaskID),
-			)
-			return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
+			meta, ok := s.registry.GetMetadata(task.WorkflowID, handle, locality.Output)
+			if ok {
+				// Layer 2: Validate SHM path before dispatching
+				for _, p := range meta.Paths {
+					if err := validateSHMPath(p); err != nil {
+						logger.L().Error("task dispatch failed: registry contains invalid SHM path",
+							logger.Component("plugin-server"),
+							logger.TraceID(task.WorkflowID),
+							logger.TaskID(task.TaskID),
+							logger.Error(err),
+						)
+						return models.TaskResult{}, fmt.Errorf("security error: registry contains invalid SHM path: %w", err)
+					}
+				}
+				
+				// Apply column prefixing using parent assignment names if available
+				assignmentName := task.ParentAssignments[handle]
+				for colName, path := range meta.Paths {
+					key := colName
+					if assignmentName != "" {
+						key = fmt.Sprintf("%s_%s", assignmentName, colName)
+					}
+					inputHandles[key] = path
+				}
+			} else {
+				logger.L().Error("task dispatch failed: input data for task not found in registry",
+					logger.Component("plugin-server"),
+					logger.TraceID(task.WorkflowID),
+					logger.TaskID(task.TaskID),
+					logger.String("missing_handle", handle),
+				)
+				return models.TaskResult{}, fmt.Errorf("critical error: input data for task %s (from previous task %s) not found in registry", task.TaskID, handle)
+			}
 		}
 	}
 

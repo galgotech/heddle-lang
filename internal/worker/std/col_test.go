@@ -172,3 +172,80 @@ func TestExecuteCast_Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestExecuteRename(t *testing.T) {
+	configJSON, err := json.Marshal(map[string]any{
+		"field":    "old_col",
+		"new_name": "new_col",
+	})
+	require.NoError(t, err)
+
+	req := plugin.ExecuteStepRequest{
+		WorkflowID: "wf-rename",
+		TaskID:     "task-rename",
+		StepName:   "rename",
+		ConfigJSON: string(configJSON),
+		InputRef: map[string]string{
+			"old_col":   "/dev/shm/some_path_1",
+			"other_col": "/dev/shm/some_path_2",
+		},
+	}
+
+	res, err := ExecuteRename(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, plugin.StepResponseSuccess, res.Status)
+
+	assert.Equal(t, "/dev/shm/some_path_1", res.OutputRef["new_col"])
+	assert.Equal(t, "/dev/shm/some_path_2", res.OutputRef["other_col"])
+	assert.NotContains(t, res.OutputRef, "old_col")
+}
+
+func TestExecuteRename_Validation(t *testing.T) {
+	tests := []struct {
+		name       string
+		configJSON string
+		inputRef   map[string]string
+		wantErr    string
+	}{
+		{
+			name:       "Missing config JSON",
+			configJSON: "",
+			inputRef:   map[string]string{"a": "path"},
+			wantErr:    "rename: missing step config JSON",
+		},
+		{
+			name:       "Malformed JSON",
+			configJSON: "{invalid-json}",
+			inputRef:   map[string]string{"a": "path"},
+			wantErr:    "rename: failed to parse config JSON",
+		},
+		{
+			name:       "Missing fields",
+			configJSON: `{"field": "a"}`,
+			inputRef:   map[string]string{"a": "path"},
+			wantErr:    "rename: config must specify 'field' and 'new_name'",
+		},
+		{
+			name:       "Column not found",
+			configJSON: `{"field": "not_found", "new_name": "b"}`,
+			inputRef:   map[string]string{"a": "path"},
+			wantErr:    "rename: column not_found not found in input",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := plugin.ExecuteStepRequest{
+				WorkflowID: "wf-val",
+				TaskID:     "task-val",
+				StepName:   "rename",
+				ConfigJSON: tt.configJSON,
+				InputRef:   tt.inputRef,
+			}
+			res, err := ExecuteRename(context.Background(), task)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.Empty(t, res)
+		})
+	}
+}

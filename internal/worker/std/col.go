@@ -135,3 +135,60 @@ func parseDataType(t string) (arrow.DataType, error) {
 		return nil, fmt.Errorf("unsupported target data type: %s", t)
 	}
 }
+
+// ExecuteRename implements std/col.rename as an internal step.
+// It alters the column metainformation in the schema without touching the underlying array data.
+func ExecuteRename(ctx context.Context, request plugin.ExecuteStepRequest) (plugin.ExecuteStepResponse, error) {
+	compField := logger.Component("worker")
+	traceField := logger.TraceID(request.WorkflowID)
+	taskField := logger.TaskID(request.TaskID)
+
+	logger.L().Info("step execution initiated: executing rename step", compField, traceField, taskField)
+
+	if request.ConfigJSON == "" {
+		err := fmt.Errorf("rename: missing step config JSON")
+		logger.L().Error("step execution failed: missing step configuration json", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, err
+	}
+
+	var cfg struct {
+		Field   string `json:"field"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.Unmarshal([]byte(request.ConfigJSON), &cfg); err != nil {
+		wrappedErr := fmt.Errorf("rename: failed to parse config JSON: %w", err)
+		logger.L().Error("step execution failed: failed to parse configuration json payload", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, wrappedErr
+	}
+
+	if cfg.Field == "" || cfg.NewName == "" {
+		err := fmt.Errorf("rename: config must specify 'field' and 'new_name'")
+		logger.L().Error("step execution failed: missing field or new_name in step config", compField, traceField, taskField, logger.Error(err))
+		return plugin.ExecuteStepResponse{}, err
+	}
+
+	outputRef := make(map[string]string)
+	renamed := false
+
+	for colName, path := range request.InputRef {
+		if colName == cfg.Field {
+			outputRef[cfg.NewName] = path
+			renamed = true
+		} else {
+			outputRef[colName] = path
+		}
+	}
+
+	if !renamed {
+		err := fmt.Errorf("rename: column %s not found in input", cfg.Field)
+		logger.L().Error("step execution failed: column not found for renaming", compField, traceField, taskField, logger.String("column", cfg.Field), logger.Error(err))
+		return plugin.ExecuteStepResponse{}, err
+	}
+
+	logger.L().Info("step execution completed: successfully executed rename step", compField, traceField, taskField, logger.String("old_name", cfg.Field), logger.String("new_name", cfg.NewName))
+	return plugin.ExecuteStepResponse{
+		TaskID:    request.TaskID,
+		Status:    plugin.StepResponseSuccess,
+		OutputRef: outputRef,
+	}, nil
+}

@@ -120,13 +120,13 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 	}
 
 	// Keep track of parent relationship for edge validation
-	parents := make(map[string]string)
+	parents := make(map[string][]string)
 	for _, headID := range flow.Heads {
-		parents[headID] = ""
+		parents[headID] = []string{}
 	}
 	for _, step := range steps {
 		for _, nextID := range step.Next {
-			parents[nextID] = step.ID
+			parents[nextID] = append(parents[nextID], step.ID)
 		}
 	}
 
@@ -139,7 +139,7 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 		readyQueue = readyQueue[1:]
 
 		step := steps[currentID]
-		prevID := parents[currentID]
+		prevIDs := parents[currentID]
 
 		logger.L().Debug("graph execution processing: executing step from ready queue",
 			logger.Component("control-plane"),
@@ -148,7 +148,7 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 		)
 
 		// Execute step
-		if err := o.executeStep(ctx, workflowID, prog, step, prevID, schemas); err != nil {
+		if err := o.executeStep(ctx, workflowID, prog, step, prevIDs, schemas); err != nil {
 			return err
 		}
 		completedCount++
@@ -182,23 +182,25 @@ func (o *GraphOrchestrator) executeGraph(ctx context.Context, workflowID string,
 	return nil
 }
 
-func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, prog ir.Program, step ir.StepInstruction, prevTaskID string, schemas map[string]schema.StepSchemas) error {
+func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, prog ir.Program, step ir.StepInstruction, prevTaskIDs []string, schemas map[string]schema.StepSchemas) error {
 	logger.L().Debug("step execution initiated: preparing to execute step in graph mode",
 		logger.Component("control-plane"),
 		logger.TraceID(workflowID),
 		logger.TaskID(step.ID),
-		logger.String("prev_task_id", prevTaskID),
+		logger.Any("prev_task_ids", prevTaskIDs),
 	)
 
-	// 0. Validate Schema Compatibility
-	if err := orchestrator.ValidateEdge(prog, prevTaskID, step.ID, schemas); err != nil {
-		logger.L().Error("step validation failed: edge schema validation error in graph mode",
-			logger.Component("control-plane"),
-			logger.TraceID(workflowID),
-			logger.TaskID(step.ID),
-			logger.Error(err),
-		)
-		return err
+	// 0. Validate Schema Compatibility for all edges
+	for _, parentID := range prevTaskIDs {
+		if err := orchestrator.ValidateEdge(prog, parentID, step.ID, schemas); err != nil {
+			logger.L().Error("step validation failed: edge schema validation error in graph mode",
+				logger.Component("control-plane"),
+				logger.TraceID(workflowID),
+				logger.TaskID(step.ID),
+				logger.Error(err),
+			)
+			return err
+		}
 	}
 
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
@@ -231,12 +233,32 @@ func (o *GraphOrchestrator) executeStep(ctx context.Context, workflowID string, 
 	defer workerStream.DeregisterResultFuture(step.ID)
 
 	// 4. Dispatch step
+	var prevTaskID string
+	if len(prevTaskIDs) > 0 {
+		prevTaskID = prevTaskIDs[0]
+	}
+
+	parentAssignments := make(map[string]string)
+	for _, pID := range prevTaskIDs {
+		if pID != "" {
+			if parentInst, ok := prog.Instructions[pID]; ok {
+				if parentStep, ok := parentInst.(ir.StepInstruction); ok {
+					if parentStep.Assignment != "" {
+						parentAssignments[pID] = parentStep.Assignment
+					}
+				}
+			}
+		}
+	}
+
 	execTask := models.StepExecutionTask{
-		WorkflowID:     workflowID,
-		TaskID:         step.ID,
-		PreviousTaskID: prevTaskID,
-		Step:           step,
-		Resources:      orchestrator.ResolveResources(prog, step),
+		WorkflowID:        workflowID,
+		TaskID:            step.ID,
+		PreviousTaskID:    prevTaskID,
+		PreviousTaskIDs:   prevTaskIDs,
+		ParentAssignments: parentAssignments,
+		Step:              step,
+		Resources:         orchestrator.ResolveResources(prog, step),
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {

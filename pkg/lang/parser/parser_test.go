@@ -264,6 +264,44 @@ workflow main ? on_error {
 				}
 			},
 		},
+		{
+			name: "workflow with PRQL joins",
+			input: `
+workflow main {
+  (from table_a | join table_b (==col_a) | select {table_a.col_a, table_b.col_b})
+}
+`,
+			expectedErrs: 0,
+			check: func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+				wf := ctx.WorkflowNodes[ctx.WorkflowRefs[program.WorkflowRefsStart]]
+				stmt := ctx.PipelineStatementNodes[ctx.StatementRefs[wf.StatementRefsStart]]
+				pc := ctx.PipeChainNodes[stmt.ExprRef]
+				call := ctx.CallNodes[ctx.CallRefs[pc.CallRefsStart]]
+				expectedQuery := "(from table_a | join table_b (==col_a) | select {table_a.col_a, table_b.col_b})"
+				if !call.IsPrql || ctx.GetString(call.QueryRef) != expectedQuery {
+					t.Errorf("expected PRQL %q, got %q", expectedQuery, ctx.GetString(call.QueryRef))
+				}
+			},
+		},
+		{
+			name: "workflow with PRQL table alias join",
+			input: `
+workflow main {
+  (from table_a | join table_c=table_b (==col_a))
+}
+`,
+			expectedErrs: 0,
+			check: func(t *testing.T, ctx *ast.ASTContext, program ast.ProgramNode) {
+				wf := ctx.WorkflowNodes[ctx.WorkflowRefs[program.WorkflowRefsStart]]
+				stmt := ctx.PipelineStatementNodes[ctx.StatementRefs[wf.StatementRefsStart]]
+				pc := ctx.PipeChainNodes[stmt.ExprRef]
+				call := ctx.CallNodes[ctx.CallRefs[pc.CallRefsStart]]
+				expectedQuery := "(from table_a | join table_c=table_b (==col_a))"
+				if !call.IsPrql || ctx.GetString(call.QueryRef) != expectedQuery {
+					t.Errorf("expected PRQL %q, got %q", expectedQuery, ctx.GetString(call.QueryRef))
+				}
+			},
+		},
 		// Invalid Syntax Cases
 		{
 			name: "invalid splat in workflow",

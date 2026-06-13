@@ -91,7 +91,8 @@ func NewNativePlugins() []pluginSdk {
 func newPluginStdCol() *pluginLocal {
 	return &pluginLocal{
 		registrySteps: map[string]stepFunc{
-			"std/col.cast": std.ExecuteCast,
+			"std/col.cast":   std.ExecuteCast,
+			"std/col.rename": std.ExecuteRename,
 		},
 		pluginRegistration: plugin.PluginRegistration{
 			Namespace: "std/col",
@@ -104,6 +105,16 @@ func newPluginStdCol() *pluginLocal {
 						Fields: []schema.Field{
 							{Name: "columns", Type: "object"},
 							{Name: "to", Type: "string"},
+						},
+					},
+					Input:  []schema.ColumnSchema{},
+					Output: []schema.ColumnSchema{},
+				},
+				"std/col.rename": {
+					Config: schema.FieldSchema{
+						Fields: []schema.Field{
+							{Name: "field", Type: "string"},
+							{Name: "new_name", Type: "string"},
 						},
 					},
 					Input:  []schema.ColumnSchema{},

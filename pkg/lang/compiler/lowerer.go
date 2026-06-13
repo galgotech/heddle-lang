@@ -331,6 +331,12 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 		} else if call.IsPrql {
 			// Handle inline relational transformations via the standard query step.
 			stepID = l.nextID("step_prql")
+			query := l.getString(call.QueryRef)
+			cleaned := cleanPRQL(query)
+			
+			// Parse tables to establish explicit DAG parent dependencies
+			tables, _, _ := ParsePRQLTables(cleaned)
+			
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
 					ID:             stepID,
@@ -339,13 +345,32 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 				},
 				DefinitionName: "prql",
 				Call:           []string{"__internal", "prql"},
-				Config:         map[string]any{"query": l.getString(call.QueryRef)},
+				Config:         map[string]any{"query": cleaned, "tables": tables},
 			}
 			if call.TrapRef.End > 0 {
 				trapName := l.getString(call.TrapRef)
 				inst.Handler = l.handlerMap[trapName]
 			}
 			l.addInstruction(inst)
+
+			// Link explicit table/assignment dependencies in the DAG
+			for _, tbl := range tables {
+				if tbl == "input" {
+					continue
+				}
+				if producerID, ok := l.aliasMap[tbl]; ok {
+					// Link producer -> PRQL step
+					if prodStep, ok := l.instructions[producerID].(ir.StepInstruction); ok {
+						prodStep.Next = append(prodStep.Next, stepID)
+						l.instructions[producerID] = prodStep
+						
+						// Link PRQL step -> producer (as parent)
+						inst.Parents = append(inst.Parents, producerID)
+					}
+				}
+			}
+			// Save the updated PRQL step back to the instructions map
+			l.instructions[stepID] = *inst
 
 		} else if call.NameRef.End > 0 {
 			name := l.getString(call.NameRef)

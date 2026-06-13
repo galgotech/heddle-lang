@@ -86,7 +86,7 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 
 		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepRecursive(ctx, task.ID, program, headID, "", task.Schemas, stream); err != nil {
+			if err := o.executeStepRecursive(ctx, task.ID, program, headID, nil, task.Schemas, stream); err != nil {
 				runErr = err
 				break
 			}
@@ -114,26 +114,28 @@ func (o *RecursiveOrchestrator) OrchestrateTask(ctx context.Context, task models
 	}
 }
 
-func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workflowID string, prog ir.Program, stepID string, prevTaskID string, schemas map[string]schema.StepSchemas, clientStream transport.ExchangeStream) error {
+func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workflowID string, prog ir.Program, stepID string, prevTaskIDs []string, schemas map[string]schema.StepSchemas, clientStream transport.ExchangeStream) error {
 	logger.L().Debug("step execution initiated: preparing to execute step",
 		logger.Component("control-plane"),
 		logger.TraceID(workflowID),
 		logger.TaskID(stepID),
-		logger.String("prev_task_id", prevTaskID),
+		logger.Any("prev_task_ids", prevTaskIDs),
 	)
 
-	// 0. Validate Schema Compatibility
-	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
-		logger.L().Error("step validation failed: edge schema validation error",
-			logger.Component("control-plane"),
-			logger.TraceID(workflowID),
-			logger.TaskID(stepID),
-			logger.Error(err),
-		)
-		if clientStream != nil {
-			clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
+	// 0. Validate Schema Compatibility for all edges
+	for _, parentID := range prevTaskIDs {
+		if err := orchestrator.ValidateEdge(prog, parentID, stepID, schemas); err != nil {
+			logger.L().Error("step validation failed: edge schema validation error",
+				logger.Component("control-plane"),
+				logger.TraceID(workflowID),
+				logger.TaskID(stepID),
+				logger.Error(err),
+			)
+			if clientStream != nil {
+				clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
+			}
+			return err
 		}
-		return err
 	}
 
 	step, ok := prog.Instructions[stepID].(ir.StepInstruction)
@@ -181,12 +183,32 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 	defer workerStream.DeregisterResultFuture(stepID)
 
 	// 4. Dispatch step
+	var prevTaskID string
+	if len(prevTaskIDs) > 0 {
+		prevTaskID = prevTaskIDs[0]
+	}
+
+	parentAssignments := make(map[string]string)
+	for _, pID := range prevTaskIDs {
+		if pID != "" {
+			if parentInst, ok := prog.Instructions[pID]; ok {
+				if parentStep, ok := parentInst.(ir.StepInstruction); ok {
+					if parentStep.Assignment != "" {
+						parentAssignments[pID] = parentStep.Assignment
+					}
+				}
+			}
+		}
+	}
+
 	execTask := models.StepExecutionTask{
-		WorkflowID:     workflowID,
-		TaskID:         stepID,
-		PreviousTaskID: prevTaskID,
-		Step:           step,
-		Resources:      orchestrator.ResolveResources(prog, step),
+		WorkflowID:        workflowID,
+		TaskID:            stepID,
+		PreviousTaskID:    prevTaskID,
+		PreviousTaskIDs:   prevTaskIDs,
+		ParentAssignments: parentAssignments,
+		Step:              step,
+		Resources:         orchestrator.ResolveResources(prog, step),
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {
@@ -283,7 +305,17 @@ func (o *RecursiveOrchestrator) executeStepRecursive(ctx context.Context, workfl
 			logger.TaskID(stepID),
 			logger.String("next_step_id", nextID),
 		)
-		if err := o.executeStepRecursive(ctx, workflowID, prog, nextID, stepID, schemas, clientStream); err != nil {
+		var childPrevIDs []string
+		if childInst, ok := prog.Instructions[nextID]; ok {
+			if childStep, ok := childInst.(ir.StepInstruction); ok {
+				childPrevIDs = childStep.Parents
+			}
+		}
+		if len(childPrevIDs) == 0 {
+			childPrevIDs = []string{stepID}
+		}
+
+		if err := o.executeStepRecursive(ctx, workflowID, prog, nextID, childPrevIDs, schemas, clientStream); err != nil {
 			return err
 		}
 	}

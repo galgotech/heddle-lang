@@ -1,0 +1,15 @@
+[package]
+name = "datafusion-ffi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+arrow = { version = "58.3.0", features = ["ffi"] }
+datafusion = "54.0.0"
+libc = "0.2.186"
+prql-compiler = "0.12.2"
+sqlparser = "0.47.0"
+tokio = "1.52.3"

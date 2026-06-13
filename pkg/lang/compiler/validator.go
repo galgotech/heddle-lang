@@ -336,7 +336,7 @@ func (v *Validator) validatePipelineReferencesAll(ps ast.PipelineStatementNode) 
 			for i := pc.CallRefsStart; i < pc.CallRefsEnd; i++ {
 				callRef := v.ctx.CallRefs[i]
 				call := v.ctx.CallNodes[callRef]
-				v.validateCallReferencesAll(callRef, call)
+				v.validateCallReferencesAll(callRef, call, i == pc.CallRefsStart)
 
 				// Type Checking
 				currentSchemas, err := v.resolveCallSchemas(call, lastOutputSchema)
@@ -613,7 +613,7 @@ func (v *Validator) parseDict(ref ast.NodeRef) (map[string]any, error) {
 	return result, nil
 }
 
-func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode) {
+func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode, isFirstInChain bool) {
 	if call.TrapRef.Start != call.TrapRef.End {
 		name := v.ctx.GetString(call.TrapRef)
 		if _, ok := v.mapHandler[name]; !ok {
@@ -635,6 +635,35 @@ func (v *Validator) validateCallReferencesAll(ref ast.NodeRef, call ast.CallNode
 			} else {
 				// undefined reference
 				v.addErrorAtRange(fmt.Sprintf("undefined step or variable: %s", name), v.ctx.CallRanges[ref])
+			}
+		}
+	} else {
+		// Validate PRQL query syntax, referenced assignments and potential conflicts
+		query := v.ctx.GetString(call.QueryRef)
+		cleaned := cleanPRQL(query)
+		tables, aliases, err := ParsePRQLTables(cleaned)
+		if err != nil {
+			v.addErrorAtRange(err.Error(), v.ctx.CallRanges[ref])
+		} else {
+			for _, tbl := range tables {
+				if tbl == "input" {
+					if isFirstInChain {
+						v.addErrorAtRange("cannot use 'input' table at the start of a pipeline; it can only be used when PRQL is piped after a '|' operator", v.ctx.CallRanges[ref])
+					}
+					continue
+				}
+				// Verify the assignment exists in the workflow scope
+				if _, ok := v.assignments[tbl]; !ok {
+					v.addErrorAtRange(fmt.Sprintf("undefined assignment referenced in PRQL: %s", tbl), v.ctx.CallRanges[ref])
+				} else {
+					v.usedVariables[tbl] = true
+				}
+			}
+			for _, aliasName := range aliases {
+				// Verify the alias does not conflict with existing Heddle assignments
+				if _, ok := v.assignments[aliasName]; ok {
+					v.addErrorAtRange(fmt.Sprintf("naming conflict: PRQL alias '%s' conflicts with Heddle assignment", aliasName), v.ctx.CallRanges[ref])
+				}
 			}
 		}
 	}

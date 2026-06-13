@@ -97,7 +97,7 @@ func (o *DebugOrchestrator) OrchestrateTask(ctx context.Context, task models.Tas
 
 		var runErr error
 		for _, headID := range flow.Heads {
-			if err := o.executeStepDebug(ctx, task.ID, program, headID, "", task.Schemas, stream, allOutputs, &mu); err != nil {
+			if err := o.executeStepDebug(ctx, task.ID, program, headID, nil, task.Schemas, stream, allOutputs, &mu); err != nil {
 				runErr = err
 				break
 			}
@@ -145,7 +145,7 @@ func (o *DebugOrchestrator) executeStepDebug(
 	workflowID string,
 	prog ir.Program,
 	stepID string,
-	prevTaskID string,
+	prevTaskIDs []string,
 	schemas map[string]schema.StepSchemas,
 	clientStream transport.ExchangeStream,
 	allOutputs map[string]map[string]string,
@@ -155,20 +155,23 @@ func (o *DebugOrchestrator) executeStepDebug(
 		logger.Component("control-plane"),
 		logger.TraceID(workflowID),
 		logger.TaskID(stepID),
-		logger.String("prev_task_id", prevTaskID),
+		logger.Any("prev_task_ids", prevTaskIDs),
 	)
 
-	if err := orchestrator.ValidateEdge(prog, prevTaskID, stepID, schemas); err != nil {
-		logger.L().Error("step validation failed: edge schema validation error in debug mode",
-			logger.Component("control-plane"),
-			logger.TraceID(workflowID),
-			logger.TaskID(stepID),
-			logger.Error(err),
-		)
-		if clientStream != nil {
-			_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
+	// 0. Validate Schema Compatibility for all edges
+	for _, parentID := range prevTaskIDs {
+		if err := orchestrator.ValidateEdge(prog, parentID, stepID, schemas); err != nil {
+			logger.L().Error("step validation failed: edge schema validation error in debug mode",
+				logger.Component("control-plane"),
+				logger.TraceID(workflowID),
+				logger.TaskID(stepID),
+				logger.Error(err),
+			)
+			if clientStream != nil {
+				_ = clientStream.Send(&transport.FlightData{DataBody: fmt.Appendf(nil, "LOG:Validation failed for step %s: %v", stepID, err)})
+			}
+			return err
 		}
-		return err
 	}
 
 	step, ok := prog.Instructions[stepID].(ir.StepInstruction)
@@ -184,10 +187,29 @@ func (o *DebugOrchestrator) executeStepDebug(
 	}
 	capability := fmt.Sprintf("%s.%s", step.Call[0], step.Call[1])
 
-	// 1. Generate Input Previews
-	mu.RLock()
-	parentOutputs := allOutputs[prevTaskID]
-	mu.RUnlock()
+	// 1. Generate Input Previews by collecting outputs from all parent task IDs
+	parentOutputs := make(map[string]string)
+	for _, pID := range prevTaskIDs {
+		mu.RLock()
+		outs := allOutputs[pID]
+		mu.RUnlock()
+
+		// If there is an assignment name for this parent, we prefix the keys
+		var assignmentName string
+		if parentInst, ok := prog.Instructions[pID]; ok {
+			if parentStep, ok := parentInst.(ir.StepInstruction); ok {
+				assignmentName = parentStep.Assignment
+			}
+		}
+
+		for k, v := range outs {
+			key := k
+			if assignmentName != "" {
+				key = fmt.Sprintf("%s_%s", assignmentName, k)
+			}
+			parentOutputs[key] = v
+		}
+	}
 
 	inputPreviews := make(map[string]string)
 	for fieldName, shmPath := range parentOutputs {
@@ -326,12 +348,32 @@ func (o *DebugOrchestrator) executeStepDebug(
 	workerStream.RegisterResultFuture(stepID, future)
 	defer workerStream.DeregisterResultFuture(stepID)
 
+	var prevTaskID string
+	if len(prevTaskIDs) > 0 {
+		prevTaskID = prevTaskIDs[0]
+	}
+
+	parentAssignments := make(map[string]string)
+	for _, pID := range prevTaskIDs {
+		if pID != "" {
+			if parentInst, ok := prog.Instructions[pID]; ok {
+				if parentStep, ok := parentInst.(ir.StepInstruction); ok {
+					if parentStep.Assignment != "" {
+						parentAssignments[pID] = parentStep.Assignment
+					}
+				}
+			}
+		}
+	}
+
 	execTask := models.StepExecutionTask{
-		WorkflowID:     workflowID,
-		TaskID:         stepID,
-		PreviousTaskID: prevTaskID,
-		Step:           step,
-		Resources:      orchestrator.ResolveResources(prog, step),
+		WorkflowID:        workflowID,
+		TaskID:            stepID,
+		PreviousTaskID:    prevTaskID,
+		PreviousTaskIDs:   prevTaskIDs,
+		ParentAssignments: parentAssignments,
+		Step:              step,
+		Resources:         orchestrator.ResolveResources(prog, step),
 	}
 	body, err := json.Marshal(execTask)
 	if err != nil {
@@ -471,7 +513,17 @@ func (o *DebugOrchestrator) executeStepDebug(
 			logger.TaskID(stepID),
 			logger.String("next_step_id", nextID),
 		)
-		if err := o.executeStepDebug(ctx, workflowID, prog, nextID, stepID, schemas, clientStream, allOutputs, mu); err != nil {
+		var childPrevIDs []string
+		if childInst, ok := prog.Instructions[nextID]; ok {
+			if childStep, ok := childInst.(ir.StepInstruction); ok {
+				childPrevIDs = childStep.Parents
+			}
+		}
+		if len(childPrevIDs) == 0 {
+			childPrevIDs = []string{stepID}
+		}
+
+		if err := o.executeStepDebug(ctx, workflowID, prog, nextID, childPrevIDs, schemas, clientStream, allOutputs, mu); err != nil {
 			return err
 		}
 	}

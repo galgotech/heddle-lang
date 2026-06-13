@@ -73,7 +73,7 @@ handler err_log {
 }
 
 workflow main ? err_log {
-  (from input select *)
+  [{"col": 1}]
     | io.print
 }
 `
@@ -94,7 +94,7 @@ workflow main ? err_log {
 func TestValidator_UndefinedHandler(t *testing.T) {
 	input := `
 workflow main ? missing_handler {
-  (from input select *)
+  [{"col": 1}]
 }
 `
 	ctx := ast.AcquireASTContext()
@@ -593,3 +593,105 @@ workflow main {
 	assert.Contains(t, err.Error(), "schema mismatch: output has 0 fields, input has 1 fields")
 }
 
+func TestValidator_PRQLJoinsAndConflicts(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedErr string
+	}{
+		{
+			name: "PRQL Syntax Error",
+			input: `
+step step_a = some_source { }
+workflow main {
+  step_a > table_a
+  (from table_a | filter invalid_syntax {)
+}
+`,
+			expectedErr: "PRQL compilation error",
+		},
+		{
+			name: "PRQL Valid Join with Existing Assignments",
+			input: `
+step step_a = some_source { }
+step step_b = some_source { }
+
+workflow main {
+  step_a > table_a
+  step_b > table_b
+  (from table_a | join table_b (==col_a) | select {table_a.col_a, table_b.col_b})
+}
+`,
+			expectedErr: "",
+		},
+		{
+			name: "PRQL Join with Undefined Assignment",
+			input: `
+step step_a = some_source { }
+
+workflow main {
+  step_a > table_a
+  (from table_a | join table_missing (==col_a) | select {table_a.col_a})
+}
+`,
+			expectedErr: "undefined assignment referenced in PRQL: table_missing",
+		},
+		{
+			name: "PRQL Alias Conflict with Heddle Assignment",
+			input: `
+step step_a = some_source { }
+step step_b = some_source { }
+step step_c = some_source { }
+
+workflow main {
+  step_a > table_a
+  step_b > table_b
+  step_c > table_c
+  (from table_a | join table_c=table_b (==col_a))
+}
+`,
+			expectedErr: "naming conflict: PRQL alias 'table_c' conflicts with Heddle assignment",
+		},
+		{
+			name: "PRQL Input at start of pipeline (Error)",
+			input: `
+workflow main {
+  (from input)
+}
+`,
+			expectedErr: "cannot use 'input' table at the start of a pipeline; it can only be used when PRQL is piped after a '|' operator",
+		},
+		{
+			name: "PRQL Input piped after a step (Success)",
+			input: `
+step step_a = some_source { }
+workflow main {
+  step_a
+    | (from input)
+}
+`,
+			expectedErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := ast.AcquireASTContext()
+			defer ast.ReleaseASTContext(ctx)
+
+			l := lexer.New(tt.input)
+			p := parser.New(l, ctx)
+			prog := p.Parse()
+			require.Empty(t, p.Errors())
+
+			v := NewValidator(prog, ctx, nil)
+			err := v.Validate()
+			if tt.expectedErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			}
+		})
+	}
+}
