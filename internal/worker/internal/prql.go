@@ -51,6 +51,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"unsafe"
 
 	"github.com/apache/arrow/go/v18/arrow/cdata"
@@ -72,7 +73,8 @@ func ExecutePRQL(ctx context.Context, request plugin.ExecuteStepRequest) (plugin
 	}
 
 	var cfg struct {
-		Query string `json:"query"`
+		Query      string `json:"query"`
+		PipedInput string `json:"piped_input"`
 	}
 	if err := json.Unmarshal([]byte(request.ConfigJSON), &cfg); err != nil {
 		return plugin.ExecuteStepResponse{}, fmt.Errorf("prql: failed to parse config JSON: %w", err)
@@ -107,7 +109,16 @@ func ExecutePRQL(ctx context.Context, request plugin.ExecuteStepRequest) (plugin
 		defer C.free(unsafe.Pointer(cSchema))
 		defer C.free(unsafe.Pointer(cArray))
 
-		cColName := C.CString(colName)
+		// If this column belongs to the piped input, strip its assignment name prefix.
+		actualColName := colName
+		if cfg.PipedInput != "" {
+			prefix := cfg.PipedInput + "_"
+			if strings.HasPrefix(colName, prefix) {
+				actualColName = strings.TrimPrefix(colName, prefix)
+			}
+		}
+
+		cColName := C.CString(actualColName)
 		defer C.free(unsafe.Pointer(cColName))
 		
 		cColumns = append(cColumns, C.struct_FFIColumn{

@@ -337,6 +337,13 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 			// Parse tables to establish explicit DAG parent dependencies
 			tables, _, _ := ParsePRQLTables(cleaned)
 			
+			var pipedInputParam string
+			if lastStepID != "" {
+				if parentStep, ok := l.instructions[lastStepID].(ir.StepInstruction); ok {
+					pipedInputParam = parentStep.Assignment
+				}
+			}
+
 			inst := &ir.StepInstruction{
 				BaseInstruction: ir.BaseInstruction{
 					ID:             stepID,
@@ -346,6 +353,9 @@ func (l *Lowerer) lowerPipelineStatement(stmt ast.PipelineStatementNode, isCatch
 				DefinitionName: "prql",
 				Call:           []string{"__internal", "prql"},
 				Config:         map[string]any{"query": cleaned, "tables": tables},
+			}
+			if pipedInputParam != "" {
+				inst.Config["piped_input"] = pipedInputParam
 			}
 			if call.TrapRef.End > 0 {
 				trapName := l.getString(call.TrapRef)

@@ -229,3 +229,76 @@ func TestExecutePRQL_InnerJoin(t *testing.T) {
 	valBValues := valBOutArr.(*array.Float64).Float64Values()
 	assert.Equal(t, []float64{200.0, 300.0}, valBValues)
 }
+
+func TestExecutePRQL_WithPipedInput(t *testing.T) {
+	mem := memory.NewGoAllocator()
+
+	// Create column "val" (Float64)
+	b := array.NewFloat64Builder(mem)
+	b.AppendValues([]float64{1.2, 3.4, 5.6}, nil)
+	arr := b.NewArray()
+	defer arr.Release()
+
+	path, err := locality.WriteArrowArrayToShm(arrow.Field{Name: "val", Type: arrow.PrimitiveTypes.Float64}, arr)
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	// Create column "id" (Int32)
+	b2 := array.NewInt32Builder(mem)
+	b2.AppendValues([]int32{1, 2, 3}, nil)
+	arr2 := b2.NewArray()
+	defer arr2.Release()
+
+	path2, err := locality.WriteArrowArrayToShm(arrow.Field{Name: "id", Type: arrow.PrimitiveTypes.Int32}, arr2)
+	require.NoError(t, err)
+	defer os.Remove(path2)
+
+	// PRQL query: filter where id > 1
+	configJSON, err := json.Marshal(map[string]any{
+		"query":       "from input | filter id > 1 | select {id, val}",
+		"piped_input": "assigment2",
+	})
+	require.NoError(t, err)
+
+	req := plugin.ExecuteStepRequest{
+		WorkflowID: "wf-prql-piped",
+		TaskID:     "task-prql-piped",
+		StepName:   "prql",
+		ConfigJSON: string(configJSON),
+		InputRef: map[string]string{
+			"assigment2_val": path,
+			"assigment2_id":  path2,
+		},
+	}
+
+	res, err := ExecutePRQL(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, plugin.StepResponseSuccess, res.Status)
+
+	// Verify outputs: output columns should not be prefixed
+	require.Contains(t, res.OutputRef, "id")
+	require.Contains(t, res.OutputRef, "val")
+
+	idPath := res.OutputRef["id"]
+	valPath := res.OutputRef["val"]
+
+	defer os.Remove(idPath)
+	defer os.Remove(valPath)
+
+	idOutArr, err := locality.ReadArrowArrayFromPath(idPath)
+	require.NoError(t, err)
+	defer idOutArr.Release()
+
+	valOutArr, err := locality.ReadArrowArrayFromPath(valPath)
+	require.NoError(t, err)
+	defer valOutArr.Release()
+
+	assert.Equal(t, 2, idOutArr.Len())
+	idValues := idOutArr.(*array.Int32).Int32Values()
+	assert.Equal(t, []int32{2, 3}, idValues)
+
+	assert.Equal(t, 2, valOutArr.Len())
+	valValues := valOutArr.(*array.Float64).Float64Values()
+	assert.Equal(t, []float64{3.4, 5.6}, valValues)
+}
+
