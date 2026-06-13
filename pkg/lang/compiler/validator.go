@@ -421,8 +421,66 @@ func (v *Validator) resolveCallSchemas(call ast.CallNode, incomingSchema []schem
 }
 
 var intrinsicResolvers = map[string]func(call ast.CallNode, in []schema.ColumnSchema, v *Validator, fnRef ast.NodeRef) (*schema.StepSchemas, error){
-	"std/col.cast": resolveCastSchema,
-	"std/io.print": resolvePrintSchema,
+	"std/col.cast":    resolveCastSchema,
+	"std/io.print":    resolvePrintSchema,
+	"std/io.load_csv": resolveLoadCSVSchema,
+}
+
+func resolveLoadCSVSchema(call ast.CallNode, in []schema.ColumnSchema, v *Validator, fnRef ast.NodeRef) (*schema.StepSchemas, error) {
+	var configRef ast.NodeRef
+	if fnRef != 0 {
+		fn := v.ctx.FunctionRefNodes[fnRef]
+		configRef = fn.ConfigRef
+	}
+	if configRef == ast.NilNode {
+		return nil, fmt.Errorf("load_csv: config is required")
+	}
+
+	dictNode := v.ctx.DictNodes[configRef]
+	var columnsDictRef ast.NodeRef
+	for i := dictNode.PairRefsStart; i < dictNode.PairRefsEnd; i++ {
+		pair := v.ctx.PairNodes[v.ctx.PairRefs[i]]
+		key := v.ctx.GetString(pair.KeyRef)
+		if key == "columns" {
+			valNode := v.ctx.LiteralNodes[pair.ValueRef]
+			if valNode.Type == ast.LiteralDict {
+				columnsDictRef = valNode.Ref
+			}
+			break
+		}
+	}
+
+	if columnsDictRef == 0 {
+		return nil, fmt.Errorf("load_csv: 'columns' is required in config and must be a dictionary")
+	}
+
+	colDictNode := v.ctx.DictNodes[columnsDictRef]
+	out := make([]schema.ColumnSchema, 0, colDictNode.PairRefsEnd-colDictNode.PairRefsStart)
+	for i := colDictNode.PairRefsStart; i < colDictNode.PairRefsEnd; i++ {
+		pair := v.ctx.PairNodes[v.ctx.PairRefs[i]]
+		colName := v.ctx.GetString(pair.KeyRef)
+		valNode := v.ctx.LiteralNodes[pair.ValueRef]
+		if valNode.Type != ast.LiteralString {
+			return nil, fmt.Errorf("load_csv: column type for '%s' must be a string", colName)
+		}
+		typeStr := v.ctx.GetString(valNode.ValueRef)
+		if len(typeStr) >= 2 && typeStr[0] == '"' && typeStr[len(typeStr)-1] == '"' {
+			typeStr = typeStr[1 : len(typeStr)-1]
+		}
+		norm, err := normalizeArrowType(typeStr)
+		if err != nil {
+			return nil, fmt.Errorf("load_csv: invalid type '%s' for column '%s': %w", typeStr, colName, err)
+		}
+		out = append(out, schema.ColumnSchema{
+			Name:      colName,
+			ArrowType: norm,
+		})
+	}
+
+	return &schema.StepSchemas{
+		Input:  nil,
+		Output: out,
+	}, nil
 }
 
 func resolvePrintSchema(call ast.CallNode, in []schema.ColumnSchema, v *Validator, fnRef ast.NodeRef) (*schema.StepSchemas, error) {

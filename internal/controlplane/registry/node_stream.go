@@ -162,6 +162,27 @@ func (w *NodeStream) ProcessStream(stream transport.ExchangeStream) <-chan error
 						}
 						continue
 					}
+					if ctrl.Type == models.ActionRequestFile && ctrl.FileRequest != nil {
+						if w.registry != nil {
+							if clientID, ok := w.registry.GetClientIDForWorkflow(ctrl.FileRequest.WorkflowID); ok {
+								if clientStream, ok := w.registry.GetNode(clientID); ok {
+									// Inject worker address before relaying
+									ctrl.FileRequest.WorkerAddress = w.workerInfo.Registration.Address
+									ctrlBody, _ := json.Marshal(ctrl)
+									if err := clientStream.Send(&transport.FlightData{
+										AppMetadata: ctrlBody,
+									}); err != nil {
+										logger.L().Warn("file request routing failed: unable to send request to client",
+											logger.Component("control-plane"),
+											logger.ClientID(clientID),
+											logger.Error(err),
+										)
+									}
+								}
+							}
+						}
+						continue
+					}
 				}
 				logger.L().Info("control signal received: processed administrative message from node",
 					logger.Component("control-plane"),

@@ -248,6 +248,8 @@ func (w *Worker) run(ctx context.Context) error {
 				send:       stream.Send,
 			}
 			taskCtx := plugin.WithOutputWriter(ctx, logWriter)
+			taskCtx = models.WithControlSender(taskCtx, logWriter.SendControl)
+			taskCtx = models.WithUploadWaiter(taskCtx, w.pluginServer.WaitForUpload)
 
 			result, err = w.pluginServer.DispatchTask(taskCtx, t)
 
@@ -292,4 +294,12 @@ func (w *workerLogWriter) Write(p []byte) (n int, err error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+func (w *workerLogWriter) SendControl(msg *models.ControlMessage) error {
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return w.send(&transport.FlightData{AppMetadata: body})
 }

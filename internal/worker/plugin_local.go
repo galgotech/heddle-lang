@@ -128,7 +128,8 @@ func newPluginStdCol() *pluginLocal {
 func newPluginStdio() *pluginLocal {
 	return &pluginLocal{
 		registrySteps: map[string]stepFunc{
-			"std/io.print": std.ExecutePrint,
+			"std/io.print":    std.ExecutePrint,
+			"std/io.load_csv": std.ExecuteLoadCSV,
 		},
 		pluginRegistration: plugin.PluginRegistration{
 			Namespace: "std/io",
@@ -140,6 +141,20 @@ func newPluginStdio() *pluginLocal {
 					Input: []schema.ColumnSchema{
 						{Name: "value", ArrowType: "string"},
 					},
+					Output: []schema.ColumnSchema{},
+				},
+				"std/io.load_csv": {
+					Config: schema.FieldSchema{
+						Fields: []schema.Field{
+							{Name: "path", Type: "string"},
+							{Name: "columns", Type: "object"},
+							{Name: "delimiter", Type: "string"},
+							{Name: "lazy_quotes", Type: "bool"},
+							{Name: "has_header", Type: "bool"},
+							{Name: "comment", Type: "string"},
+						},
+					},
+					Input: []schema.ColumnSchema{},
 					Output: []schema.ColumnSchema{},
 				},
 			},

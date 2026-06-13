@@ -42,6 +42,10 @@ type PluginServer struct {
 	nativePlugins []pluginSdk
 	plugins       map[string]pluginSdk // map[string]*PluginInfo
 	pluginsMU     sync.RWMutex
+
+	uploadWaiters map[string]chan map[string]string
+	uploadMU      sync.Mutex
+
 	Ready         chan struct{}
 }
 
@@ -52,6 +56,7 @@ func NewPluginServer(registry *locality.DataLocalityRegistry, nativePlugins []pl
 		nativePlugins:      nativePlugins,
 		pluginSyncRegister: make(chan plugin.PluginRegistration, 8),
 		plugins:            make(map[string]pluginSdk, 0),
+		uploadWaiters:      make(map[string]chan map[string]string),
 		Ready:              make(chan struct{}),
 	}
 
@@ -203,6 +208,40 @@ func (s *PluginServer) DoExchange(stream flight.FlightService_DoExchangeServer) 
 			}
 		}
 	}
+}
+
+func (s *PluginServer) DoPut(stream flight.FlightService_DoPutServer) error {
+	reader, err := flight.NewRecordReader(stream)
+	if err != nil {
+		logger.L().Error("DoPut failed: could not create record reader", logger.Component("plugin-server"), logger.Error(err))
+		return err
+	}
+	defer reader.Release()
+
+	md, _ := metadata.FromIncomingContext(stream.Context())
+	taskIDs := md.Get("x-heddle-task-id")
+	if len(taskIDs) == 0 {
+		logger.L().Error("DoPut failed: missing task id", logger.Component("plugin-server"))
+		return status.Error(codes.InvalidArgument, "missing x-heddle-task-id")
+	}
+	taskID := taskIDs[0]
+
+	record, err := reader.Read()
+	if err != nil {
+		logger.L().Error("DoPut failed: could not read record", logger.Component("plugin-server"), logger.Error(err))
+		return err
+	}
+
+	path, err := locality.WriteRecordToShm(record)
+	if err != nil {
+		logger.L().Error("DoPut failed: could not write record to shm", logger.Component("plugin-server"), logger.Error(err))
+		return err
+	}
+
+	s.CompleteUpload(taskID, map[string]string{"data": path})
+
+	logger.L().Info("DoPut completed: saved uploaded file to shm", logger.Component("plugin-server"), logger.TaskID(taskID), logger.String("path", path))
+	return nil
 }
 
 func (s *PluginServer) PluginSyncRegiter() <-chan plugin.PluginRegistration {
@@ -377,4 +416,38 @@ func validateSHMPath(path string) error {
 		return fmt.Errorf("path %s contains traversal characters", path)
 	}
 	return nil
+}
+
+// WaitForUpload blocks until CompleteUpload is called for the taskID.
+func (s *PluginServer) WaitForUpload(ctx context.Context, taskID string) (map[string]string, error) {
+	s.uploadMU.Lock()
+	ch, ok := s.uploadWaiters[taskID]
+	if !ok {
+		ch = make(chan map[string]string, 1)
+		s.uploadWaiters[taskID] = ch
+	}
+	s.uploadMU.Unlock()
+
+	select {
+	case result := <-ch:
+		return result, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// CompleteUpload signals that an upload has completed for a given taskID.
+func (s *PluginServer) CompleteUpload(taskID string, handles map[string]string) {
+	s.uploadMU.Lock()
+	ch, ok := s.uploadWaiters[taskID]
+	if !ok {
+		ch = make(chan map[string]string, 1)
+		s.uploadWaiters[taskID] = ch
+	}
+	s.uploadMU.Unlock()
+
+	select {
+	case ch <- handles:
+	default:
+	}
 }

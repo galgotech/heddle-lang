@@ -695,3 +695,62 @@ workflow main {
 		})
 	}
 }
+
+func TestValidator_LoadCSVSuccess(t *testing.T) {
+	input := `
+	import "std/io"
+
+	step my_loader = io.load_csv {
+		path: "my_file.csv",
+		delimiter: ",",
+		lazy_quotes: true,
+		columns: {
+			id: "int64",
+			name: "string",
+			active: "bool"
+		}
+	}
+
+	workflow main {
+		my_loader
+			| io.print
+	}
+	`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	err := v.Validate()
+	assert.NoError(t, err)
+}
+
+func TestValidator_LoadCSVMissingColumns(t *testing.T) {
+	input := `
+	import "std/io"
+
+	step my_loader = io.load_csv {
+		path: "my_file.csv"
+	}
+
+	workflow main {
+		my_loader
+	}
+	`
+	ctx := ast.AcquireASTContext()
+	defer ast.ReleaseASTContext(ctx)
+
+	l := lexer.New(input)
+	p := parser.New(l, ctx)
+	prog := p.Parse()
+	require.Empty(t, p.Errors())
+
+	v := NewValidator(prog, ctx, nil)
+	err := v.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load_csv: 'columns' is required in config")
+}

@@ -1,12 +1,56 @@
 package models
 
 import (
+	"context"
 	"time"
 
 	"github.com/galgotech/heddle-lang/pkg/lang/compiler/ir"
 	"github.com/galgotech/heddle-lang/pkg/plugin"
 	"github.com/galgotech/heddle-lang/pkg/schema"
 )
+
+type contextKey string
+
+const ControlSenderKey contextKey = "heddle-control-sender"
+const UploadWaiterKey contextKey = "heddle-upload-waiter"
+
+// ControlSender is a function type for sending control messages.
+type ControlSender func(msg *ControlMessage) error
+
+// UploadWaiter is a function type that blocks until a file upload for a task completes.
+type UploadWaiter func(ctx context.Context, taskID string) (map[string]string, error)
+
+// WithControlSender returns a new context containing the provided ControlSender.
+func WithControlSender(ctx context.Context, sender ControlSender) context.Context {
+	return context.WithValue(ctx, ControlSenderKey, sender)
+}
+
+// GetControlSender retrieves the ControlSender from the context.
+func GetControlSender(ctx context.Context) ControlSender {
+	if ctx == nil {
+		return nil
+	}
+	if s, ok := ctx.Value(ControlSenderKey).(ControlSender); ok {
+		return s
+	}
+	return nil
+}
+
+// WithUploadWaiter returns a new context containing the provided UploadWaiter.
+func WithUploadWaiter(ctx context.Context, waiter UploadWaiter) context.Context {
+	return context.WithValue(ctx, UploadWaiterKey, waiter)
+}
+
+// GetUploadWaiter retrieves the UploadWaiter from the context.
+func GetUploadWaiter(ctx context.Context) UploadWaiter {
+	if ctx == nil {
+		return nil
+	}
+	if w, ok := ctx.Value(UploadWaiterKey).(UploadWaiter); ok {
+		return w
+	}
+	return nil
+}
 
 // Action types for Control Plane Arrow Flight
 const (
@@ -20,6 +64,7 @@ const (
 	ActionPurgeWorkflow      = "purge-workflow"
 	ActionPurgeAck           = "purge-ack"
 	ActionGetWorkerInfo      = "get-worker-info"
+	ActionRequestFile        = "request-file"
 )
 
 // RegistryInfo contains the metadata about all registered steps in the cluster.
@@ -102,10 +147,21 @@ type PurgeAck struct {
 // ControlMessage wraps any control directive sent from the CP to a worker
 // via the DoExchange AppMetadata side-channel.
 type ControlMessage struct {
-	Type      string         `json:"type"`
-	PurgeData *WorkflowPurge `json:"purge,omitempty"`
-	PurgeAck  *PurgeAck      `json:"purge_ack,omitempty"`
-	LogData   *LogData       `json:"log_data,omitempty"`
+	Type        string         `json:"type"`
+	PurgeData   *WorkflowPurge `json:"purge,omitempty"`
+	PurgeAck    *PurgeAck      `json:"purge_ack,omitempty"`
+	LogData     *LogData       `json:"log_data,omitempty"`
+	FileRequest *FileRequest   `json:"file_request,omitempty"`
+}
+
+// FileRequest is sent by a worker to request a file from the client.
+type FileRequest struct {
+	WorkflowID    string            `json:"workflow_id"`
+	TaskID        string            `json:"task_id"`
+	FilePath      string            `json:"file_path"`
+	WorkerAddress string            `json:"worker_address"`
+	Options       map[string]any    `json:"options,omitempty"`
+	Columns       map[string]string `json:"columns,omitempty"`
 }
 
 // LogData contains text output from step execution.
